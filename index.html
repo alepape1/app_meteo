@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard de sensores</title>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
+  <style>
+    body {
+      background-color: #f2f2f2;
+    }
+
+    .sidebar {
+      background-color: #343a40;
+      color: #fff;
+    }
+
+    .card {
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .card-header {
+      background-color: #f7f7f7;
+      padding: 10px 15px;
+      border-bottom: 1px solid #ccc;
+    }
+
+    .card-body {
+      padding: 15px;
+    }
+
+    .icon {
+      margin-right: 10px;
+      font-size: 20px;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-3">
+        <div class="sidebar">
+          <header class="bg-primary text-white">
+            <h1>Sensores</h1>
+            <label for="cantidad_muestras">Cantidad de muestras:</label>
+            <input type="number" id="cantidad_muestras" name="cantidad_muestras" min="1" max="2000">
+          </header>
+        </div>
+      </div>
+
+      <div class="col-md-9">
+        <p>Mensaje desde ESP32: {{ message }}</p>
+       
+        <div class="row">
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <i class="fas fa-thermometer icon"></i>
+                <h2>Temperatura</h2>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-temperatura"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <i class="fas fa-compress-alt icon"></i>
+                <h2>Presión</h2>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-presion"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <i class="fas fa-compress-alt icon"></i>
+                <h2>Humedad</h2>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-humedad"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <i class="fas fa-compress-alt icon"></i>
+                <h2>Temperatura Barometro</h2>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-temperatura_bar"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+
+
+<script>
+
+  const inputCantidadMuestras = document.getElementById("cantidad_muestras");
+
+inputCantidadMuestras.addEventListener("change", () => {
+  const cantidadIntroducida = inputCantidadMuestras.value;
+  // Enviar la cantidad introducida al servidor para realizar la consulta
+  const urlDescarga = `/descargar/${cantidadIntroducida}`;
+  console.log(cantidadIntroducida)
+  window.location.href = urlDescarga;
+});
+
+
+  // Variables para los canvas
+  var ctxTemperatura = document.getElementById("widget-temperatura").getContext("2d");
+  var ctxPresion = document.getElementById("widget-presion").getContext("2d");
+  var ctxHumedad = document.getElementById("widget-humedad").getContext("2d");
+  var ctxTemperatura_bar = document.getElementById("widget-temperatura_bar").getContext("2d");
+
+  // Creación de los gráficos
+  var chartTemperatura = new Chart(ctxTemperatura, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: "Temperatura (°C)",
+        data: [],
+        backgroundColor: "rgba(255, 99, 132, 0.2)",
+        borderColor: "rgb(255, 99, 132)"
+      }]
+    },
+    options: {
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMin: 0,
+            suggestedMax: 40
+          }
+        }]
+      }
+    }
+  });
+
+  var chartPresion = new Chart(ctxPresion, {
+    type: 'line',
+    data: {
+      labels: [1, 2, 3, 4, 5, 6],
+      datasets: [{
+        label: "Presión (mBar)",
+        data: [25, 24, 25, 25, 26, 25],
+        backgroundColor: "rgba(54, 162, 235, 0.2)",
+        borderColor: "rgb(54, 162, 235)"
+      }]
+    },
+    options: {
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMin: 950,
+            suggestedMax: 1050
+          }
+        }]
+      }
+    }
+  });
+
+  var chartHumedad = new Chart(ctxHumedad, {
+    type: 'line',
+    data: {
+      labels: [1, 2, 3, 4, 5, 6],
+      datasets: [{
+        label: "Humedad (%)",
+        data: [25, 24, 25, 25, 26, 25],
+        backgroundColor: "rgba(54, 162, 235, 0.2)",
+        borderColor: "rgb(54, 162, 235)"
+      }]
+    },
+    options: {
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMin: 950,
+            suggestedMax: 1050
+          }
+        }]
+      }
+    }
+  });
+
+  var chartTemperatura_bar = new Chart(ctxTemperatura_bar, {
+    type: 'line',
+    data: {
+      labels: [1, 2, 3, 4, 5, 6],
+      datasets: [{
+        label: "Temperatura (°C)",
+        data: [25, 24, 25, 25, 26, 25],
+        backgroundColor: "rgba(54, 162, 235, 0.2)",
+        borderColor: "rgb(54, 162, 235)"
+      }]
+    },
+    options: {
+      scales: {
+        yAxes: [{
+          ticks: {
+            suggestedMin: 950,
+            suggestedMax: 1050
+          }
+        }]
+      }
+    }
+  });
+
+  // Función para actualizar los gráficos con un nuevo dato
+  function actualizarGraficos(timestamp, temperature, pressure, humidity, temperature_bar) {
+
+    // console.log(datos_DB.map(resultado => resultado[1]))
+    console.log(timestamp);
+    console.log(temperature)
+    console.log(pressure)
+    console.log(temperature_bar)
+
+    // Obtener la fecha actual
+    var fechaActual = new Date();
+    // Agregar la fecha actual al conjunto de etiquetas
+    chartTemperatura.data.labels = timestamp;
+    chartPresion.data.labels = timestamp;
+    chartHumedad.data.labels = timestamp;
+    chartTemperatura_bar.data.labels = timestamp;
+
+    // Agregar el nuevo dato al conjunto de datos de temperatura
+    chartTemperatura.data.datasets[0].data = temperature;
+    chartPresion.data.datasets[0].data = pressure;
+    chartHumedad.data.datasets[0].data = humidity;
+    chartTemperatura_bar.data.datasets[0].data = temperature_bar;
+
+    // Actualizar los gráficos
+    chartTemperatura.update();
+    chartPresion.update();
+    chartHumedad.update();
+    chartTemperatura_bar.update();
+  }
+
+  // Si DataBase tiene datos, actualizar los gráficos
+  actualizarGraficos({{ timestamp }}, {{ temperature }}, {{ pressure }}, {{ humidity }}, {{temperature_bar}});
+
+
+
+</script>
+
+
+</html>

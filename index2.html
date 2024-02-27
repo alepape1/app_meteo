@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard de sensores</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+    <link rel="stylesheet" href="static/simple-sidebar/css/bootstrap.min.css">
+    <link rel="stylesheet" href="static/simple-sidebar/css/style.css">
+    <script src="static/simple-sidebar/js/jquery.min.js"></script>
+    <script src="static/simple-sidebar/js/bootstrap.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+</head>
+
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-3">
+                <div class="sidebar">
+                    <header class="bg-primary text-white">
+                        <h1>Dashboard de sensores</h1>
+                    </header>
+                </div>
+            </div>
+
+
+            <div class="col-md-9">
+
+                <p>Mensaje desde ESP32: {{ mesagge }}</p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2>Temperatura</h2>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="widget-temperatura"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2>Presión</h2>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="widget-presion"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+
+
+            <  <script>
+                // Variables para los canvas
+                var ctxTemperatura = document.getElementById("widget-temperatura").getContext("2d");
+        var ctxPresion = document.getElementById("widget-presion").getContext("2d");
+
+        // Creación de los gráficos
+        var chartTemperatura = new Chart(ctxTemperatura, {
+            type: 'line',
+            data: {
+                labels: ["Actual"],
+                datasets: [{
+                    label: "Temperatura (°C)",
+                    data: [0],
+                    backgroundColor: "rgba(255, 99, 132, 0.2)",
+                    borderColor: "rgb(255, 99, 132)"
+                }]
+            },
+            options: {
+                scales: {
+                    yAxes: [{
+                        ticks: {
+                            suggestedMin: 0,
+                            suggestedMax: 40
+                        }
+                    }]
+                }
+            }
+        });
+
+        var chartPresion = new Chart(ctxPresion, {
+            type: 'line',
+            data: {
+                labels: ["Actual"],
+                datasets: [{
+                    label: "Presión (hPa)",
+                    data: [0],
+                    backgroundColor: "rgba(54, 162, 235, 0.2)",
+                    borderColor: "rgb(54, 162, 235)"
+                }]
+            },
+            options: {
+                scales: {
+                    yAxes: [{
+                        ticks: {
+                            suggestedMin: 950,
+                            suggestedMax: 1050
+                        }
+                    }]
+                }
+            }
+        });
+
+        // Función para actualizar los gráficos
+        function actualizarGraficos(datos) {
+            print(datos)
+            chartTemperatura.data.datasets[0].data = [datos["temperatura"]];
+            chartTemperatura.update();
+            chartPresion.data.datasets[0].data = [datos.presion];
+            chartPresion.update();
+        }
+
+
+        // Actualizar gráficos al cargar la página
+        actualizarGraficos({{ datos | tojson }});
+    </script>
+
+</body>
+</html>
