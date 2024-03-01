@@ -81,6 +81,7 @@ def descargar_muestras(cantidad_muestras):
   
     resultados = cursor.fetchall()
     cursor.close()
+    print(resultados[1][5])
 
     index = [resultado[0] for resultado in resultados]
     temperature = [resultado[1] for resultado in resultados]
@@ -88,8 +89,8 @@ def descargar_muestras(cantidad_muestras):
     humidity = [resultado[3] for resultado in resultados]
     pressure = [resultado[4] for resultado in resultados]
     timestamp = [resultado[5] for resultado in resultados]
-
-    print(resultados)
+    print(timestamp)
+    
    
     # # Opción 1: Imprimir los datos en la consola
     # for fila in resultados:
@@ -101,7 +102,7 @@ def descargar_muestras(cantidad_muestras):
     #     print("---------------")
 
 
-    return render_template(template_path, message = "No hay mensaje", timestamp = index , temperature = temperature , pressure = pressure , humidity = humidity , temperature_bar = temperature_bar )
+    return render_template(template_path, message = "No hay mensaje", timestamp = timestamp , temperature = temperature , pressure = pressure , humidity = humidity , temperature_bar = temperature_bar )
 
 @app.route("/send_message", methods=["POST"])
 def send_message():
