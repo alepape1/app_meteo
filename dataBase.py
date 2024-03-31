@@ -1,7 +1,7 @@
 import sqlite3
 
 def get_db_connection():
-    conexion = sqlite3.connect("weather_station.db")
+    conexion = sqlite3.connect("home_weather_station.db")
     return conexion
 
 # Función para crear la tabla si la base de datos no existe (opcional)
@@ -23,12 +23,16 @@ def create_tables(conn):
         print("Nueva Base de datos ha sido creada.")
         # Crear una tabla
         cursor.execute("""
-        CREATE TABLE weather_station (
+        CREATE TABLE home_weather_station(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         temperature FLOAT,
-        temperature_barometer FLOAT,
+        temperature_barometer FLOAT,      
         humidity FLOAT,
         pressure FLOAT,
+        windSpeed FLOAT,
+        windDirection FLOAT,
+        windSpeedFiltered FLOAT,
+        windDirectionFiltered FLOAT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP      
         );
         """)
