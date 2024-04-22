@@ -199,15 +199,6 @@ var chartWindDirection = new Chart(ctxWindDirection, {
   }
 });
 
-
-inputCantidadMuestras.addEventListener("change", () => {
-  const cantidadIntroducida = inputCantidadMuestras.value;
-  // Enviar la cantidad introducida al servidor para realizar la consulta
-  const urlDescarga = `/descargar/${cantidadIntroducida}`;
-  console.log(cantidadIntroducida)
-  window.location.href = urlDescarga;
-});
-
 // Función para actualizar los gráficos con un nuevo dato
 function actualizarGraficos(timestamp, temperature, pressure, humidity, temperature_bar, windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered) {
 
@@ -254,6 +245,34 @@ function actualizarGraficos(timestamp, temperature, pressure, humidity, temperat
 
 }
 
+function filtrarDatos(fechaInicio, fechaFin) {
+  // Implementar la lógica para enviar las fechas seleccionadas al servidor
+  // y obtener los datos filtrados
+  // Actualizar los gráficos con los datos obtenidos
+}
 
 
 
+$(document).ready(function () {
+  $('#fecha-inicio').datetimepicker();
+  $('#fecha-fin').datetimepicker();
+
+  // Manejar el evento click en un botón para enviar las fechas seleccionadas
+  $('#btn-filtrar').click(function () {
+    var fechaInicio = $('#fecha-inicio').val();
+    var fechaFin = $('#fecha-fin').val();
+    console.log(fechaInicio)
+    console.log(fechaFin)
+    // Enviar las fechas seleccionadas al servidor usando AJAX o fetch
+    filtrarDatos(fechaInicio, fechaFin);
+  });
+});
+
+
+inputCantidadMuestras.addEventListener("change", () => {
+  const cantidadIntroducida = inputCantidadMuestras.value;
+  // Enviar la cantidad introducida al servidor para realizar la consulta
+  const urlDescarga = `/descargar/${cantidadIntroducida}`;
+  console.log(cantidadIntroducida)
+  window.location.href = urlDescarga;
+});
