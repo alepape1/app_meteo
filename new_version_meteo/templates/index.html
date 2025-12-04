@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard de sensores</title>
+  <script src="{{ url_for('static',filename='moment.min.js') }}"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/css/bootstrap-datetimepicker-standalone.min.css"
+    integrity="sha256-SMGbWcp5wJOVXYlZJyAXqoVWaE/vgFA5xfrH3i/jVw0=" crossorigin="anonymous" />
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/js/bootstrap-datetimepicker.min.js"
+    integrity="sha256-5YmaxAwMjIpMrVlK84Y/+NjCpKnFYa8bWWBbUHSBGfU=" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+  <script src="https://kit.fontawesome.com/9b07e8afd9.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
+  <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+
+<body>
+
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-2">
+
+        <ul class="sidebar hidden">
+          <h1>Weather
+            Station</h1>
+          <li><a>Inicio</a></li>
+          <li><a>Sensores</a></li>
+          <li><a>Ajustes</a></li>
+          <li><a>Mensaje desde ESP32: {{ message }}</a></li>
+          <li><label for="cantidad_muestras">Cantidad de muestras:</label>
+            <input type="number" id="cantidad_muestras" name="cantidad_muestras" min="1" max="2000">
+          </li>
+          <li class="mb-3">
+            <label for="fecha-inicio">Fecha y hora de inicio:</label>
+            <div class="input-group">
+              <input type="datetime-local" class="form-control" id="fecha-inicio" name="fecha-inicio">
+            </div>
+          </li>
+          <li>
+            <label for="fecha-fin">Fecha y hora final:</label>
+            <div class="input-group">
+              <input type="datetime-local" class="form-control" id="fecha-fin" name="fecha-fin">
+            </div>
+          </li>
+        </ul>
+
+      </div>
+
+      <div class="col-md-8">
+
+        <div class="row">
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fas fa-temperature-full icon"></i>
+                  Temperatura
+                </h3>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-temperatura"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fas fa-tachometer-alt icon"></i>
+                  Pressure
+                </h3>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-presion"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fas fa-droplet icon"></i>
+                  Humidity
+                </h3>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-humedad"></canvas>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fas fa-temperature-half icon"></i>
+                  Temperature Barometer
+                </h3>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-temperatura_bar"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fas fa-wind icon"></i>
+                  Wind Speed
+                </h3>
+                </i>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-windSpeed"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="d-flex">
+                  <i class="fa-regular fa-compass icon"></i>
+                  Wind Direction
+                </h3>
+              </div>
+              <div class="card-body">
+                <canvas id="widget-windDirection"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+</body>
+<script type="text/javascript" src="{{ url_for('static',filename='app.js') }}"></script>
+<script>
+
+  var timestamp = {{ timestamp| safe }};
+  var temperature = {{ temperature| safe }};
+  var pressure = {{ pressure| safe }};
+  var humidity = {{ humidity| safe }};
+  var temperature_bar = {{ temperature_bar| safe }};
+  var windDirection = {{ windDirection| safe }};
+  var windSpeed = {{ windSpeed| safe }};
+  var windSpeedFiltered = {{ windSpeedFiltered | safe }};
+  var windDirectionFiltered = {{ windDirectionFiltered | safe }};
+
+  // Si DataBase tiene datos, actualizar los gráficos
+  actualizarGraficos(timestamp, temperature, pressure, humidity, temperature_bar, windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered);
+
+
+  $(document).ready(function () {
+    $('#fecha-inicio').datetimepicker();
+    $('#fecha-fin').datetimepicker();
+
+    // Manejar el evento click en un botón para enviar las fechas seleccionadas
+    $('#btn-filtrar').click(function () {
+      var fechaInicio = $('#fecha-inicio').val();
+      var fechaFin = $('#fecha-fin').val();
+      console.log(fechaInicio)
+      console.log(fechaFin)
+      // Enviar las fechas seleccionadas al servidor usando AJAX o fetch
+      filtrarDatos(fechaInicio, fechaFin);
+    });
+  });
+
+  function filtrarDatos(fechaInicio, fechaFin) {
+    // Implementar la lógica para enviar las fechas seleccionadas al servidor
+    // y obtener los datos filtrados
+    // Actualizar los gráficos con los datos obtenidos
+  }
+
+
+
+
+
+
+</script>
+
+</html>
