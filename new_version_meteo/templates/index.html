@@ -4,93 +4,78 @@
 <head>
   <meta charset="UTF-8">
   <title>Dashboard de sensores</title>
-  <script src="{{ url_for('static',filename='moment.min.js') }}"></script>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
-  <link rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/css/bootstrap-datetimepicker-standalone.min.css"
-    integrity="sha256-SMGbWcp5wJOVXYlZJyAXqoVWaE/vgFA5xfrH3i/jVw0=" crossorigin="anonymous" />
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datetimepicker/4.17.47/js/bootstrap-datetimepicker.min.js"
-    integrity="sha256-5YmaxAwMjIpMrVlK84Y/+NjCpKnFYa8bWWBbUHSBGfU=" crossorigin="anonymous"></script>
+  
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"></script>
   <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+  
   <script src="https://kit.fontawesome.com/9b07e8afd9.js" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
+  
   <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='style.css') }}">
+  
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+  <style>
+    /* Pequeño ajuste para que los gráficos se vean bien */
+    canvas {
+        max-height: 250px;
+    }
+  </style>
 </head>
 
 <body>
 
   <div class="container-fluid">
     <div class="row">
-      <div class="col-md-2">
+      <div class="col-md-2 bg-light sidebar">
+        <div class="p-3">
+            <h3>Weather Station</h3>
+            <ul class="list-unstyled components">
+              <li><a href="/">Inicio</a></li>
+              <li class="mt-3"><strong>Estado:</strong> {{ message }}</li>
+              
+              <li class="mt-3">
+                <label for="cantidad_muestras">Muestras a ver:</label>
+                <input type="number" id="cantidad_muestras" class="form-control" placeholder="Ej: 20" min="1" max="2000">
+                <small class="text-muted">Presiona Enter para actualizar</small>
+              </li>
 
-        <ul class="sidebar hidden">
-          <h1>Weather
-            Station</h1>
-          <li><a>Inicio</a></li>
-          <li><a>Sensores</a></li>
-          <li><a>Ajustes</a></li>
-          <li><a>Mensaje desde ESP32: {{ message }}</a></li>
-          <li><label for="cantidad_muestras">Cantidad de muestras:</label>
-            <input type="number" id="cantidad_muestras" name="cantidad_muestras" min="1" max="2000">
-          </li>
-          <li class="mb-3">
-            <label for="fecha-inicio">Fecha y hora de inicio:</label>
-            <div class="input-group">
-              <input type="datetime-local" class="form-control" id="fecha-inicio" name="fecha-inicio">
-            </div>
-          </li>
-          <li>
-            <label for="fecha-fin">Fecha y hora final:</label>
-            <div class="input-group">
-              <input type="datetime-local" class="form-control" id="fecha-fin" name="fecha-fin">
-            </div>
-          </li>
-        </ul>
-
+              </ul>
+        </div>
       </div>
 
-      <div class="col-md-8">
-
-        <div class="row">
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fas fa-temperature-full icon"></i>
-                  Temperatura
-                </h3>
+      <div class="col-md-10">
+        <div class="row pt-3">
+          
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fas fa-temperature-full text-danger mr-2"></i> Temperatura (°C)</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-temperatura"></canvas>
               </div>
             </div>
           </div>
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fas fa-tachometer-alt icon"></i>
-                  Pressure
-                </h3>
+
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fas fa-tachometer-alt text-success mr-2"></i> Presión (hPa)</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-presion"></canvas>
               </div>
             </div>
           </div>
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fas fa-droplet icon"></i>
-                  Humidity
-                </h3>
+
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fas fa-droplet text-primary mr-2"></i> Humedad (%)</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-humedad"></canvas>
@@ -98,97 +83,162 @@
             </div>
           </div>
 
-
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fas fa-temperature-half icon"></i>
-                  Temperature Barometer
-                </h3>
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fas fa-temperature-half text-warning mr-2"></i> Temp. Barómetro</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-temperatura_bar"></canvas>
               </div>
             </div>
           </div>
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fas fa-wind icon"></i>
-                  Wind Speed
-                </h3>
-                </i>
+
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fas fa-wind text-info mr-2"></i> Velocidad Viento (m/s)</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-windSpeed"></canvas>
               </div>
             </div>
           </div>
-          <div class="col-md-6">
-            <div class="card">
-              <div class="card-header">
-                <h3 class="d-flex">
-                  <i class="fa-regular fa-compass icon"></i>
-                  Wind Direction
-                </h3>
+
+          <div class="col-md-6 mb-4">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <h5 class="m-0"><i class="fa-regular fa-compass text-secondary mr-2"></i> Dirección Viento</h5>
               </div>
               <div class="card-body">
                 <canvas id="widget-windDirection"></canvas>
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </div>
   </div>
-  </div>
 
-</body>
-<script type="text/javascript" src="{{ url_for('static',filename='app.js') }}"></script>
 <script>
+  // 1. OBTENCIÓN DE DATOS SEGURA
+  // Usamos | tojson para evitar errores de sintaxis en JavaScript
+  const timestamp = {{ timestamp | tojson }};
+  const temperature = {{ temperature | tojson }};
+  const pressure = {{ pressure | tojson }};
+  const humidity = {{ humidity | tojson }};
+  const temperature_bar = {{ temperature_bar | tojson }};
+  
+  // Ojo: En tu servidor pasas 'windDirection' como grados.
+  const windDirection = {{ windDirection | tojson }};
+  const windSpeed = {{ windSpeed | tojson }};
+  const windSpeedFiltered = {{ windSpeedFiltered | tojson }};
+  const windDirectionFiltered = {{ windDirectionFiltered | default(none) | tojson }};
+  // 2. FUNCIÓN GENÉRICA PARA CREAR GRÁFICOS (Chart.js v3/v4)
+  function crearGrafico(idCanvas, label, data, color, type = 'line') {
+      const ctx = document.getElementById(idCanvas);
+      if (!ctx) return; // Si no existe el canvas, salir
 
-  var timestamp = {{ timestamp| safe }};
-  var temperature = {{ temperature| safe }};
-  var pressure = {{ pressure| safe }};
-  var humidity = {{ humidity| safe }};
-  var temperature_bar = {{ temperature_bar| safe }};
-  var windDirection = {{ windDirection| safe }};
-  var windSpeed = {{ windSpeed| safe }};
-  var windSpeedFiltered = {{ windSpeedFiltered | safe }};
-  var windDirectionFiltered = {{ windDirectionFiltered | safe }};
-
-  // Si DataBase tiene datos, actualizar los gráficos
-  actualizarGraficos(timestamp, temperature, pressure, humidity, temperature_bar, windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered);
-
-
-  $(document).ready(function () {
-    $('#fecha-inicio').datetimepicker();
-    $('#fecha-fin').datetimepicker();
-
-    // Manejar el evento click en un botón para enviar las fechas seleccionadas
-    $('#btn-filtrar').click(function () {
-      var fechaInicio = $('#fecha-inicio').val();
-      var fechaFin = $('#fecha-fin').val();
-      console.log(fechaInicio)
-      console.log(fechaFin)
-      // Enviar las fechas seleccionadas al servidor usando AJAX o fetch
-      filtrarDatos(fechaInicio, fechaFin);
-    });
-  });
-
-  function filtrarDatos(fechaInicio, fechaFin) {
-    // Implementar la lógica para enviar las fechas seleccionadas al servidor
-    // y obtener los datos filtrados
-    // Actualizar los gráficos con los datos obtenidos
+      new Chart(ctx, {
+          type: type,
+          data: {
+              labels: timestamp, // Eje X (Tiempo)
+              datasets: [{
+                  label: label,
+                  data: data,
+                  borderColor: color,
+                  backgroundColor: color + '33', // Añade transparencia al fondo
+                  borderWidth: 2,
+                  pointRadius: 2,
+                  fill: true,
+                  tension: 0.3 // Suaviza la línea
+              }]
+          },
+          options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                  legend: { display: false },
+                  tooltip: { mode: 'index', intersect: false }
+              },
+              scales: {
+                  x: { 
+                      display: true,
+                      ticks: { maxTicksLimit: 10 } // Limita etiquetas en eje X
+                  },
+                  y: { 
+                      beginAtZero: false 
+                  }
+              }
+          }
+      });
   }
 
+  // 3. GENERAR LOS GRÁFICOS AL CARGAR
+  document.addEventListener('DOMContentLoaded', function() {
+      console.log("Generando gráficos...");
+      
+      crearGrafico('widget-temperatura', 'Temperatura', temperature, '#dc3545'); // Rojo
+      crearGrafico('widget-presion', 'Presión', pressure, '#28a745'); // Verde
+      crearGrafico('widget-humedad', 'Humedad', humidity, '#007bff'); // Azul
+      crearGrafico('widget-temperatura_bar', 'Temp. Barómetro', temperature_bar, '#ffc107'); // Amarillo
+      
+      // Gráfico comparativo de viento (Filtrado vs Real)
+      const ctxWind = document.getElementById('widget-windSpeed');
+      if (ctxWind) {
+          new Chart(ctxWind, {
+              type: 'line',
+              data: {
+                  labels: timestamp,
+                  datasets: [
+                      {
+                          label: 'Velocidad Real',
+                          data: windSpeed,
+                          borderColor: '#17a2b8',
+                          borderWidth: 1,
+                          pointRadius: 0,
+                          tension: 0.4
+                      },
+                      {
+                          label: 'Filtrada',
+                          data: windSpeedFiltered,
+                          borderColor: '#0056b3', // Azul oscuro
+                          borderWidth: 2,
+                          pointRadius: 1,
+                          fill: true,
+                          backgroundColor: 'rgba(0, 86, 179, 0.2)'
+                      }
+                  ]
+              },
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: { x: { ticks: { maxTicksLimit: 10 }}, y: { beginAtZero: true } }
+              }
+          });
+      }
 
+      // Gráfico de Dirección (Scatter o Línea)
+      crearGrafico('widget-windDirection', 'Dirección (°)', windDirection, '#6c757d', 'line');
 
-
-
+      
+      // 4. LÓGICA DEL INPUT "CANTIDAD DE MUESTRAS"
+      const inputMuestras = document.getElementById('cantidad_muestras');
+      if(inputMuestras){
+          inputMuestras.addEventListener("keypress", function(event) {
+              if (event.key === "Enter") {
+                  event.preventDefault();
+                  const val = inputMuestras.value;
+                  if(val > 0) {
+                      window.location.href = "/descargar/" + val;
+                  }
+              }
+          });
+      }
+  });
 
 </script>
 
+</body>
 </html>
