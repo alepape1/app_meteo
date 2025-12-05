@@ -1,278 +1,289 @@
+// ==========================================
+// 1. VARIABLES GLOBALES Y SELECTORES
+// ==========================================
+
+const chartInstances = {};
 
 const inputCantidadMuestras = document.getElementById("cantidad_muestras");
+const historySlider = document.getElementById('historySlider');
+const sliderLabel = document.getElementById('sliderLabel');
+const btnAplicarFiltro = document.getElementById('btn-aplicar-filtro');
 
+let selectedStartDate = null;
+let selectedEndDate = null;
 
+// ==========================================
+// 2. LÓGICA DE GRÁFICOS (Chart.js Moderno)
+// ==========================================
 
-// Variables para los canvas
-var ctxTemperatura = document.getElementById("widget-temperatura").getContext("2d");
-var ctxPresion = document.getElementById("widget-presion").getContext("2d");
-var ctxHumedad = document.getElementById("widget-humedad").getContext("2d");
-var ctxTemperatura_bar = document.getElementById("widget-temperatura_bar").getContext("2d");
-var ctxWindSpeed = document.getElementById("widget-windSpeed").getContext("2d");
-var ctxWindDirection = document.getElementById("widget-windDirection").getContext("2d");
-
-// Creación de los gráficos
-var chartTemperatura = new Chart(ctxTemperatura, {
-  type: 'line',
-  data: {
-    labels: [],
-    datasets: [{
-      label: "Temperatura(°C)",
-      data: [],
-      borderWidth: 2,
-      backgroundColor: "rgba(255, 99, 132, 0.2)",
-      borderColor: "rgb(255, 99, 132)"
-    }, {
-      label: "Temperatura_Barometro_(°C)",
-      type: 'line',
-      label: "Temperatura Barometro (°C)",
-      data: [],
-      borderWidth: 2,
-      borderColor: "rgb(145, 53, 145)"
-    }]
-  },
-  options: {
-    scales: {
-      xAxes: [{
-        ticks: {
-          callback: function (value, index, values) {
-            return moment(value).format('YYYY-MM'); // Format X-axis labels (modify format as needed)
-          }
-        }
-      }],
-
-      yAxes: [{
-        ticks: {
-          suggestedMin: 0,
-          suggestedMax: 40
-        }
-      }]
+function renderChart(canvasId, config) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (chartInstances[canvasId]) {
+        chartInstances[canvasId].destroy();
     }
-  }
-});
-
-var chartPresion = new Chart(ctxPresion, {
-  type: 'line',
-  data: {
-    labels: [1, 2, 3, 4, 5, 6],
-    datasets: [{
-      label: "Presión (mBar)",
-      data: [25, 24, 25, 25, 26, 25],
-      backgroundColor: "rgba(54, 162, 235, 0.05)",
-      borderColor: "rgb(110, 202, 106)"
-    }]
-  },
-  options: {
-    scales: {
-      yAxes: [{
-        ticks: {
-          suggestedMin: 950,
-          suggestedMax: 1050
-        }
-      }]
-    }
-  }
-});
-
-var chartHumedad = new Chart(ctxHumedad, {
-  type: 'line',
-  data: {
-    labels: [1, 2, 3, 4, 5, 6],
-    datasets: [{
-      label: "Humedad (%)",
-      data: [25, 24, 25, 25, 26, 25],
-      backgroundColor: "rgba(54, 162, 235, 0.05)",
-      borderColor: "rgb(54, 162, 235)"
-    }]
-  },
-  options: {
-    scales: {
-      xAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }],
-      yAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }]
-    }
-  }
-});
-
-var chartTemperatura_bar = new Chart(ctxTemperatura_bar, {
-  type: 'line',
-  data: {
-    labels: [1, 2, 3, 4, 5, 6],
-    datasets: [{
-      label: "Temperatura (°C)",
-      data: [25, 24, 25, 25, 26, 25],
-      backgroundColor: "rgba(54, 162, 235, 0.05)",
-      borderColor: "rgb(255, 99, 132)"
-    }]
-  },
-  options: {
-    scales: {
-      yAxes: [{
-        ticks: {
-
-          suggestedMin: 20,
-          suggestedMax: 35
-        }
-      }]
-    }
-  }
-});
-
-var chartWindSpeed = new Chart(ctxWindSpeed, {
-  type: 'line',
-  data: {
-    labels: [1, 2, 3, 4, 5, 6],
-    datasets: [{
-      label: "windSpeed (m/sg)",
-      data: [25, 24, 25, 25, 26, 25],
-      backgroundColor: "rgba(54, 162, 235, 0.05)",
-      borderColor: "rgb(220, 229, 47)"
-    },{
-      label: "wind Speed Filter(m/sg)",
-      type: 'line',
-      label: "Wind Speed Filter",
-      data: [],
-      borderWidth: 2,
-      borderColor: "rgb(145, 53, 145)"
-    }]
-  },
-  options: {
-    scales: {
-      xAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }],
-      yAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }]
-    }
-  }
-});
-
-var chartWindDirection = new Chart(ctxWindDirection, {
-  type: 'line',
-  data: {
-    labels: [1, 2, 3, 4, 5, 6],
-    datasets: [{
-      label: "Degrees (º)",
-      data: [25, 24, 25, 25, 26, 25],
-      backgroundColor: "rgba(220, 229, 47, 0.05)",
-      borderColor: "rgb(220, 229, 47)"
-    },{
-      label: "wind Direction Filter(m/sg)",
-      type: 'line',
-      label: "Wind Direction Filter",
-      data: [],
-      borderWidth: 2,
-      borderColor: "rgb(145, 53, 145)"
-    }]
-  },
-  options: {
-    scales: {
-      xAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }],
-      yAxes: [{
-        ticks: {
-          suggestedMin: 10,
-          suggestedMax: 20
-        }
-      }]
-    }
-  }
-});
-
-// Función para actualizar los gráficos con un nuevo dato
-function actualizarGraficos(timestamp, temperature, pressure, humidity, temperature_bar, windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered) {
-
-  // console.log(datos_DB.map(resultado => resultado[1]))
-  console.log(timestamp);
-  console.log(temperature)
-  console.log(pressure)
-  console.log(temperature_bar)
-  console.log(windSpeed)
-  console.log(windDirection)
-  console.log(windDirectionFiltered)
-  console.log(windSpeedFiltered)
-  // Obtener la fecha actual
-  var fechaActual = new Date();
-
-  // Agregar la fecha actual al conjunto de etiquetas
-  chartTemperatura.data.labels = timestamp;
-  chartPresion.data.labels = timestamp;
-  chartHumedad.data.labels = timestamp;
-  chartTemperatura_bar.data.labels = timestamp;
-  chartWindSpeed.data.labels = timestamp;
-  chartWindDirection.data.labels = timestamp;
-
-
-  // Agregar el nuevo dato al conjunto de datos de temperatura
-  chartTemperatura.data.datasets[0].data = temperature;
-  chartTemperatura.data.datasets[1].data = temperature_bar;
-  chartPresion.data.datasets[0].data = pressure;
-  chartHumedad.data.datasets[0].data = humidity;
-  chartTemperatura_bar.data.datasets[0].data = temperature_bar;
-  chartWindSpeed.data.datasets[0].data = windSpeed;
-  chartWindSpeed.data.datasets[1].data = windSpeedFiltered;
-  chartWindDirection.data.datasets[0].data = windDirection;
-  chartWindDirection.data.datasets[1].data = windDirectionFiltered;
-  
-
-  // Actualizar los gráficos
-  chartTemperatura.update();
-  chartPresion.update();
-  chartHumedad.update();
-  chartTemperatura_bar.update();
-  chartWindSpeed.update();
-  chartWindDirection.update();
-
+    chartInstances[canvasId] = new Chart(ctx, config);
 }
 
-function filtrarDatos(fechaInicio, fechaFin) {
-  // Implementar la lógica para enviar las fechas seleccionadas al servidor
-  // y obtener los datos filtrados
-  // Actualizar los gráficos con los datos obtenidos
+function actualizarTodosLosGraficos() {
+    
+    // ESTILOS COMUNES PARA GRÁFICOS MODERNOS
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { 
+                display: true, // Mostrar leyenda
+                labels: { usePointStyle: true, boxWidth: 6 } 
+            },
+            tooltip: { 
+                mode: 'index', 
+                intersect: false,
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                titleFont: { family: 'Poppins' },
+                bodyFont: { family: 'Poppins' }
+            }
+        },
+        scales: {
+            x: {
+                grid: { display: false }, // Ocultar rejilla vertical
+                ticks: { 
+                    maxTicksLimit: 8, 
+                    color: '#adb5bd',
+                    font: { family: 'Poppins', size: 10 }
+                }
+            },
+            y: {
+                beginAtZero: false,
+                grid: { 
+                    color: '#f1f3f5', 
+                    borderDash: [5, 5] // Rejilla horizontal punteada
+                },
+                ticks: { 
+                    color: '#adb5bd',
+                    font: { family: 'Poppins', size: 10 }
+                }
+            }
+        },
+        elements: {
+            point: {
+                radius: 0, // Ocultar puntos por defecto (más limpio)
+                hitRadius: 10,
+                hoverRadius: 6
+            },
+            line: {
+                tension: 0.4 // Curvar las líneas (Spline)
+            }
+        }
+    };
+
+    // 1. TEMPERATURA
+    renderChart("widget-temperatura", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Temp (°C)",
+                data: temperature,
+                borderWidth: 2,
+                backgroundColor: "rgba(220, 53, 69, 0.1)", // Rojo muy suave
+                borderColor: "#dc3545", // Rojo vibrante
+                fill: true
+            }, {
+                label: "Barómetro (°C)",
+                data: temperature_bar,
+                borderWidth: 2,
+                borderColor: "#6f42c1", // Morado
+                borderDash: [5, 5], // Línea punteada para diferenciar
+                fill: false
+            }]
+        },
+        options: commonOptions
+    });
+
+    // 2. PRESIÓN
+    renderChart("widget-presion", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Presión (hPa)",
+                data: pressure,
+                backgroundColor: "rgba(40, 167, 69, 0.1)",
+                borderColor: "#28a745",
+                borderWidth: 2,
+                fill: true
+            }]
+        },
+        options: commonOptions
+    });
+
+    // 3. HUMEDAD
+    renderChart("widget-humedad", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Humedad (%)",
+                data: humidity,
+                backgroundColor: "rgba(23, 162, 184, 0.1)",
+                borderColor: "#17a2b8",
+                borderWidth: 2,
+                fill: true
+            }]
+        },
+        options: commonOptions
+    });
+
+    // 4. TEMP BARÓMETRO
+    renderChart("widget-temperatura_bar", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Temp. Bar (°C)",
+                data: temperature_bar,
+                backgroundColor: "rgba(255, 193, 7, 0.1)",
+                borderColor: "#ffc107",
+                borderWidth: 2,
+                fill: true
+            }]
+        },
+        options: commonOptions
+    });
+
+    // 5. VELOCIDAD VIENTO
+    renderChart("widget-windSpeed", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Viento (m/s)",
+                data: windSpeed,
+                backgroundColor: "rgba(23, 162, 184, 0.05)",
+                borderColor: "#17a2b8",
+                borderWidth: 1
+            },{
+                label: "Filtrado (m/s)",
+                data: windSpeedFiltered,
+                borderWidth: 2,
+                borderColor: "#0056b3",
+                fill: false
+            }]
+        },
+        options: commonOptions
+    });
+
+    // 6. DIRECCIÓN VIENTO
+    renderChart("widget-windDirection", {
+        type: 'line',
+        data: {
+            labels: timestamp,
+            datasets: [{
+                label: "Dirección (º)",
+                data: windDirection,
+                backgroundColor: "rgba(108, 117, 125, 0.1)",
+                borderColor: "#6c757d",
+                borderWidth: 1.5,
+                showLine: false, // Solo puntos
+                pointRadius: 2 // Aquí sí mostramos puntos pequeños
+            }]
+        },
+        options: {
+            ...commonOptions,
+            scales: {
+                ...commonOptions.scales,
+                y: {
+                    min: 0,
+                    max: 360,
+                    ticks: { stepSize: 90, color: '#adb5bd' },
+                    grid: { color: '#f1f3f5' }
+                }
+            }
+        }
+    });
 }
 
+// ==========================================
+// 3. LÓGICA DEL SLIDER
+// ==========================================
 
+if (historySlider) {
+    historySlider.addEventListener('input', function() {
+        const diasAtras = parseInt(this.value);
+        const format = 'YYYY-MM-DD HH:mm:ss';
 
-$(document).ready(function () {
-  $('#fecha-inicio').datetimepicker();
-  $('#fecha-fin').datetimepicker();
+        if (diasAtras === 0) {
+            sliderLabel.innerText = "Viendo: Hoy";
+            selectedStartDate = moment().startOf('day').format(format);
+            selectedEndDate = moment().endOf('day').format(format);
+        } else {
+            sliderLabel.innerText = `Viendo: Hace ${diasAtras} día(s)`;
+            selectedStartDate = moment().subtract(diasAtras, 'days').startOf('day').format(format);
+            selectedEndDate = moment().subtract(diasAtras, 'days').endOf('day').format(format);
+        }
+    });
+}
 
-  // Manejar el evento click en un botón para enviar las fechas seleccionadas
-  $('#btn-filtrar').click(function () {
-    var fechaInicio = $('#fecha-inicio').val();
-    var fechaFin = $('#fecha-fin').val();
-    console.log(fechaInicio)
-    console.log(fechaFin)
-    // Enviar las fechas seleccionadas al servidor usando AJAX o fetch
-    filtrarDatos(fechaInicio, fechaFin);
-  });
-});
+// ==========================================
+// 4. AJAX / FETCH
+// ==========================================
 
+if (btnAplicarFiltro) {
+    btnAplicarFiltro.addEventListener('click', function() {
+        if (!selectedStartDate) {
+            historySlider.dispatchEvent(new Event('input'));
+        }
 
-inputCantidadMuestras.addEventListener("change", () => {
-  const cantidadIntroducida = inputCantidadMuestras.value;
-  // Enviar la cantidad introducida al servidor para realizar la consulta
-  const urlDescarga = `/descargar/${cantidadIntroducida}`;
-  console.log(cantidadIntroducida)
-  window.location.href = urlDescarga;
+        const btn = this;
+        const textoOriginal = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando...';
+        btn.disabled = true;
+
+        fetch('/api/filtrar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start_date: selectedStartDate, end_date: selectedEndDate })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.error) { alert("Error: " + data.error); return; }
+
+            timestamp = data.timestamp;
+            temperature = data.temperature;
+            pressure = data.pressure;
+            humidity = data.humidity;
+            temperature_bar = data.temperature_bar;
+            windSpeed = data.windSpeed;
+            windDirection = data.windDirection;
+            windSpeedFiltered = data.windSpeedFiltered;
+            windDirectionFiltered = data.windDirectionFiltered;
+
+            actualizarTodosLosGraficos();
+        })
+        .catch(error => { console.error(error); alert("Error de conexión"); })
+        .finally(() => {
+            btn.innerHTML = textoOriginal;
+            btn.disabled = false;
+        });
+    });
+}
+
+if (inputCantidadMuestras) {
+    inputCantidadMuestras.addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            const cantidad = inputCantidadMuestras.value;
+            if(cantidad > 0) window.location.href = `/descargar/${cantidad}`;
+        }
+    });
+}
+
+// ==========================================
+// 5. INICIALIZAR
+// ==========================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    if(historySlider) historySlider.dispatchEvent(new Event('input'));
+    actualizarTodosLosGraficos();
 });

@@ -1,4 +1,4 @@
-from flask import Flask, g, render_template, request
+from flask import Flask, g, render_template, request , jsonify
 import sqlite3
 from database import get_db_connection, create_tables
 
@@ -65,7 +65,8 @@ def fetch_data():
         "pressure": [r[4] for r in resultados],
         "windSpeed": [r[5] for r in resultados],
         "windDirection": [r[6] for r in resultados],
-        "windSpeedFiltered": [r[7] for r in resultados]
+        "windSpeedFiltered": [r[7] for r in resultados],
+        "windDirectionFiltered": [r[8] for r in resultados],
     }
 
     return render_template(TEMPLATE_FILE, **context)
@@ -183,6 +184,49 @@ def fetch_data_average(cantidad_muestras):
     }
 
     return render_template(TEMPLATE_FILE, **context)
+
+@app.route("/api/filtrar", methods=["POST"])
+def filtrar_datos_api():
+    # 1. Obtener el JSON enviado por el navegador
+    data = request.get_json()
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Fechas inválidas"}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # 2. Consulta SQL para filtrar por rango de fechas
+    # Usamos BETWEEN para obtener todo lo que esté entre inicio y fin
+    query = """
+        SELECT * FROM home_weather_station
+        WHERE timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC
+    """
+    
+    cursor.execute(query, (start_date, end_date))
+    resultados = cursor.fetchall()
+    cursor.close()
+
+    # 3. Formatear los datos para Chart.js
+    # Usamos los mismos índices que en tu función 'descargar_muestras'
+    response_data = {
+        "timestamp": [r[9] for r in resultados],           # Columna 9: timestamp
+        "temperature": [r[1] for r in resultados],         # Columna 1: temperature
+        "temperature_bar": [r[2] for r in resultados],     # Columna 2: temperature_barometer
+        "humidity": [r[3] for r in resultados],            # Columna 3: humidity
+        "pressure": [r[4] for r in resultados],            # Columna 4: pressure
+        "windSpeed": [r[5] for r in resultados],           # Columna 5: windSpeed
+        "windDirection": [r[6] for r in resultados],       # Columna 6: windDirection
+        "windSpeedFiltered": [r[7] for r in resultados],   # Columna 7: windSpeedFiltered
+        "windDirectionFiltered": [r[8] for r in resultados] # Columna 8: windDirectionFiltered
+    }
+
+    # 4. Devolver respuesta en formato JSON
+    return jsonify(response_data)
+
 
 if __name__ == "__main__":
     # En un servidor real, no uses debug=True y usa host 0.0.0.0
