@@ -1,7 +1,7 @@
 # MeteoStation Dashboard
 
 Dashboard web para una estación meteorológica casera basada en **ESP32** y **Raspberry Pi**.
-El ESP32 recoge datos de los sensores y los envía por HTTP al servidor Flask, que los almacena en SQLite y los muestra en gráficos en tiempo real.
+El ESP32 recoge datos de los sensores y los envía por HTTP al servidor Flask, que los almacena en SQLite y los muestra en un dashboard React en tiempo real.
 
 ---
 
@@ -11,11 +11,11 @@ El ESP32 recoge datos de los sensores y los envía por HTTP al servidor Flask, q
 - [Tecnologías](#tecnologías)
 - [Datos que recoge la estación](#datos-que-recoge-la-estación)
 - [Instalación](#instalación)
-- [Arrancar la aplicación](#arrancar-la-aplicación)
+- [Arrancar en desarrollo](#arrancar-en-desarrollo)
 - [Simulador (sin hardware)](#simulador-sin-hardware)
 - [API endpoints](#api-endpoints)
 - [Formato de datos del ESP32](#formato-de-datos-del-esp32)
-- [Despliegue en producción con Gunicorn](#despliegue-en-producción-con-gunicorn)
+- [Despliegue en producción](#despliegue-en-producción)
 - [Base de datos](#base-de-datos)
 
 ---
@@ -24,21 +24,32 @@ El ESP32 recoge datos de los sensores y los envía por HTTP al servidor Flask, q
 
 ```
 app_meteo/
-├── new_version_meteo/          # Versión activa (v2)
-│   ├── app.py                  # Servidor Flask
-│   ├── database.py             # Conexión y creación de tablas SQLite
+├── new_version_meteo/          # Backend Flask (API + legacy HTML)
+│   ├── app.py                  # Servidor Flask con todos los endpoints
+│   ├── database.py             # Conexión SQLite y creación de tablas
 │   ├── requirements.txt        # Dependencias Python
-│   ├── templates/
-│   │   └── index.html          # Dashboard HTML
-│   └── static/
-│       ├── app.js              # Gráficos Chart.js + filtros + auto-refresco
-│       └── style.css           # Estilos
+│   ├── templates/index.html    # Dashboard HTML legacy (no se usa con React)
+│   └── static/                 # Assets del dashboard legacy
+│
+├── dashboard/                  # Frontend React (activo)
+│   ├── src/
+│   │   ├── App.jsx             # Layout principal y composición
+│   │   ├── components/
+│   │   │   ├── Sidebar.jsx     # Sidebar con selector de muestras y fechas
+│   │   │   ├── StatCard.jsx    # Cards con valor actual, min y max
+│   │   │   └── WeatherChart.jsx# Gráficos ApexCharts con eje datetime
+│   │   ├── hooks/
+│   │   │   └── useWeatherData.js # Hook: fetching, estado y auto-refresco
+│   │   └── index.css           # Tailwind + fuente Inter
+│   ├── package.json
+│   └── vite.config.js          # Proxy /api → Flask :5000
+│
 ├── simulator.py                # Simulador del ESP32 (desarrollo sin hardware)
 ├── .gitignore
 └── README.md
 ```
 
-> La carpeta raíz contiene la versión legacy (v1) conservada como referencia histórica.
+> La carpeta raíz contiene también la versión legacy (v1) conservada como histórico.
 
 ---
 
@@ -46,26 +57,26 @@ app_meteo/
 
 | Capa | Tecnología |
 |------|-----------|
-| Backend | Python 3, Flask, SQLite3 |
+| Backend API | Python 3, Flask, flask-cors, SQLite3 |
 | Servidor producción | Gunicorn |
-| Frontend | Bootstrap 4, Chart.js, Moment.js, jQuery |
-| Hardware | ESP32 + sensores (BME280, anemómetro) |
-| Despliegue | Raspberry Pi (red local) |
+| Frontend | React 18, Vite, Tailwind CSS 3, ApexCharts, Lucide React |
+| Hardware | ESP32 + MCP9808 (temperatura) + SparkFun MicroPressure + DHT11 + anemómetro/veleta |
+| Despliegue | Raspberry Pi (red local 192.168.1.32) |
 
 ---
 
 ## Datos que recoge la estación
 
-| Campo | Unidad | Descripción |
-|-------|--------|-------------|
-| `temperature` | °C | Temperatura ambiente |
-| `temperature_barometer` | °C | Temperatura del sensor barométrico |
-| `humidity` | % | Humedad relativa |
-| `pressure` | hPa | Presión atmosférica |
-| `windSpeed` | m/s | Velocidad del viento (cruda) |
-| `windDirection` | ° | Dirección del viento 0-360° (cruda) |
-| `windSpeedFiltered` | m/s | Velocidad del viento (media móvil) |
-| `windDirectionFiltered` | ° | Dirección del viento (media móvil) |
+| Campo | Unidad | Sensor | Descripción |
+|-------|--------|--------|-------------|
+| `temperature` | °C | MCP9808 | Temperatura ambiente principal |
+| `temperature_barometer` | °C | DHT11 | Temperatura del sensor barométrico |
+| `humidity` | % | DHT11 | Humedad relativa |
+| `pressure` | hPa | SparkFun MicroPressure | Presión atmosférica |
+| `windSpeed` | m/s | Anemómetro (ADC pin 37) | Velocidad del viento cruda |
+| `windDirection` | ° | Veleta (ADC pin 36) | Dirección del viento cruda 0-360° |
+| `windSpeedFiltered` | m/s | — | Velocidad filtrada (media móvil 10 muestras) |
+| `windDirectionFiltered` | ° | — | Dirección filtrada (media móvil 10 muestras) |
 
 ---
 
@@ -74,68 +85,73 @@ app_meteo/
 ### Requisitos
 
 - Python 3.9 o superior
-- pip
+- Node.js 18 o superior
+- pip, npm
 
-### Pasos
+### Backend
 
 ```bash
 # 1. Clonar el repositorio
-git clone <url-del-repo>
+git clone https://github.com/alepape1/app_meteo.git
 cd app_meteo
 
-# 2. (Opcional) Crear entorno virtual
+# 2. (Opcional) Entorno virtual
 python -m venv venv
 source venv/bin/activate        # Linux / macOS
 venv\Scripts\activate           # Windows
 
-# 3. Instalar dependencias
+# 3. Instalar dependencias Python
 pip install -r new_version_meteo/requirements.txt
 
-# 4. (Solo para el simulador) Instalar requests
+# 4. (Solo para el simulador)
 pip install requests
+```
+
+### Frontend
+
+```bash
+cd dashboard
+npm install
 ```
 
 ---
 
-## Arrancar la aplicación
+## Arrancar en desarrollo
 
+Necesitas **tres terminales**:
+
+**Terminal 1 — Backend Flask:**
 ```bash
 cd new_version_meteo
 python app.py
 ```
+Flask arranca en `http://0.0.0.0:5000`. Crea la base de datos automáticamente si no existe.
 
-La app arranca en `http://0.0.0.0:5000` y es accesible desde cualquier dispositivo de la red local.
+**Terminal 2 — Simulador (opcional, si no tienes el ESP32):**
+```bash
+cd ..   # volver a la raíz del repo
+python simulator.py --interval 5
+```
 
-Abre el navegador en:
-- **Local:** `http://localhost:5000`
-- **Red local (ej. Raspberry Pi):** `http://192.168.1.32:5000`
+**Terminal 3 — Frontend React:**
+```bash
+cd dashboard
+npm run dev
+```
 
-Al arrancar, la app crea automáticamente la base de datos `home_weather_station.db` si no existe.
+Abre el navegador en **`http://localhost:5173`**
+
+> Vite redirige automáticamente las llamadas a `/api/*` hacia Flask en el puerto 5000 gracias al proxy configurado en `vite.config.js`. No hace falta configurar nada más.
 
 ---
 
 ## Simulador (sin hardware)
 
-El simulador genera datos meteorológicos realistas y los envía al servidor Flask exactamente igual que haría el ESP32, sin necesitar el hardware.
+El simulador genera datos meteorológicos realistas y los envía al servidor Flask exactamente igual que haría el ESP32, sin necesitar el hardware físico.
 
-Genera una variación suave de temperatura con ciclo diario, ráfagas de viento aleatorias con filtro de media móvil (ventana de 5 muestras), y variaciones realistas de humedad y presión.
+Genera variación suave de temperatura con ciclo diario, ráfagas de viento aleatorias con filtro de media móvil (ventana de 5 muestras), y variaciones realistas de humedad y presión.
 
-### Uso básico
-
-Abre **dos terminales**:
-
-**Terminal 1 — App Flask:**
-```bash
-cd new_version_meteo
-python app.py
-```
-
-**Terminal 2 — Simulador:**
-```bash
-python simulator.py
-```
-
-### Opciones del simulador
+### Opciones
 
 ```
 python simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
@@ -151,32 +167,14 @@ python simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
 ### Ejemplos
 
 ```bash
-# Enviar datos cada 2 segundos (ver gráficos actualizarse rápido)
+# Datos cada 2 segundos (ver gráficos actualizarse en tiempo real)
 python simulator.py --interval 2
 
-# Poblar 500 muestras históricas de golpe para probar filtros
+# Poblar 500 muestras históricas rápido para probar el filtro de fechas
 python simulator.py --interval 0.05 --count 500
 
 # Conectar a la Raspberry Pi en red local
 python simulator.py --host 192.168.1.32 --interval 5
-
-# Solo 50 muestras y parar
-python simulator.py --count 50
-```
-
-### Salida del simulador
-
-```
-  Simulador MeteoStation
-  Servidor : http://127.0.0.1:5000/send_message
-  Intervalo: 5s
-  Muestras : infinitas
-  Ctrl+C para detener
-
-  Estado      # |       Temp        Presion    Humedad            Viento
-  -------------------------------------------------------------------------
-  [OK ] #   1 | Temp: 20.13°C  Pres: 1013.20hPa  Hum: 60.0%  Viento:  3.00m/s 180.0°
-  [OK ] #   2 | Temp: 19.87°C  Pres: 1013.05hPa  Hum: 58.7%  Viento:  2.80m/s 174.3°
 ```
 
 ---
@@ -185,22 +183,27 @@ python simulator.py --count 50
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/` | Dashboard principal (últimos 2 registros) |
-| `GET` | `/descargar/<N>` | Dashboard con los últimos N registros |
-| `GET` | `/average/<N>` | Dashboard con el promedio de los últimos N registros |
+| `GET` | `/` | Dashboard HTML legacy |
+| `GET` | `/descargar/<N>` | Dashboard HTML con los últimos N registros |
+| `GET` | `/average/<N>` | Dashboard HTML con el promedio de N registros |
 | `POST` | `/send_message` | Recibe datos del ESP32 en formato CSV |
-| `POST` | `/api/filtrar` | Filtra registros por rango de fechas (JSON) |
-| `GET` | `/api/latest` | Último registro en JSON (usado por el auto-refresco) |
+| `GET` | `/api/muestras/<N>` | Últimas N muestras en JSON (usado por React) |
+| `POST` | `/api/filtrar` | Filtra por rango de fechas, devuelve JSON |
+| `GET` | `/api/latest` | Último registro en JSON (auto-refresco cada 60s) |
 
 ### `POST /send_message`
 
-Recibe el cuerpo de la petición como texto plano CSV con exactamente 8 valores:
+Cuerpo en texto plano, exactamente 8 valores separados por coma:
 
 ```
 20.5,1013.2,19.8,62.3,4.5,225.0,4.2,222.5
 ```
 
-Respuesta `200 OK` si los datos son válidos, `400` si el formato es incorrecto.
+Devuelve `200 OK` si es válido, `400` si el formato es incorrecto.
+
+### `GET /api/muestras/<N>`
+
+Devuelve las últimas N muestras como JSON. Usado por el dashboard React en la carga inicial y cuando se cambia el número de muestras desde la sidebar.
 
 ### `POST /api/filtrar`
 
@@ -212,9 +215,11 @@ Body JSON:
 }
 ```
 
-Respuesta JSON con arrays de datos para cada variable.
+Devuelve JSON con arrays de datos para cada variable del mismo formato que `/api/muestras`.
 
 ### `GET /api/latest`
+
+Devuelve el registro más reciente. El dashboard lo llama automáticamente cada 60 segundos.
 
 ```json
 {
@@ -234,13 +239,13 @@ Respuesta JSON con arrays de datos para cada variable.
 
 ## Formato de datos del ESP32
 
-El ESP32 debe enviar una petición HTTP POST a `/send_message` con el cuerpo en texto plano:
+El ESP32 envía una petición HTTP POST a `/send_message` con el cuerpo en texto plano:
 
 ```
-temperatura,presion,temperatura_barometro,humedad,velocidad_viento,direccion_viento,velocidad_viento_filtrada,direccion_viento_filtrada
+temperature, pressure, temperature_barometer, humidity, windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered
 ```
 
-Ejemplo de código Arduino (ESP32):
+Ejemplo de código Arduino:
 
 ```cpp
 #include <WiFi.h>
@@ -264,25 +269,44 @@ void enviarDatos(float temp, float pres, float tempBar,
 }
 ```
 
+> **Nota:** El firmware actual envía la presión en KPa (`barometer.readPressure(KPA)`).
+> El servidor la almacena tal cual. Para que el dashboard muestre hPa correctos,
+> hay que cambiar a `barometer.readPressure(PA) / 100.0` en el firmware.
+
 ---
 
-## Despliegue en producción con Gunicorn
+## Despliegue en producción
 
-Para dejar la app corriendo en segundo plano en la Raspberry Pi:
+### Solo el backend (Raspberry Pi sin React)
 
 ```bash
 cd new_version_meteo
+gunicorn -w 2 -b 0.0.0.0:5000 app:app
 
-# Arrancar con gunicorn (4 workers)
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
-
-# O en segundo plano con nohup
+# En segundo plano
 nohup gunicorn -w 2 -b 0.0.0.0:5000 app:app &
 ```
 
-### Arranque automático con systemd
+### Backend + Frontend juntos (build estático servido por Flask)
 
-Crea el archivo `/etc/systemd/system/meteostation.service`:
+```bash
+# 1. Compilar el frontend
+cd dashboard
+npm run build
+
+# 2. Copiar el build a Flask
+cp -r dist/* ../new_version_meteo/static/react/
+
+# 3. Arrancar Flask (sirve la build como ficheros estáticos)
+cd ../new_version_meteo
+gunicorn -w 2 -b 0.0.0.0:5000 app:app
+```
+
+> En esta configuración se accede al dashboard en `http://192.168.1.32:5000`.
+
+### Arranque automático con systemd (Raspberry Pi)
+
+Crea `/etc/systemd/system/meteostation.service`:
 
 ```ini
 [Unit]
@@ -299,17 +323,13 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-Activa el servicio:
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable meteostation
 sudo systemctl start meteostation
 
-# Ver estado
+# Estado y logs
 sudo systemctl status meteostation
-
-# Ver logs
 sudo journalctl -u meteostation -f
 ```
 
@@ -317,7 +337,7 @@ sudo journalctl -u meteostation -f
 
 ## Base de datos
 
-La base de datos SQLite se crea automáticamente en `new_version_meteo/home_weather_station.db`.
+La base de datos SQLite se crea automáticamente en `new_version_meteo/home_weather_station.db` al arrancar Flask por primera vez.
 
 ### Esquema
 
@@ -344,13 +364,18 @@ CREATE INDEX idx_timestamp ON home_weather_station(timestamp);
 # Abrir la DB
 sqlite3 new_version_meteo/home_weather_station.db
 
-# Ver los últimos 5 registros
+# Últimos 5 registros
 SELECT * FROM home_weather_station ORDER BY timestamp DESC LIMIT 5;
 
-# Contar registros totales
+# Total de registros
 SELECT COUNT(*) FROM home_weather_station;
 
 # Promedio de temperatura de hoy
 SELECT AVG(temperature) FROM home_weather_station
 WHERE DATE(timestamp) = DATE('now');
+
+# Registros de un rango de fechas
+SELECT * FROM home_weather_station
+WHERE timestamp BETWEEN '2025-05-01 00:00:00' AND '2025-05-07 23:59:59'
+ORDER BY timestamp ASC;
 ```
