@@ -1,0 +1,13 @@
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+*.pyo
+nohup.out
+*.log
+.env
+venv/
+env/
+.DS_Store

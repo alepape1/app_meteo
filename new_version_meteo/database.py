@@ -19,15 +19,18 @@ def create_tables(conn):
     CREATE TABLE IF NOT EXISTS home_weather_station(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         temperature REAL,
-        temperature_barometer REAL,      
+        temperature_barometer REAL,
         humidity REAL,
         pressure REAL,
         windSpeed REAL,
         windDirection REAL,
         windSpeedFiltered REAL,
         windDirectionFiltered REAL,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP      
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_timestamp ON home_weather_station(timestamp);
     """)
     conn.commit()
     cursor.close()
