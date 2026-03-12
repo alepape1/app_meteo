@@ -280,10 +280,36 @@ if (inputCantidadMuestras) {
 }
 
 // ==========================================
-// 5. INICIALIZAR
+// 5. AUTO-REFRESCO
+// ==========================================
+
+function autoRefresh() {
+    fetch('/api/latest')
+        .then(r => r.json())
+        .then(data => {
+            if (data.timestamp && data.timestamp.length > 0) {
+                timestamp = data.timestamp;
+                temperature = data.temperature;
+                pressure = data.pressure;
+                humidity = data.humidity;
+                temperature_bar = data.temperature_bar;
+                windSpeed = data.windSpeed;
+                windDirection = data.windDirection;
+                windSpeedFiltered = data.windSpeedFiltered;
+                windDirectionFiltered = data.windDirectionFiltered;
+                actualizarTodosLosGraficos();
+            }
+        })
+        .catch(err => console.warn('Auto-refresco fallido:', err));
+}
+
+// ==========================================
+// 6. INICIALIZAR
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', function() {
     if(historySlider) historySlider.dispatchEvent(new Event('input'));
     actualizarTodosLosGraficos();
+    // Refresca automáticamente cada 60 segundos
+    setInterval(autoRefresh, 60000);
 });
