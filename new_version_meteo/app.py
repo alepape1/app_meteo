@@ -1,4 +1,5 @@
 from flask import Flask, g, render_template, request, jsonify
+from flask_cors import CORS
 import sqlite3
 import logging
 from database import get_db_connection, create_tables
@@ -7,6 +8,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+CORS(app)
 
 TEMPLATE_FILE = "index.html"
 
@@ -181,6 +183,24 @@ def filtrar_datos_api():
     rows = cursor.fetchall()
     cursor.close()
 
+    return jsonify(rows_to_dict(rows))
+
+
+@app.route("/api/muestras/<int:n>")
+def api_muestras(n):
+    """Devuelve las últimas N muestras como JSON para el dashboard React."""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT COUNT(*) FROM home_weather_station;")
+    total = cursor.fetchone()[0]
+    offset = max(0, total - n)
+    cursor.execute("""
+        SELECT * FROM home_weather_station
+        ORDER BY timestamp ASC
+        LIMIT ? OFFSET ?
+    """, (n, offset))
+    rows = cursor.fetchall()
+    cursor.close()
     return jsonify(rows_to_dict(rows))
 
 
