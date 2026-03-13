@@ -24,14 +24,14 @@ El ESP32 recoge datos de los sensores y los envía por HTTP al servidor Flask, q
 
 ```
 app_meteo/
-├── new_version_meteo/          # Backend Flask (API + legacy HTML)
+├── backend/          # Backend Flask (API + legacy HTML)
 │   ├── app.py                  # Servidor Flask con todos los endpoints
 │   ├── database.py             # Conexión SQLite y creación de tablas
 │   ├── requirements.txt        # Dependencias Python
 │   ├── templates/index.html    # Dashboard HTML legacy (no se usa con React)
 │   └── static/                 # Assets del dashboard legacy
 │
-├── dashboard/                  # Frontend React (activo)
+├── frontend/                  # Frontend React (activo)
 │   ├── src/
 │   │   ├── App.jsx             # Layout principal y composición
 │   │   ├── components/
@@ -42,9 +42,9 @@ app_meteo/
 │   │   │   └── useWeatherData.js # Hook: fetching, estado y auto-refresco
 │   │   └── index.css           # Tailwind + fuente Inter
 │   ├── package.json
-│   └── vite.config.js          # Proxy /api → Flask :5000
+│   └── vite.config.js          # Proxy /api → Flask :7000
 │
-├── simulator.py                # Simulador del ESP32 (desarrollo sin hardware)
+├── backend/simulator.py                # Simulador del ESP32 (desarrollo sin hardware)
 ├── .gitignore
 └── README.md
 ```
@@ -101,7 +101,7 @@ source venv/bin/activate        # Linux / macOS
 venv\Scripts\activate           # Windows
 
 # 3. Instalar dependencias Python
-pip install -r new_version_meteo/requirements.txt
+pip install -r backend/requirements.txt
 
 # 4. (Solo para el simulador)
 pip install requests
@@ -110,7 +110,7 @@ pip install requests
 ### Frontend
 
 ```bash
-cd dashboard
+cd frontend
 npm install
 ```
 
@@ -122,20 +122,20 @@ Necesitas **tres terminales**:
 
 **Terminal 1 — Backend Flask:**
 ```bash
-cd new_version_meteo
+cd backend
 python app.py
 ```
-Flask arranca en `http://0.0.0.0:5000`. Crea la base de datos automáticamente si no existe.
+Flask arranca en `http://0.0.0.0:7000`. Crea la base de datos automáticamente si no existe.
 
 **Terminal 2 — Simulador (opcional, si no tienes el ESP32):**
 ```bash
 cd ..   # volver a la raíz del repo
-python simulator.py --interval 5
+python backend/simulator.py --interval 5
 ```
 
 **Terminal 3 — Frontend React:**
 ```bash
-cd dashboard
+cd frontend
 npm run dev
 ```
 
@@ -154,7 +154,7 @@ Genera variación suave de temperatura con ciclo diario, ráfagas de viento alea
 ### Opciones
 
 ```
-python simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
+python backend/simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
 ```
 
 | Opción | Default | Descripción |
@@ -168,13 +168,13 @@ python simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
 
 ```bash
 # Datos cada 2 segundos (ver gráficos actualizarse en tiempo real)
-python simulator.py --interval 2
+python backend/simulator.py --interval 2
 
 # Poblar 500 muestras históricas rápido para probar el filtro de fechas
-python simulator.py --interval 0.05 --count 500
+python backend/simulator.py --interval 0.05 --count 500
 
 # Conectar a la Raspberry Pi en red local
-python simulator.py --host 192.168.1.32 --interval 5
+python backend/simulator.py --host 192.168.1.32 --interval 5
 ```
 
 ---
@@ -251,7 +251,7 @@ Ejemplo de código Arduino:
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-const char* serverUrl = "http://192.168.1.32:5000/send_message";
+const char* serverUrl = "http://192.168.1.32:7000/send_message";
 
 void enviarDatos(float temp, float pres, float tempBar,
                  float hum, float ws, float wd, float wsf, float wdf) {
@@ -280,29 +280,29 @@ void enviarDatos(float temp, float pres, float tempBar,
 ### Solo el backend (Raspberry Pi sin React)
 
 ```bash
-cd new_version_meteo
-gunicorn -w 2 -b 0.0.0.0:5000 app:app
+cd backend
+gunicorn -w 2 -b 0.0.0.0:7000 app:app
 
 # En segundo plano
-nohup gunicorn -w 2 -b 0.0.0.0:5000 app:app &
+nohup gunicorn -w 2 -b 0.0.0.0:7000 app:app &
 ```
 
 ### Backend + Frontend juntos (build estático servido por Flask)
 
 ```bash
 # 1. Compilar el frontend
-cd dashboard
+cd frontend
 npm run build
 
 # 2. Copiar el build a Flask
-cp -r dist/* ../new_version_meteo/static/react/
+cp -r dist/* ../backend/static/react/
 
 # 3. Arrancar Flask (sirve la build como ficheros estáticos)
-cd ../new_version_meteo
-gunicorn -w 2 -b 0.0.0.0:5000 app:app
+cd ../backend
+gunicorn -w 2 -b 0.0.0.0:7000 app:app
 ```
 
-> En esta configuración se accede al dashboard en `http://192.168.1.32:5000`.
+> En esta configuración se accede al dashboard en `http://192.168.1.32:7000`.
 
 ### Arranque automático con systemd (Raspberry Pi)
 
@@ -315,8 +315,8 @@ After=network.target
 
 [Service]
 User=pi
-WorkingDirectory=/home/pi/app_meteo/new_version_meteo
-ExecStart=gunicorn -w 2 -b 0.0.0.0:5000 app:app
+WorkingDirectory=/home/pi/app_meteo/backend
+ExecStart=gunicorn -w 2 -b 0.0.0.0:7000 app:app
 Restart=always
 
 [Install]
@@ -337,7 +337,7 @@ sudo journalctl -u meteostation -f
 
 ## Base de datos
 
-La base de datos SQLite se crea automáticamente en `new_version_meteo/home_weather_station.db` al arrancar Flask por primera vez.
+La base de datos SQLite se crea automáticamente en `backend/home_weather_station.db` al arrancar Flask por primera vez.
 
 ### Esquema
 
@@ -362,7 +362,7 @@ CREATE INDEX idx_timestamp ON home_weather_station(timestamp);
 
 ```bash
 # Abrir la DB
-sqlite3 new_version_meteo/home_weather_station.db
+sqlite3 backend/home_weather_station.db
 
 # Últimos 5 registros
 SELECT * FROM home_weather_station ORDER BY timestamp DESC LIMIT 5;

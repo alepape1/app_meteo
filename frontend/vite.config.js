@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 
-// Lee el puerto de new_version_meteo/.env (fuente única de verdad)
+// Lee el puerto de backend/.env (fuente única de verdad)
 function loadFlaskEnv() {
-  const envPath = path.resolve(__dirname, '../new_version_meteo/.env')
+  const envPath = path.resolve(__dirname, '../backend/.env')
   const defaults = { FLASK_HOST: '127.0.0.1', FLASK_PORT: '7000' }
   try {
     const lines = fs.readFileSync(envPath, 'utf-8').split('\n')
