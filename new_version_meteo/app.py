@@ -1,8 +1,12 @@
 from flask import Flask, g, render_template, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+import os
 import sqlite3
 import logging
 from database import get_db_connection, create_tables
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
@@ -227,4 +231,6 @@ with app.app_context():
     conn.close()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_PORT", 7000))
+    app.run(host=host, port=port, debug=False)
