@@ -17,12 +17,9 @@ if not exist "%BACKEND%\.env" (
     copy "%BACKEND%\.env.example" "%BACKEND%\.env" >nul
 )
 
-REM --- Instalar dependencias Python si faltan ---
-python -c "import flask" 2>nul
-if errorlevel 1 (
-    echo  Instalando dependencias Python...
-    pip install -r "%BACKEND%\requirements.txt"
-)
+REM --- Instalar dependencias Python ---
+echo  Verificando dependencias Python...
+pip install -q -r "%BACKEND%\requirements.txt"
 
 REM --- Instalar dependencias Node si faltan ---
 if not exist "%FRONTEND%\node_modules" (
