@@ -36,7 +36,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) != 8:
+        if len(parts) != 9:
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -46,15 +46,16 @@ def parse_message_data(message):
 def rows_to_dict(rows):
     """Convierte filas de DB al formato esperado por los gráficos."""
     return {
-        "timestamp":            [r[9] for r in rows],
-        "temperature":          [r[1] for r in rows],
-        "temperature_bar":      [r[2] for r in rows],
-        "humidity":             [r[3] for r in rows],
-        "pressure":             [r[4] for r in rows],
-        "windSpeed":            [r[5] for r in rows],
-        "windDirection":        [r[6] for r in rows],
-        "windSpeedFiltered":    [r[7] for r in rows],
-        "windDirectionFiltered":[r[8] for r in rows],
+        "timestamp":            [r[10] for r in rows],
+        "temperature":          [r[1]  for r in rows],
+        "temperature_bar":      [r[2]  for r in rows],
+        "humidity":             [r[3]  for r in rows],
+        "pressure":             [r[4]  for r in rows],
+        "windSpeed":            [r[5]  for r in rows],
+        "windDirection":        [r[6]  for r in rows],
+        "windSpeedFiltered":    [r[7]  for r in rows],
+        "windDirectionFiltered":[r[8]  for r in rows],
+        "light":                [r[9]  for r in rows],
     }
 
 
@@ -105,15 +106,16 @@ def send_message():
     data = parse_message_data(message)
     if data is None:
         logger.warning("Mensaje inválido descartado: %s", message)
-        return "Error: se esperan exactamente 8 valores separados por coma", 400
+        return "Error: se esperan exactamente 9 valores separados por coma", 400
 
     db = get_db()
     cursor = db.cursor()
     cursor.execute("""
         INSERT INTO home_weather_station(
             temperature, pressure, temperature_barometer, humidity,
-            windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
+            light
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, tuple(data))
     db.commit()
     cursor.close()

@@ -26,11 +26,18 @@ def create_tables(conn):
         windDirection REAL,
         windSpeedFiltered REAL,
         windDirectionFiltered REAL,
+        light REAL DEFAULT 0,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_timestamp ON home_weather_station(timestamp);
     """)
+    # Migración: añadir columna light si la tabla ya existía sin ella
+    try:
+        cursor.execute("ALTER TABLE home_weather_station ADD COLUMN light REAL DEFAULT 0;")
+        conn.commit()
+    except Exception:
+        pass  # La columna ya existe
     conn.commit()
     cursor.close()
