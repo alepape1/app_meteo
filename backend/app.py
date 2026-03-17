@@ -46,16 +46,16 @@ def parse_message_data(message):
 def rows_to_dict(rows):
     """Convierte filas de DB al formato esperado por los gráficos."""
     return {
-        "timestamp":            [r[10] for r in rows],
-        "temperature":          [r[1]  for r in rows],
-        "temperature_bar":      [r[2]  for r in rows],
-        "humidity":             [r[3]  for r in rows],
-        "pressure":             [r[4]  for r in rows],
-        "windSpeed":            [r[5]  for r in rows],
-        "windDirection":        [r[6]  for r in rows],
-        "windSpeedFiltered":    [r[7]  for r in rows],
-        "windDirectionFiltered":[r[8]  for r in rows],
-        "light":                [r[9]  for r in rows],
+        "timestamp":             [r["timestamp"]             for r in rows],
+        "temperature":           [r["temperature"]           for r in rows],
+        "temperature_bar":       [r["temperature_barometer"] for r in rows],
+        "humidity":              [r["humidity"]              for r in rows],
+        "pressure":              [r["pressure"]              for r in rows],
+        "windSpeed":             [r["windSpeed"]             for r in rows],
+        "windDirection":         [r["windDirection"]         for r in rows],
+        "windSpeedFiltered":     [r["windSpeedFiltered"]     for r in rows],
+        "windDirectionFiltered": [r["windDirectionFiltered"] for r in rows],
+        "light":                 [r["light"]                 for r in rows],
     }
 
 
