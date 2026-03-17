@@ -4,6 +4,7 @@ const EMPTY = {
   timestamp: [], temperature: [], temperature_bar: [], humidity: [],
   pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
   windDirectionFiltered: [], light: [],
+  dht_temperature: [], dht_humidity: [],
 }
 
 export function useWeatherData() {

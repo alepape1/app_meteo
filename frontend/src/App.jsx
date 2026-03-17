@@ -110,14 +110,18 @@ export default function App() {
               series={[
                 { name: 'MCP9808 (ext)', data: data.temperature },
                 { name: 'HTU2x (int)',   data: data.temperature_bar },
+                { name: 'DHT11',         data: data.dht_temperature },
               ]}
-              colors={['#ef4444', '#f97316']}
+              colors={['#ef4444', '#f97316', '#a855f7']}
               yUnit="°C" type="area"
             />
             <WeatherChart
               title="Humedad Relativa" icon={Droplets} timestamps={ts}
-              series={[{ name: 'HTU2x', data: data.humidity }]}
-              colors={['#3b82f6']}
+              series={[
+                { name: 'HTU2x', data: data.humidity },
+                { name: 'DHT11', data: data.dht_humidity },
+              ]}
+              colors={['#3b82f6', '#a855f7']}
               yUnit="%" yMin={0} yMax={100} type="area"
             />
             <WeatherChart

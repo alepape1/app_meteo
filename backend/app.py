@@ -36,7 +36,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) != 9:
+        if len(parts) not in (9, 11):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -56,6 +56,8 @@ def rows_to_dict(rows):
         "windSpeedFiltered":     [r["windSpeedFiltered"]     for r in rows],
         "windDirectionFiltered": [r["windDirectionFiltered"] for r in rows],
         "light":                 [r["light"]                 for r in rows],
+        "dht_temperature":       [r["dht_temperature"]       for r in rows],
+        "dht_humidity":          [r["dht_humidity"]          for r in rows],
     }
 
 
@@ -106,7 +108,10 @@ def send_message():
     data = parse_message_data(message)
     if data is None:
         logger.warning("Mensaje inválido descartado: %s", message)
-        return "Error: se esperan exactamente 9 valores separados por coma", 400
+        return "Error: se esperan 9 u 11 valores separados por coma", 400
+
+    dht_temp = data[9] if len(data) == 11 else None
+    dht_hum  = data[10] if len(data) == 11 else None
 
     db = get_db()
     cursor = db.cursor()
@@ -114,9 +119,9 @@ def send_message():
         INSERT INTO home_weather_station(
             temperature, pressure, temperature_barometer, humidity,
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
-            light
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, tuple(data))
+            light, dht_temperature, dht_humidity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, tuple(data[:9]) + (dht_temp, dht_hum))
     db.commit()
     cursor.close()
 
