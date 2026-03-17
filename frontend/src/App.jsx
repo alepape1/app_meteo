@@ -1,4 +1,4 @@
-import { Thermometer, Droplets, Gauge, Wind, Compass, RefreshCw, Satellite, AlertCircle, Wifi, WifiOff } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Satellite, AlertCircle, Wifi, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
@@ -108,23 +108,29 @@ export default function App() {
             <WeatherChart
               title="Temperatura" icon={Thermometer} timestamps={ts}
               series={[
-                { name: 'Ambiente',   data: data.temperature },
-                { name: 'Barómetro', data: data.temperature_bar },
+                { name: 'MCP9808 (ext)', data: data.temperature },
+                { name: 'HTU2x (int)',   data: data.temperature_bar },
               ]}
               colors={['#ef4444', '#f97316']}
               yUnit="°C" type="area"
             />
             <WeatherChart
+              title="Humedad Relativa" icon={Droplets} timestamps={ts}
+              series={[{ name: 'HTU2x', data: data.humidity }]}
+              colors={['#3b82f6']}
+              yUnit="%" yMin={0} yMax={100} type="area"
+            />
+            <WeatherChart
               title="Presión Atmosférica" icon={Gauge} timestamps={ts}
               series={[{ name: 'Presión', data: data.pressure }]}
               colors={['#10b981']}
-              yUnit=" hPa" type="area"
+              yUnit=" kPa" type="area"
             />
             <WeatherChart
-              title="Humedad Relativa" icon={Droplets} timestamps={ts}
-              series={[{ name: 'Humedad', data: data.humidity }]}
-              colors={['#3b82f6']}
-              yUnit="%" yMin={0} yMax={100} type="area"
+              title="Luz Ambiente" icon={Sun} timestamps={ts}
+              series={[{ name: 'Lux', data: data.light }]}
+              colors={['#eab308']}
+              yUnit=" lx" yMin={0} type="area"
             />
             <WeatherChart
               title="Velocidad del Viento" icon={Wind} timestamps={ts}
@@ -143,12 +149,6 @@ export default function App() {
               ]}
               colors={['#8b5cf6', '#a78bfa']}
               yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
-            />
-            <WeatherChart
-              title="Temperatura Barómetro" icon={Thermometer} timestamps={ts}
-              series={[{ name: 'Temp. barómetro', data: data.temperature_bar }]}
-              colors={['#f97316']}
-              yUnit="°C" type="area"
             />
           </div>
 

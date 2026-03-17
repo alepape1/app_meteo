@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 const EMPTY = {
   timestamp: [], temperature: [], temperature_bar: [], humidity: [],
   pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
-  windDirectionFiltered: [],
+  windDirectionFiltered: [], light: [],
 }
 
 export function useWeatherData() {
