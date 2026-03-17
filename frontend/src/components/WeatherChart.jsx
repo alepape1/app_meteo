@@ -1,8 +1,9 @@
 import ReactApexChart from 'react-apexcharts'
 
 function toMs(t) {
-  if (!t) return null
-  return new Date(t.replace(' ', 'T')).getTime()
+  if (t == null) return null
+  if (typeof t === 'number') return t
+  return new Date(String(t).replace(' ', 'T')).getTime()
 }
 
 function buildSeries(series, timestamps) {
