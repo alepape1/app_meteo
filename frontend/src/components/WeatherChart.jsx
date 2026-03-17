@@ -10,7 +10,7 @@ function buildSeries(series, timestamps) {
   const msTs = timestamps.map(toMs)
   return series.map(s => ({
     name: s.name,
-    data: s.data.map((y, i) => ({ x: msTs[i], y: y != null ? Number(y.toFixed(2)) : null })),
+    data: (s.data ?? []).map((y, i) => ({ x: msTs[i], y: y != null ? Number(y.toFixed(2)) : null })),
   }))
 }
 
