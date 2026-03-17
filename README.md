@@ -16,8 +16,8 @@ El microcontrolador recoge datos de los sensores y los envía por HTTP al servid
 - [Simulador (sin hardware)](#simulador-sin-hardware)
 - [API endpoints](#api-endpoints)
 - [Formato de datos del ESP](#formato-de-datos-del-esp)
-- [Despliegue en producción](#despliegue-en-producción)
 - [Base de datos](#base-de-datos)
+- [Despliegue en producción](#despliegue-en-producción)
 
 ---
 
@@ -36,11 +36,12 @@ app_meteo/
 │
 ├── frontend/                   # Frontend React (activo)
 │   ├── src/
-│   │   ├── App.jsx             # Layout principal y composición
+│   │   ├── App.jsx             # Layout principal, navegación entre vistas
 │   │   ├── components/
-│   │   │   ├── Sidebar.jsx     # Sidebar con selector de muestras y fechas
+│   │   │   ├── Sidebar.jsx     # Sidebar con navegación, selector y filtros
 │   │   │   ├── StatCard.jsx    # Cards con valor actual, min y max
-│   │   │   └── WeatherChart.jsx# Gráficos ApexCharts con eje datetime
+│   │   │   ├── WeatherChart.jsx# Gráficos ApexCharts con eje datetime
+│   │   │   └── DeviceStatus.jsx# Vista de estado del ESP32 (señal, heap, info)
 │   │   ├── hooks/
 │   │   │   └── useWeatherData.js # Hook: fetching, estado y auto-refresco
 │   │   └── index.css           # Tailwind + fuente Inter
@@ -61,27 +62,48 @@ app_meteo/
 | Backend API | Python 3, Flask, flask-cors, python-dotenv, SQLite3 |
 | Servidor producción | Gunicorn |
 | Frontend | React 18, Vite, Tailwind CSS 3, ApexCharts, Lucide React |
-| Hardware ESP32 | MCP9808 · HTU2x · SparkFun MicroPressure · APDS-9930/TSL2584 · anemómetro/veleta |
-| Hardware ESP8266 | HTU2x · APDS-9930/TSL2584 · anemómetro (sin veleta ni pantalla) |
+| Hardware ESP32 | MCP9808 · HTU2x · SparkFun MicroPressure · APDS-9930/TSL2584 · DHT11 · anemómetro · veleta |
+| Hardware ESP8266 | HTU2x · APDS-9930/TSL2584 · DHT11 · anemómetro (sin veleta ni pantalla) |
 | Despliegue | Raspberry Pi / PC en red local |
 
 ---
 
 ## Datos que recoge la estación
 
+### Datos ambientales (CSV periódico, cada 20 s)
+
 | Campo | Unidad | Sensor | Descripción |
 |-------|--------|--------|-------------|
 | `temperature` | °C | MCP9808 (0x19) | Temperatura exterior principal |
-| `temperature_bar` | °C | HTU2x (0x40) | Temperatura del sensor de humedad |
+| `temperature_bar` | °C | HTU2x (0x40) | Temperatura interior (sensor T+H) |
 | `humidity` | % | HTU2x (0x40) | Humedad relativa |
-| `pressure` | kPa | SparkFun MicroPressure | Presión atmosférica |
-| `windSpeed` | m/s | Anemómetro (ADC) | Velocidad del viento cruda |
-| `windDirection` | ° | Veleta (ADC, solo ESP32) | Dirección cruda 0–360° |
+| `pressure` | kPa* | SparkFun MicroPressure (0x18) | Presión atmosférica |
+| `windSpeed` | m/s | Anemómetro (ADC) | Velocidad instantánea |
+| `windDirection` | ° | Veleta (ADC, solo ESP32) | Dirección instantánea 0–360° |
 | `windSpeedFiltered` | m/s | — | Velocidad filtrada (media móvil 10) |
 | `windDirectionFiltered` | ° | — | Dirección filtrada (promedio vectorial) |
-| `light` | lux | APDS-9930/TSL2584 (0x39) | Luz ambiente |
+| `light` | lux | APDS-9930 / TSL2584 (0x39) | Luz ambiente |
+| `dht_temperature` | °C | DHT11 | Temperatura secundaria |
+| `dht_humidity` | % | DHT11 | Humedad secundaria |
+| `rssi` | dBm | WiFi ESP | Intensidad de señal WiFi |
+| `free_heap` | bytes | ESP32 | Memoria heap libre |
+| `uptime_s` | s | ESP32 | Segundos desde el arranque |
 
-> **Nota:** La presión se almacena en kPa (~101.3). El dashboard la muestra tal cual con la etiqueta "hPa" por compatibilidad — pendiente corregir en firmware.
+> *La presión se almacena en kPa (~101.3). Pendiente corregir a hPa en firmware.
+
+### Info estática del dispositivo (al arrancar)
+
+Guardada en la tabla `device_info` vía `POST /api/device_info`:
+
+| Campo | Descripción |
+|-------|-------------|
+| `chip_model` | Modelo del chip (ej. ESP32-D0WDQ6) |
+| `chip_revision` | Revisión del chip (ej. 101 = v1.1) |
+| `cpu_freq_mhz` | Frecuencia CPU en MHz |
+| `flash_size_mb` | Tamaño de flash en MB |
+| `sdk_version` | Versión del SDK de Espressif |
+| `mac_address` | Dirección MAC WiFi |
+| `ip_address` | IP asignada por DHCP |
 
 ---
 
@@ -98,10 +120,8 @@ app_meteo/
 git clone https://github.com/alepape1/app_meteo.git
 cd app_meteo
 
-# Crear .env desde la plantilla
 cp backend/.env.example backend/.env
 
-# Instalar dependencias
 pip install -r backend/requirements.txt
 ```
 
@@ -158,7 +178,7 @@ Ambos scripts instalan dependencias si faltan, y arrancan backend y frontend aut
 
 ## Simulador (sin hardware)
 
-El simulador genera datos meteorológicos realistas (temperatura, humedad, presión, viento y luz) y los envía al servidor Flask igual que haría el ESP.
+El simulador genera datos meteorológicos realistas y los envía al servidor Flask igual que haría el ESP.
 
 ```bash
 python backend/simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
@@ -185,22 +205,25 @@ python backend/simulator.py --interval 0.05 --count 500
 | `GET` | `/` | Dashboard HTML legacy |
 | `GET` | `/descargar/<N>` | Dashboard HTML con los últimos N registros |
 | `GET` | `/average/<N>` | Dashboard HTML con el promedio de N registros |
-| `POST` | `/send_message` | Recibe datos del ESP en formato CSV (9 valores) |
+| `POST` | `/send_message` | Recibe datos del ESP en formato CSV (9, 11 u 14 valores) |
 | `GET` | `/api/muestras/<N>` | Últimas N muestras en JSON |
 | `POST` | `/api/filtrar` | Filtra por rango de fechas, devuelve JSON |
-| `GET` | `/api/latest` | Último registro en JSON (auto-refresco cada 60s) |
+| `GET` | `/api/latest` | Último registro en JSON (auto-refresco cada 60 s) |
+| `POST` | `/api/device_info` | El ESP envía info estática del chip al arrancar |
+| `GET` | `/api/device_info` | Devuelve la info estática del dispositivo |
 
 ### `POST /send_message`
 
-Cuerpo en texto plano, exactamente **9 valores** separados por coma:
+Cuerpo en texto plano. Acepta **9, 11 u 14 valores** separados por coma (retrocompatible con versiones anteriores del firmware):
 
 ```
-temperature,pressure,temperature_bar,humidity,windSpeed,windDirection,windSpeedFiltered,windDirectionFiltered,light
+temperature,pressure,temperature_bar,humidity,windSpeed,windDirection,
+windSpeedFiltered,windDirectionFiltered,light[,dht_temp,dht_hum[,rssi,free_heap,uptime_s]]
 ```
 
-Ejemplo:
+Ejemplo (14 campos, firmware v3 completo):
 ```
-23.25,101.35,22.06,81.34,0.00,0.00,0.00,0.00,1.39
+25.31,101.14,23.01,69.33,0.00,0.00,0.00,0.00,0.48,25.00,15.00,-62,142256,120
 ```
 
 ### `POST /api/filtrar`
@@ -209,39 +232,102 @@ Ejemplo:
 { "start_date": "2026-01-01 00:00:00", "end_date": "2026-01-31 23:59:59" }
 ```
 
-### Respuesta JSON estándar
+### Respuesta JSON estándar (`/api/muestras`, `/api/filtrar`, `/api/latest`)
 
 ```json
 {
-  "timestamp":             ["2026-03-17 01:18:11", "..."],
-  "temperature":           [23.25],
-  "temperature_bar":       [22.06],
-  "humidity":              [81.34],
-  "pressure":              [101.35],
+  "timestamp":             ["2026-03-17 18:56:32", "..."],
+  "temperature":           [25.31],
+  "temperature_bar":       [23.01],
+  "humidity":              [69.33],
+  "pressure":              [101.14],
   "windSpeed":             [0.0],
   "windDirection":         [0.0],
   "windSpeedFiltered":     [0.0],
   "windDirectionFiltered": [0.0],
-  "light":                 [1.39]
+  "light":                 [0.48],
+  "dht_temperature":       [25.0],
+  "dht_humidity":          [15.0],
+  "rssi":                  [-62],
+  "free_heap":             [142256],
+  "uptime_s":              [120]
+}
+```
+
+### `GET /api/device_info`
+
+```json
+{
+  "id": 1,
+  "chip_model": "ESP32-D0WDQ6",
+  "chip_revision": 101,
+  "cpu_freq_mhz": 240,
+  "flash_size_mb": 16,
+  "sdk_version": "v5.5.2-729-g87912cd291",
+  "mac_address": "88:13:BF:FD:A2:38",
+  "ip_address": "192.168.1.13",
+  "last_seen": "2026-03-17 18:56:30"
 }
 ```
 
 ---
 
-## Formato de datos del ESP
+## Base de datos
 
-El ESP envía HTTP POST a `/send_message` con 9 valores CSV:
+La base de datos SQLite se crea automáticamente en `backend/home_weather_station.db`.
 
-```cpp
-String msg = String(temperatureMCP, 2)    + "," +
-             String(pressure, 2)          + "," +
-             String(temperatureDHT, 2)    + "," +
-             String(humidity, 2)          + "," +
-             String(windSpeed, 2)         + "," +
-             String(currentWindDirDeg, 2) + "," +
-             String(windSpeedFiltered, 2) + "," +
-             String(finalAvgWindDir, 2)   + "," +
-             String(lightLevel, 2);
+### Esquema
+
+```sql
+CREATE TABLE home_weather_station (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    temperature             REAL,
+    temperature_barometer   REAL,
+    humidity                REAL,
+    pressure                REAL,
+    windSpeed               REAL,
+    windDirection           REAL,
+    windSpeedFiltered       REAL,
+    windDirectionFiltered   REAL,
+    light                   REAL DEFAULT 0,
+    dht_temperature         REAL,
+    dht_humidity            REAL,
+    rssi                    INTEGER,
+    free_heap               INTEGER,
+    uptime_s                INTEGER,
+    timestamp               DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE device_info (
+    id              INTEGER PRIMARY KEY,   -- siempre 1 (un solo dispositivo)
+    chip_model      TEXT,
+    chip_revision   INTEGER,
+    cpu_freq_mhz    INTEGER,
+    flash_size_mb   INTEGER,
+    sdk_version     TEXT,
+    mac_address     TEXT,
+    ip_address      TEXT,
+    last_seen       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_timestamp ON home_weather_station(timestamp);
+```
+
+> `database.py` aplica migraciones automáticas al arrancar para añadir columnas nuevas a bases de datos existentes.
+
+### Consultas útiles
+
+```bash
+sqlite3 backend/home_weather_station.db
+
+-- Últimos 5 registros
+SELECT timestamp, temperature, humidity, rssi, free_heap FROM home_weather_station ORDER BY timestamp DESC LIMIT 5;
+
+-- Info del dispositivo
+SELECT * FROM device_info;
+
+-- Promedio de temperatura de hoy
+SELECT AVG(temperature) FROM home_weather_station WHERE DATE(timestamp) = DATE('now');
 ```
 
 ---
@@ -279,53 +365,11 @@ sudo systemctl start meteostation
 
 ### Configuración de red (Flask en WSL, ESP en red local)
 
-Flask en WSL no es accesible directamente desde la red. Solución con port forwarding en PowerShell (admin):
+Con WSL2 `networkingMode=mirrored` (`C:\Users\<usuario>\.wslconfig`), WSL y Windows comparten la misma IP. El ESP puede conectar directamente a esa IP en el puerto 7000.
 
-```powershell
-netsh interface portproxy add v4tov4 listenport=7000 listenaddress=0.0.0.0 connectport=7000 connectaddress=$(wsl hostname -I)
+```ini
+[wsl2]
+networkingMode=mirrored
 ```
 
-En `secrets.h` del firmware usar la **IP WiFi de Windows**, no la de WSL. La IP de WSL puede cambiar al reiniciar — ejecutar `hostname -I` en WSL para obtenerla.
-
----
-
-## Base de datos
-
-La base de datos SQLite se crea automáticamente en `backend/home_weather_station.db`.
-
-### Esquema
-
-```sql
-CREATE TABLE home_weather_station (
-    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-    temperature             REAL,
-    temperature_barometer   REAL,
-    humidity                REAL,
-    pressure                REAL,
-    windSpeed               REAL,
-    windDirection           REAL,
-    windSpeedFiltered       REAL,
-    windDirectionFiltered   REAL,
-    light                   REAL DEFAULT 0,
-    timestamp               DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_timestamp ON home_weather_station(timestamp);
-```
-
-> Si la tabla existía sin la columna `light` (antes de 2026-03-17), `database.py` la añade automáticamente con `ALTER TABLE` al arrancar.
-
-### Consultas útiles
-
-```bash
-sqlite3 backend/home_weather_station.db
-
-# Últimos 5 registros
-SELECT * FROM home_weather_station ORDER BY timestamp DESC LIMIT 5;
-
-# Total de registros
-SELECT COUNT(*) FROM home_weather_station;
-
-# Promedio de temperatura de hoy
-SELECT AVG(temperature) FROM home_weather_station
-WHERE DATE(timestamp) = DATE('now');
-```
+Tras editar: `wsl --shutdown` y reabrir WSL.

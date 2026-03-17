@@ -1,8 +1,10 @@
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Satellite, AlertCircle, Wifi, WifiOff } from 'lucide-react'
+import { useState } from 'react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Satellite, Wifi, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
 import Sidebar from './components/Sidebar'
+import DeviceStatus from './components/DeviceStatus'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -15,7 +17,13 @@ function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
 
 export default function App() {
-  const { data, latest, loading, lastUpdate, error, fetchSamples, fetchFiltered } = useWeatherData()
+  const { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo } = useWeatherData()
+  const [activeView, setActiveView] = useState('dashboard')
+
+  const handleViewChange = (view) => {
+    setActiveView(view)
+    if (view === 'device') fetchDeviceInfo()
+  }
   const ts = data.timestamp
 
   return (
@@ -25,6 +33,8 @@ export default function App() {
         onFetchFiltered={fetchFiltered}
         loading={loading}
         sampleCount={ts.length}
+        activeView={activeView}
+        onViewChange={handleViewChange}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -67,7 +77,10 @@ export default function App() {
         </header>
 
         {/* ── Main content ── */}
-        <main className="flex-1 overflow-y-auto p-5 space-y-5">
+        {activeView === 'device' && (
+          <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />
+        )}
+        <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'device' ? 'hidden' : ''}`}>
 
           {/* Stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">

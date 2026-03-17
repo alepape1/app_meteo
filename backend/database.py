@@ -15,7 +15,7 @@ def get_db_connection():
 
 def create_tables(conn):
     cursor = conn.cursor()
-    
+
     # Esta sentencia solo crea la tabla si no existe. Es más segura y limpia.
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS home_weather_station(
@@ -31,17 +31,37 @@ def create_tables(conn):
         light REAL DEFAULT 0,
         dht_temperature REAL,
         dht_humidity REAL,
+        rssi INTEGER,
+        free_heap INTEGER,
+        uptime_s INTEGER,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_timestamp ON home_weather_station(timestamp);
     """)
+    # Tabla de información estática del dispositivo (una fila, id=1)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS device_info(
+        id INTEGER PRIMARY KEY,
+        chip_model TEXT,
+        chip_revision INTEGER,
+        cpu_freq_mhz INTEGER,
+        flash_size_mb INTEGER,
+        sdk_version TEXT,
+        mac_address TEXT,
+        ip_address TEXT,
+        last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     # Migraciones: añadir columnas nuevas si la tabla ya existía sin ellas
     for migration in [
         "ALTER TABLE home_weather_station ADD COLUMN light REAL DEFAULT 0;",
         "ALTER TABLE home_weather_station ADD COLUMN dht_temperature REAL;",
         "ALTER TABLE home_weather_station ADD COLUMN dht_humidity REAL;",
+        "ALTER TABLE home_weather_station ADD COLUMN rssi INTEGER;",
+        "ALTER TABLE home_weather_station ADD COLUMN free_heap INTEGER;",
+        "ALTER TABLE home_weather_station ADD COLUMN uptime_s INTEGER;",
     ]:
         try:
             cursor.execute(migration)

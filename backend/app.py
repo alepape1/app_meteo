@@ -36,7 +36,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) not in (9, 11):
+        if len(parts) not in (9, 11, 14):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -58,6 +58,9 @@ def rows_to_dict(rows):
         "light":                 [r["light"]                 for r in rows],
         "dht_temperature":       [r["dht_temperature"]       for r in rows],
         "dht_humidity":          [r["dht_humidity"]          for r in rows],
+        "rssi":                  [r["rssi"]                  for r in rows],
+        "free_heap":             [r["free_heap"]             for r in rows],
+        "uptime_s":              [r["uptime_s"]              for r in rows],
     }
 
 
@@ -108,10 +111,13 @@ def send_message():
     data = parse_message_data(message)
     if data is None:
         logger.warning("Mensaje inválido descartado: %s", message)
-        return "Error: se esperan 9 u 11 valores separados por coma", 400
+        return "Error: se esperan 9, 11 u 14 valores separados por coma", 400
 
-    dht_temp = data[9] if len(data) == 11 else None
-    dht_hum  = data[10] if len(data) == 11 else None
+    dht_temp  = data[9]  if len(data) >= 11 else None
+    dht_hum   = data[10] if len(data) >= 11 else None
+    rssi      = int(data[11]) if len(data) == 14 else None
+    free_heap = int(data[12]) if len(data) == 14 else None
+    uptime_s  = int(data[13]) if len(data) == 14 else None
 
     db = get_db()
     cursor = db.cursor()
@@ -119,9 +125,10 @@ def send_message():
         INSERT INTO home_weather_station(
             temperature, pressure, temperature_barometer, humidity,
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
-            light, dht_temperature, dht_humidity
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, tuple(data[:9]) + (dht_temp, dht_hum))
+            light, dht_temperature, dht_humidity,
+            rssi, free_heap, uptime_s
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s))
     db.commit()
     cursor.close()
 
@@ -213,6 +220,45 @@ def api_muestras(n):
     rows = cursor.fetchall()
     cursor.close()
     return jsonify(rows_to_dict(rows))
+
+
+@app.route("/api/device_info", methods=["POST"])
+def post_device_info():
+    payload = request.get_json(silent=True)
+    if not payload:
+        return "JSON inválido", 400
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO device_info(
+            id, chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
+            sdk_version, mac_address, ip_address, last_seen
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """, (
+        payload.get("chip_model"),
+        payload.get("chip_revision"),
+        payload.get("cpu_freq_mhz"),
+        payload.get("flash_size_mb"),
+        payload.get("sdk_version"),
+        payload.get("mac_address"),
+        payload.get("ip_address"),
+    ))
+    db.commit()
+    cursor.close()
+    logger.info("DeviceInfo actualizado: %s", payload.get("chip_model"))
+    return "OK", 200
+
+
+@app.route("/api/device_info", methods=["GET"])
+def get_device_info():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM device_info WHERE id = 1")
+    row = cursor.fetchone()
+    cursor.close()
+    if not row:
+        return jsonify({}), 200
+    return jsonify(dict(row))
 
 
 @app.route("/api/latest")

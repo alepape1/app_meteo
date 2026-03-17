@@ -5,6 +5,7 @@ const EMPTY = {
   pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
   windDirectionFiltered: [], light: [],
   dht_temperature: [], dht_humidity: [],
+  rssi: [], free_heap: [], uptime_s: [],
 }
 
 export function useWeatherData() {
@@ -12,6 +13,7 @@ export function useWeatherData() {
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [error, setError] = useState(null)
+  const [deviceInfo, setDeviceInfo] = useState(null)
 
   const applyData = (json) => {
     setData(json)
@@ -61,8 +63,18 @@ export function useWeatherData() {
     } catch (_) {}
   }, [])
 
+  const fetchDeviceInfo = useCallback(async () => {
+    try {
+      const res = await fetch('/api/device_info')
+      if (!res.ok) return
+      const json = await res.json()
+      if (Object.keys(json).length > 0) setDeviceInfo(json)
+    } catch (_) {}
+  }, [])
+
   // Carga inicial
   useEffect(() => { fetchSamples(150) }, [fetchSamples])
+  useEffect(() => { fetchDeviceInfo() }, [fetchDeviceInfo])
 
   // Auto-refresco cada 60s
   useEffect(() => {
@@ -71,13 +83,16 @@ export function useWeatherData() {
   }, [refresh])
 
   const latest = {
-    temperature:    data.temperature.at(-1),
+    temperature:     data.temperature.at(-1),
     temperature_bar: data.temperature_bar.at(-1),
-    humidity:       data.humidity.at(-1),
-    pressure:       data.pressure.at(-1),
-    windSpeed:      data.windSpeed.at(-1),
-    windDirection:  data.windDirection.at(-1),
+    humidity:        data.humidity.at(-1),
+    pressure:        data.pressure.at(-1),
+    windSpeed:       data.windSpeed.at(-1),
+    windDirection:   data.windDirection.at(-1),
+    rssi:            data.rssi.at(-1),
+    free_heap:       data.free_heap.at(-1),
+    uptime_s:        data.uptime_s.at(-1),
   }
 
-  return { data, latest, loading, lastUpdate, error, fetchSamples, fetchFiltered }
+  return { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo }
 }

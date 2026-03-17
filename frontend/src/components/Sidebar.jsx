@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   SatelliteDish, BarChart2, Search, ChevronLeft, ChevronRight,
-  Calendar, Hash, Zap
+  Calendar, Hash, Zap, Cpu, LayoutDashboard
 } from 'lucide-react'
 
 const fmt = d => {
@@ -20,7 +20,7 @@ const PRESETS = [
   { label: '30d',    getDates: () => { const d=new Date(); d.setDate(d.getDate()-30); d.setHours(0,0,0,0); return [d, new Date()] } },
 ]
 
-export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, sampleCount }) {
+export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, sampleCount, activeView, onViewChange }) {
   const [collapsed, setCollapsed] = useState(false)
   const [samples, setSamples]     = useState(150)
   const [activePreset, setActivePreset] = useState(null)
@@ -72,6 +72,30 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
           className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800 ml-auto transition-colors"
         >
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+        </button>
+      </div>
+
+      {/* Navegación de vistas */}
+      <div className={`px-3 py-3 border-b border-slate-800 flex ${collapsed ? 'flex-col' : 'flex-row'} gap-1.5`}>
+        <button
+          onClick={() => onViewChange('dashboard')}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex-1 justify-center
+            ${activeView === 'dashboard'
+              ? 'bg-cyan-500 text-slate-900'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <LayoutDashboard size={14} />
+          {!collapsed && 'Dashboard'}
+        </button>
+        <button
+          onClick={() => onViewChange('device')}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex-1 justify-center
+            ${activeView === 'device'
+              ? 'bg-cyan-500 text-slate-900'
+              : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+        >
+          <Cpu size={14} />
+          {!collapsed && 'Estado ESP32'}
         </button>
       </div>
 
