@@ -3,9 +3,7 @@ import ReactApexChart from 'react-apexcharts'
 function toMs(t) {
   if (t == null) return null
   if (typeof t === 'number') return t
-  // SQLite CURRENT_TIMESTAMP es UTC → añadir 'Z' para parsearlo correctamente
-  const iso = String(t).replace(' ', 'T')
-  return new Date(iso.endsWith('Z') ? iso : iso + 'Z').getTime()
+  return new Date(String(t).replace(' ', 'T')).getTime()
 }
 
 function buildSeries(series, timestamps) {
