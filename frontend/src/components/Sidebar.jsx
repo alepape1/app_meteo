@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  SatelliteDish, BarChart2, Search, ChevronLeft, ChevronRight,
-  Calendar, Hash, Zap, Cpu, LayoutDashboard
+  BarChart2, Search, ChevronLeft, ChevronRight,
+  Calendar, Hash, Zap, Cpu, LayoutDashboard, Droplets, Radio
 } from 'lucide-react'
 
 const fmt = d => {
@@ -14,10 +14,17 @@ const toInputVal = d => {
 }
 
 const PRESETS = [
-  { label: 'Hoy',    getDates: () => { const d=new Date(); d.setHours(0,0,0,0); const e=new Date(); e.setHours(23,59,59,0); return [d,e] } },
-  { label: 'Ayer',   getDates: () => { const d=new Date(); d.setDate(d.getDate()-1); d.setHours(0,0,0,0); const e=new Date(d); e.setHours(23,59,59,0); return [d,e] } },
-  { label: '7d',     getDates: () => { const d=new Date(); d.setDate(d.getDate()-7); d.setHours(0,0,0,0); return [d, new Date()] } },
-  { label: '30d',    getDates: () => { const d=new Date(); d.setDate(d.getDate()-30); d.setHours(0,0,0,0); return [d, new Date()] } },
+  { label: 'Hoy',  getDates: () => { const d=new Date(); d.setHours(0,0,0,0); const e=new Date(); e.setHours(23,59,59,0); return [d,e] } },
+  { label: 'Ayer', getDates: () => { const d=new Date(); d.setDate(d.getDate()-1); d.setHours(0,0,0,0); const e=new Date(d); e.setHours(23,59,59,0); return [d,e] } },
+  { label: '7d',   getDates: () => { const d=new Date(); d.setDate(d.getDate()-7); d.setHours(0,0,0,0); return [d, new Date()] } },
+  { label: '30d',  getDates: () => { const d=new Date(); d.setDate(d.getDate()-30); d.setHours(0,0,0,0); return [d, new Date()] } },
+]
+
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Meteorología', icon: LayoutDashboard },
+  { id: 'riego',     label: 'Riego',        icon: Droplets },
+  { id: 'nodos',     label: 'Nodos LoRa',   icon: Radio },
+  { id: 'device',    label: 'ESP32',        icon: Cpu },
 ]
 
 export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, sampleCount, activeView, onViewChange }) {
@@ -25,7 +32,7 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
   const [samples, setSamples]     = useState(150)
   const [activePreset, setActivePreset] = useState(null)
 
-  const now  = new Date()
+  const now     = new Date()
   const midnight = new Date(); midnight.setHours(0,0,0,0)
   const [startDt, setStartDt] = useState(toInputVal(midnight))
   const [endDt,   setEndDt]   = useState(toInputVal(now))
@@ -46,65 +53,81 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
 
   const handleFilter = () => {
     setActivePreset(null)
-    const s = new Date(startDt)
-    const e = new Date(endDt)
-    onFetchFiltered(fmt(s), fmt(e))
+    onFetchFiltered(fmt(new Date(startDt)), fmt(new Date(endDt)))
   }
 
   return (
-    <aside className={`${collapsed ? 'w-16' : 'w-72'} bg-slate-900 flex flex-col transition-all duration-200 shrink-0 border-r border-slate-800`}>
+    <aside className={`${collapsed ? 'w-16' : 'w-72'} bg-navy-900 flex flex-col transition-all duration-200 shrink-0 border-r border-navy-800`}>
 
-      {/* Logo */}
-      <div className="flex items-center justify-between px-4 py-5 border-b border-slate-800">
+      {/* ── Logo ── */}
+      <div className="flex items-center justify-between px-4 py-5 border-b border-navy-800">
         {!collapsed && (
           <div className="flex items-center gap-2.5">
-            <div className="bg-cyan-500/20 p-1.5 rounded-lg">
-              <SatelliteDish size={18} className="text-cyan-400" />
+            {/* Aquantia droplet mark */}
+            <div className="bg-brand-500/20 p-1.5 rounded-lg shrink-0">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#5ab4e0"/>
+                <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
+              </svg>
             </div>
             <div>
-              <p className="font-bold text-white text-sm leading-none">MeteoStation</p>
-              <p className="text-slate-500 text-xs mt-0.5">Dashboard v2</p>
+              <p className="font-serif font-normal text-white text-base leading-none tracking-tight">Aquantia</p>
+              <p className="text-navy-300 text-xs mt-0.5">Estación meteorológica</p>
             </div>
           </div>
         )}
-        <button
-          onClick={() => setCollapsed(p => !p)}
-          className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800 ml-auto transition-colors"
-        >
-          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-        </button>
+        {collapsed && (
+          <div className="mx-auto bg-brand-500/20 p-1.5 rounded-lg">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+              <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#5ab4e0"/>
+              <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
+            </svg>
+          </div>
+        )}
+        {!collapsed && (
+          <button
+            onClick={() => setCollapsed(p => !p)}
+            className="text-navy-300 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 ml-2 transition-colors"
+          >
+            <ChevronLeft size={15} />
+          </button>
+        )}
       </div>
 
-      {/* Navegación de vistas */}
-      <div className={`px-3 py-3 border-b border-slate-800 flex ${collapsed ? 'flex-col' : 'flex-row'} gap-1.5`}>
+      {/* Expand button when collapsed */}
+      {collapsed && (
         <button
-          onClick={() => onViewChange('dashboard')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex-1 justify-center
-            ${activeView === 'dashboard'
-              ? 'bg-cyan-500 text-slate-900'
-              : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          onClick={() => setCollapsed(false)}
+          className="mx-auto mt-2 text-navy-300 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 transition-colors"
         >
-          <LayoutDashboard size={14} />
-          {!collapsed && 'Dashboard'}
+          <ChevronRight size={15} />
         </button>
-        <button
-          onClick={() => onViewChange('device')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex-1 justify-center
-            ${activeView === 'device'
-              ? 'bg-cyan-500 text-slate-900'
-              : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-        >
-          <Cpu size={14} />
-          {!collapsed && 'Estado ESP32'}
-        </button>
+      )}
+
+      {/* ── Nav ── */}
+      <div className={`px-3 py-3 border-b border-navy-800 flex flex-col gap-1`}>
+        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => onViewChange(id)}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors
+              ${activeView === id
+                ? 'bg-brand-500 text-white'
+                : 'text-navy-300 hover:bg-navy-800 hover:text-white'}`}
+          >
+            <Icon size={14} className="shrink-0" />
+            {!collapsed && label}
+          </button>
+        ))}
       </div>
 
+      {/* ── Controls (only when not collapsed and on dashboard view) ── */}
       {!collapsed && (
         <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
 
           {/* Muestras rápidas */}
           <section>
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
               <Hash size={11} /> Muestras recientes
             </p>
             <form onSubmit={handleSamples} className="flex gap-2">
@@ -113,28 +136,27 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
                 value={samples}
                 onChange={e => setSamples(Number(e.target.value))}
                 min={1} max={5000}
-                className="flex-1 w-0 bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-cyan-500 focus:outline-none placeholder:text-slate-600"
+                className="flex-1 w-0 bg-navy-800 text-white text-sm rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none placeholder:text-navy-300"
                 placeholder="Ej: 200"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-slate-900 font-semibold text-sm rounded-lg px-3 py-2 transition-colors"
+                className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg px-3 py-2 transition-colors"
               >
                 <BarChart2 size={14} /> Ver
               </button>
             </form>
           </section>
 
-          <div className="border-t border-slate-800" />
+          <div className="border-t border-navy-800" />
 
           {/* Filtro por fechas */}
           <section>
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
               <Calendar size={11} /> Filtrar por fecha
             </p>
 
-            {/* Presets */}
             <div className="grid grid-cols-4 gap-1.5 mb-4">
               {PRESETS.map((p, i) => (
                 <button
@@ -143,8 +165,8 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
                   disabled={loading}
                   className={`text-xs font-medium py-1.5 rounded-lg transition-colors ${
                     activePreset === i
-                      ? 'bg-cyan-500 text-slate-900'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-navy-800 text-navy-300 hover:bg-navy-700 hover:text-white'
                   }`}
                 >
                   {p.label}
@@ -152,24 +174,23 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
               ))}
             </div>
 
-            {/* Date pickers */}
             <div className="space-y-2.5">
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">Desde</label>
+                <label className="text-xs text-navy-300 mb-1 block">Desde</label>
                 <input
                   type="datetime-local"
                   value={startDt}
                   onChange={e => { setStartDt(e.target.value); setActivePreset(null) }}
-                  className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700 focus:border-cyan-500 focus:outline-none [color-scheme:dark]"
+                  className="w-full bg-navy-800 text-navy-100 text-xs rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none [color-scheme:dark]"
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">Hasta</label>
+                <label className="text-xs text-navy-300 mb-1 block">Hasta</label>
                 <input
                   type="datetime-local"
                   value={endDt}
                   onChange={e => { setEndDt(e.target.value); setActivePreset(null) }}
-                  className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700 focus:border-cyan-500 focus:outline-none [color-scheme:dark]"
+                  className="w-full bg-navy-800 text-navy-100 text-xs rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none [color-scheme:dark]"
                 />
               </div>
             </div>
@@ -177,22 +198,22 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
             <button
               onClick={handleFilter}
               disabled={loading}
-              className="mt-3 w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white text-sm font-medium rounded-lg px-3 py-2.5 transition-colors"
+              className="mt-3 w-full flex items-center justify-center gap-2 bg-navy-800 hover:bg-navy-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg px-3 py-2.5 transition-colors"
             >
               <Search size={14} />
               Consultar rango
             </button>
           </section>
 
-          <div className="border-t border-slate-800" />
+          <div className="border-t border-navy-800" />
 
-          {/* Stats rápidas */}
+          {/* Registros cargados */}
           <section>
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-2">
               <Zap size={11} /> Datos cargados
             </p>
             <p className="text-2xl font-bold text-white">{sampleCount.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-0.5">registros en vista</p>
+            <p className="text-xs text-navy-300 mt-0.5">registros en vista</p>
           </section>
 
         </div>

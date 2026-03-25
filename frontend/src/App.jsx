@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Satellite, Wifi, WifiOff } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
 import Sidebar from './components/Sidebar'
 import DeviceStatus from './components/DeviceStatus'
+import IrrigationView from './components/IrrigationView'
+import NodesView from './components/NodesView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -27,7 +29,7 @@ export default function App() {
   const ts = data.timestamp
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+    <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
       <Sidebar
         onFetchSamples={fetchSamples}
         onFetchFiltered={fetchFiltered}
@@ -40,16 +42,20 @@ export default function App() {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shrink-0">
+        <header className="bg-white border-b border-black/[.08] px-6 py-3.5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="bg-cyan-50 p-2 rounded-xl">
-              <Satellite size={18} className="text-cyan-500" />
+            {/* Aquantia logo mark */}
+            <div className="bg-brand-50 p-2 rounded-xl border border-brand-100">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#0c8ecc"/>
+                <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.75"/>
+              </svg>
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-800 leading-none tracking-tight">
-                MeteoStation Dashboard
+              <h1 className="text-sm font-bold text-navy-900 leading-none tracking-tight font-serif">
+                Aquantia
               </h1>
-              <p className="text-xs text-slate-400 mt-0.5">Estación meteorológica doméstica</p>
+              <p className="text-xs text-navy-300 mt-0.5">Estación meteorológica · Lanzarote</p>
             </div>
           </div>
 
@@ -59,8 +65,8 @@ export default function App() {
                 <WifiOff size={12} /> Sin conexión con Flask
               </span>
             ) : lastUpdate ? (
-              <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              <span className="flex items-center gap-1.5 text-xs text-brand-500 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-100">
+                <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-pulse" />
                 <Wifi size={11} /> Actualizado {lastUpdate}
               </span>
             ) : null}
@@ -68,7 +74,7 @@ export default function App() {
             <button
               onClick={() => fetchSamples(150)}
               disabled={loading}
-              className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 bg-white border border-slate-200 hover:border-slate-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
+              className="flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Cargando…' : 'Refrescar'}
@@ -76,16 +82,17 @@ export default function App() {
           </div>
         </header>
 
-        {/* ── Main content ── */}
-        {activeView === 'device' && (
-          <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />
-        )}
-        <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'device' ? 'hidden' : ''}`}>
+        {/* ── Views ── */}
+        {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
+        {activeView === 'riego'     && <IrrigationView latest={latest} />}
+        {activeView === 'nodos'     && <NodesView />}
 
-          {/* Stat cards */}
+        <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
+
+          {/* ── Stat cards ── */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <StatCard
-              title="Temperatura" icon={Thermometer} color="red" unit="°C"
+              title="Temperatura" icon={Thermometer} color="amber" unit="°C"
               value={latest.temperature}
               min={minOf(data.temperature)} max={maxOf(data.temperature)}
             />
@@ -95,17 +102,17 @@ export default function App() {
               min={minOf(data.temperature_bar)} max={maxOf(data.temperature_bar)}
             />
             <StatCard
-              title="Humedad" icon={Droplets} color="blue" unit="%"
+              title="Humedad" icon={Droplets} color="teal" unit="%"
               value={latest.humidity}
               min={minOf(data.humidity)} max={maxOf(data.humidity)}
             />
             <StatCard
-              title="Presión" icon={Gauge} color="green" unit=" hPa"
+              title="Presión" icon={Gauge} color="navy" unit=" hPa"
               value={latest.pressure}
               min={minOf(data.pressure)} max={maxOf(data.pressure)}
             />
             <StatCard
-              title="Viento" icon={Wind} color="cyan" unit=" m/s"
+              title="Viento" icon={Wind} color="teal" unit=" m/s"
               value={latest.windSpeed}
               min={minOf(data.windSpeed)} max={maxOf(data.windSpeed)}
             />
@@ -116,7 +123,7 @@ export default function App() {
             />
           </div>
 
-          {/* Charts */}
+          {/* ── Charts ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <WeatherChart
               title="Temperatura" icon={Thermometer} timestamps={ts}
@@ -125,7 +132,7 @@ export default function App() {
                 { name: 'HTU2x (int)',   data: data.temperature_bar },
                 { name: 'DHT11',         data: data.dht_temperature },
               ]}
-              colors={['#ef4444', '#f97316', '#a855f7']}
+              colors={['#BA7517', '#c4730a', '#534AB7']}
               yUnit="°C" type="area"
             />
             <WeatherChart
@@ -134,19 +141,19 @@ export default function App() {
                 { name: 'HTU2x', data: data.humidity },
                 { name: 'DHT11', data: data.dht_humidity },
               ]}
-              colors={['#3b82f6', '#a855f7']}
+              colors={['#0c8ecc', '#534AB7']}
               yUnit="%" yMin={0} yMax={100} type="area"
             />
             <WeatherChart
               title="Presión Atmosférica" icon={Gauge} timestamps={ts}
               series={[{ name: 'Presión', data: data.pressure }]}
-              colors={['#10b981']}
+              colors={['#012d5c']}
               yUnit=" kPa" type="area"
             />
             <WeatherChart
               title="Luz Ambiente" icon={Sun} timestamps={ts}
               series={[{ name: 'Lux', data: data.light }]}
-              colors={['#eab308']}
+              colors={['#BA7517']}
               yUnit=" lx" yMin={0} type="area"
             />
             <WeatherChart
@@ -155,7 +162,7 @@ export default function App() {
                 { name: 'Velocidad', data: data.windSpeed },
                 { name: 'Filtrada',  data: data.windSpeedFiltered },
               ]}
-              colors={['#06b6d4', '#0284c7']}
+              colors={['#0c8ecc', '#012d5c']}
               yUnit=" m/s" type="line"
             />
             <WeatherChart
@@ -164,7 +171,7 @@ export default function App() {
                 { name: 'Dirección', data: data.windDirection },
                 { name: 'Filtrada',  data: data.windDirectionFiltered },
               ]}
-              colors={['#8b5cf6', '#a78bfa']}
+              colors={['#534AB7', '#8b83dc']}
               yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
             />
           </div>

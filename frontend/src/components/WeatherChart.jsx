@@ -27,7 +27,7 @@ export default function WeatherChart({
       toolbar: { show: false },
       animations: { enabled: true, speed: 500 },
       background: 'transparent',
-      fontFamily: 'Inter, system-ui, sans-serif',
+      fontFamily: '"DM Sans", system-ui, sans-serif',
       zoom: { enabled: true },
     },
     colors,
@@ -53,7 +53,7 @@ export default function WeatherChart({
     xaxis: {
       type: 'datetime',
       labels: {
-        style: { fontSize: '11px', colors: '#94a3b8', fontFamily: 'Inter' },
+        style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
       },
       axisBorder: { show: false },
@@ -63,12 +63,12 @@ export default function WeatherChart({
       min: yMin,
       max: yMax,
       labels: {
-        style: { fontSize: '11px', colors: '#94a3b8', fontFamily: 'Inter' },
+        style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         formatter: v => v != null ? `${v.toFixed(1)}${yUnit}` : '',
       },
     },
     grid: {
-      borderColor: '#f1f5f9',
+      borderColor: '#f3f3ef',
       strokeDashArray: 3,
       xaxis: { lines: { show: false } },
       padding: { left: 0, right: 8 },
@@ -78,8 +78,8 @@ export default function WeatherChart({
       position: 'top',
       horizontalAlign: 'right',
       fontSize: '12px',
-      fontFamily: 'Inter',
-      labels: { colors: '#64748b' },
+      fontFamily: '"DM Sans"',
+      labels: { colors: '#3d506a' },
       markers: { size: 5, shape: 'circle', offsetX: -2 },
       itemMargin: { horizontal: 8 },
     },
@@ -89,17 +89,17 @@ export default function WeatherChart({
       intersect: false,
       x: { format: 'dd MMM HH:mm' },
       y: { formatter: v => v != null ? `${v.toFixed(2)} ${yUnit}` : '—' },
-      style: { fontSize: '12px', fontFamily: 'Inter' },
+      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
     dataLabels: { enabled: false },
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-        {Icon && <Icon size={16} className="text-slate-400 shrink-0" />}
-        <h3 className="font-semibold text-slate-700 text-sm">{title}</h3>
-        <span className="ml-auto text-xs text-slate-300">{timestamps.length} pts</span>
+        {Icon && <Icon size={16} className="text-navy-300 shrink-0" />}
+        <h3 className="font-semibold text-navy-900 text-sm">{title}</h3>
+        <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
       </div>
       {hasData ? (
         <ReactApexChart options={options} series={builtSeries} type={type} height={height} />
