@@ -16,6 +16,10 @@ CORS(app)
 
 TEMPLATE_FILE = "index.html"
 
+# Estado deseado del relay (en memoria). El ESP lo consulta tras cada envío.
+# Fallo-seguro: arranca en False (válvula cerrada).
+relay_desired_state = False
+
 
 def get_db():
     """Conexión única a la DB por petición (lazy init)."""
@@ -36,7 +40,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) not in (9, 11, 14):
+        if len(parts) not in (9, 11, 14, 15):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -61,6 +65,7 @@ def rows_to_dict(rows):
         "rssi":                  [r["rssi"]                  for r in rows],
         "free_heap":             [r["free_heap"]             for r in rows],
         "uptime_s":              [r["uptime_s"]              for r in rows],
+        "relay_active":          [r["relay_active"]          for r in rows],
     }
 
 
@@ -113,11 +118,12 @@ def send_message():
         logger.warning("Mensaje inválido descartado: %s", message)
         return "Error: se esperan 9, 11 u 14 valores separados por coma", 400
 
-    dht_temp  = data[9]  if len(data) >= 11 else None
-    dht_hum   = data[10] if len(data) >= 11 else None
-    rssi      = int(data[11]) if len(data) == 14 else None
-    free_heap = int(data[12]) if len(data) == 14 else None
-    uptime_s  = int(data[13]) if len(data) == 14 else None
+    dht_temp     = data[9]  if len(data) >= 11 else None
+    dht_hum      = data[10] if len(data) >= 11 else None
+    rssi         = int(data[11]) if len(data) >= 14 else None
+    free_heap    = int(data[12]) if len(data) >= 14 else None
+    uptime_s     = int(data[13]) if len(data) >= 14 else None
+    relay_active = int(data[14]) if len(data) >= 15 else 0
 
     db = get_db()
     cursor = db.cursor()
@@ -126,9 +132,9 @@ def send_message():
             temperature, pressure, temperature_barometer, humidity,
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
             light, dht_temperature, dht_humidity,
-            rssi, free_heap, uptime_s
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s))
+            rssi, free_heap, uptime_s, relay_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s, relay_active))
     db.commit()
     cursor.close()
 
@@ -275,6 +281,31 @@ def api_latest():
     cursor.close()
 
     return jsonify(rows_to_dict(rows))
+
+
+@app.route("/api/relay/command")
+def relay_command():
+    """El ESP32 consulta este endpoint para saber el estado deseado del relay.
+    Devuelve '1' (abrir válvula) o '0' (cerrar válvula) en texto plano."""
+    return "1" if relay_desired_state else "0", 200
+
+
+@app.route("/api/relay", methods=["GET"])
+def get_relay():
+    """Dashboard: devuelve el estado deseado del relay."""
+    return jsonify({"state": relay_desired_state})
+
+
+@app.route("/api/relay", methods=["POST"])
+def set_relay():
+    """Dashboard: cambia el estado deseado del relay."""
+    global relay_desired_state
+    payload = request.get_json(silent=True)
+    if payload is None or "state" not in payload:
+        return jsonify({"error": "Falta campo 'state'"}), 400
+    relay_desired_state = bool(payload["state"])
+    logger.info("Relay deseado → %s", "ON" if relay_desired_state else "OFF")
+    return jsonify({"state": relay_desired_state})
 
 
 # Inicializar DB una sola vez al arrancar

@@ -1,4 +1,5 @@
-import { Droplets, AlertTriangle, Lock, Leaf, Zap, FlaskConical } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power } from 'lucide-react'
 
 // Penman-Monteith FAO-56 simplificado
 // Usa T, RH, u2. Ra fijado en ~10 MJ/m²/día (media anual Lanzarote ~29°N)
@@ -82,7 +83,70 @@ function SectorCard({ sector }) {
   )
 }
 
-export default function IrrigationView({ latest }) {
+function RelayControl({ latest, setRelay }) {
+  const [desired, setDesired] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  // Cargar estado deseado actual del servidor al montar
+  useEffect(() => {
+    fetch('/api/relay').then(r => r.json()).then(j => setDesired(j.state)).catch(() => {})
+  }, [])
+
+  const toggle = useCallback(async () => {
+    setBusy(true)
+    const next = !desired
+    await setRelay(next)
+    setDesired(next)
+    setBusy(false)
+  }, [desired, setRelay])
+
+  const deviceRelay = latest.relay_active === 1
+  const synced = desired === deviceRelay
+
+  return (
+    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <div className={`p-1.5 rounded-lg ${desired ? 'bg-brand-50' : 'bg-navy-50'}`}>
+          <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
+        </div>
+        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">Electroválvula principal</p>
+      </div>
+
+      {/* Estado en tiempo real */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`w-3 h-3 rounded-full ${deviceRelay ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'}`} />
+        <div>
+          <p className="text-sm font-semibold text-navy-900">
+            {deviceRelay ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
+          </p>
+          <p className="text-xs text-navy-300">
+            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando… (próximo ciclo 20s)'}
+          </p>
+        </div>
+      </div>
+
+      {/* Botón de control */}
+      <button
+        onClick={toggle}
+        disabled={busy}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50
+          ${desired
+            ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+            : 'bg-brand-500 text-white hover:bg-brand-600'
+          }`}
+      >
+        {desired ? <Lock size={14} /> : <Unlock size={14} />}
+        {busy ? 'Enviando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+      </button>
+
+      <p className="text-xs text-navy-300 mt-2.5 text-center">
+        GPIO 26 · JQC-3FF-S-Z · Relay activo-LOW
+      </p>
+    </div>
+  )
+}
+
+export default function IrrigationView({ latest, setRelay }) {
   const et0 = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
   const et0Num = et0 != null ? parseFloat(et0) : null
 
@@ -102,8 +166,9 @@ export default function IrrigationView({ latest }) {
         </div>
       </div>
 
-      {/* ── Métricas de riego ── */}
+      {/* ── Control electroválvula ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <RelayControl latest={latest} setRelay={setRelay} />
 
         {/* ET₀ calculado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">

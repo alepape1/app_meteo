@@ -19,7 +19,7 @@ function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
 
 export default function App() {
-  const { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo } = useWeatherData()
+  const { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay } = useWeatherData()
   const [activeView, setActiveView] = useState('dashboard')
 
   const handleViewChange = (view) => {
@@ -84,7 +84,7 @@ export default function App() {
 
         {/* ── Views ── */}
         {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-        {activeView === 'riego'     && <IrrigationView latest={latest} />}
+        {activeView === 'riego'     && <IrrigationView latest={latest} setRelay={setRelay} />}
         {activeView === 'nodos'     && <NodesView />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>

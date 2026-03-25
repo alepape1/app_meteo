@@ -34,6 +34,7 @@ def create_tables(conn):
         rssi INTEGER,
         free_heap INTEGER,
         uptime_s INTEGER,
+        relay_active INTEGER DEFAULT 0,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -62,6 +63,7 @@ def create_tables(conn):
         "ALTER TABLE home_weather_station ADD COLUMN rssi INTEGER;",
         "ALTER TABLE home_weather_station ADD COLUMN free_heap INTEGER;",
         "ALTER TABLE home_weather_station ADD COLUMN uptime_s INTEGER;",
+        "ALTER TABLE home_weather_station ADD COLUMN relay_active INTEGER DEFAULT 0;",
     ]:
         try:
             cursor.execute(migration)

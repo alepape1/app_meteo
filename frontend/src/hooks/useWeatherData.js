@@ -5,7 +5,7 @@ const EMPTY = {
   pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
   windDirectionFiltered: [], light: [],
   dht_temperature: [], dht_humidity: [],
-  rssi: [], free_heap: [], uptime_s: [],
+  rssi: [], free_heap: [], uptime_s: [], relay_active: [],
 }
 
 export function useWeatherData() {
@@ -92,7 +92,16 @@ export function useWeatherData() {
     rssi:            data.rssi.at(-1),
     free_heap:       data.free_heap.at(-1),
     uptime_s:        data.uptime_s.at(-1),
+    relay_active:    data.relay_active.at(-1) ?? 0,
   }
 
-  return { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo }
+  const setRelay = useCallback(async (state) => {
+    await fetch('/api/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    })
+  }, [])
+
+  return { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay }
 }
