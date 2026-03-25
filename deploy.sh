@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh — Actualiza la app Aquantia en producción
+# El dist/ viene precompilado en el repo (no requiere npm en el servidor)
+#
 # Uso: ./deploy.sh [--no-docker]
 #   --no-docker  Solo actualiza el frontend (sin rebuild Docker)
 
@@ -18,34 +20,24 @@ echo " Aquantia — Deploy"
 echo " =================="
 echo ""
 
-# ── 1. Git pull ────────────────────────────────────────────────────────────────
-echo " [1/3] Actualizando código..."
+# ── 1. Git pull (trae código + dist/ precompilado) ─────────────────────────────
+echo " [1/2] Actualizando código..."
 git pull
 echo " OK"
 echo ""
 
-# ── 2. Frontend React ──────────────────────────────────────────────────────────
-echo " [2/3] Compilando frontend React..."
-if [ ! -d frontend/node_modules ]; then
-    echo "  Instalando dependencias npm..."
-    (cd frontend && npm install)
-fi
-(cd frontend && npm run build)
-echo " OK — dist/ actualizado"
-echo ""
-
-# ── 3. Docker (backend) ────────────────────────────────────────────────────────
+# ── 2. Docker (backend) ────────────────────────────────────────────────────────
 if [ "$REBUILD_DOCKER" = true ]; then
-    echo " [3/3] Rebuilding y reiniciando backend Docker..."
+    echo " [2/2] Rebuilding y reiniciando backend Docker..."
     docker compose build
     docker compose up -d
     echo " OK — contenedor reiniciado"
 else
-    echo " [3/3] Docker omitido (--no-docker)"
+    echo " [2/2] Docker omitido (--no-docker)"
 fi
 
 echo ""
 echo " Deploy completado."
-echo " Frontend: dist/ servido por Nginx"
-echo " Backend:  $(docker compose ps --quiet meteostation 2>/dev/null && echo 'contenedor activo' || echo 'ver estado con: docker compose ps')"
+echo " Frontend: dist/ actualizado via git"
+echo " Backend:  $(docker compose ps 2>/dev/null | grep meteostation | grep -q Up && echo 'contenedor activo' || echo 'ver estado con: docker compose ps')"
 echo ""
