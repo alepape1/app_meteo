@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
@@ -64,28 +64,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            {/* Estado ESP32 */}
-            {isDeviceOnline ? (
-              <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                ESP32 online
-              </span>
-            ) : deviceLastSeen ? (
-              <span className="flex items-center gap-1.5 text-xs text-[#BA7517] bg-[#FAEEDA] px-3 py-1.5 rounded-full border border-[#FAC775]">
-                <WifiOff size={11} /> ESP32 sin señal
-              </span>
-            ) : null}
-
-            {/* Estado Flask */}
             {error ? (
-              <span className="flex items-center gap-1.5 text-xs text-red-500 bg-red-50 px-3 py-1.5 rounded-full border border-red-200">
-                <WifiOff size={12} /> Sin conexión
-              </span>
-            ) : lastUpdate ? (
               <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-3 py-1.5 rounded-full border border-navy-100">
-                <Wifi size={11} /> {lastUpdate}
+                <WifiOff size={11} /> Sin conexión con el servidor
               </span>
-            ) : null}
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-3 py-1.5 rounded-full border border-navy-100">
+                {isDeviceOnline
+                  ? <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
+                  : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
+                }
+                ECUaquantia {isDeviceOnline ? 'online' : 'offline'}
+                {lastUpdate && <span className="text-navy-200 pl-1.5 border-l border-navy-200 ml-0.5">{lastUpdate}</span>}
+              </span>
+            )}
 
             <button
               onClick={() => fetchSamples(150)}
