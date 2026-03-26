@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 import sqlite3
 import logging
+import datetime
 from database import get_db_connection, create_tables
 
 load_dotenv()
@@ -306,6 +307,80 @@ def set_relay():
     relay_desired_state = bool(payload["state"])
     logger.info("Relay deseado → %s", "ON" if relay_desired_state else "OFF")
     return jsonify({"state": relay_desired_state})
+
+
+@app.route("/api/irrigation/stats")
+def irrigation_stats():
+    """Estadísticas de consumo y ahorro de riego del mes actual.
+
+    Cada registro con relay_active=1 representa ~20s de válvula abierta.
+    Caudal nominal: 5 L/min → 5/60 L/s.
+    Baseline de ahorro: 15 L/día de riego manual diario.
+    """
+    FLOW_LPS = 5.0 / 60.0   # litros/segundo a 5 L/min
+    INTERVAL_S = 20          # segundos por registro del ESP32
+    BASELINE_DAILY_L = 15.0  # litros/día de referencia (riego manual)
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # Registros con relay activo este mes, agrupados por día
+    cursor.execute("""
+        SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
+        FROM home_weather_station
+        WHERE relay_active = 1
+          AND timestamp >= strftime('%Y-%m-01', 'now')
+        GROUP BY DATE(timestamp)
+        ORDER BY day ASC
+    """)
+    daily_rows = cursor.fetchall()
+
+    # Total registros con relay activo este mes
+    cursor.execute("""
+        SELECT COUNT(*) FROM home_weather_station
+        WHERE relay_active = 1
+          AND timestamp >= strftime('%Y-%m-01', 'now')
+    """)
+    total_active = cursor.fetchone()[0]
+
+    # Total registros con relay activo hoy
+    cursor.execute("""
+        SELECT COUNT(*) FROM home_weather_station
+        WHERE relay_active = 1
+          AND DATE(timestamp) = DATE('now')
+    """)
+    today_active = cursor.fetchone()[0]
+
+    cursor.close()
+
+    monthly_seconds = total_active * INTERVAL_S
+    monthly_liters = round(monthly_seconds * FLOW_LPS, 1)
+    today_seconds = today_active * INTERVAL_S
+    today_liters = round(today_seconds * FLOW_LPS, 1)
+
+    days_elapsed = datetime.date.today().day
+    baseline_liters = round(days_elapsed * BASELINE_DAILY_L, 1)
+    savings_liters = round(max(0.0, baseline_liters - monthly_liters), 1)
+
+    daily = [
+        {
+            "date": row["day"],
+            "seconds": row["cnt"] * INTERVAL_S,
+            "liters": round(row["cnt"] * INTERVAL_S * FLOW_LPS, 1),
+        }
+        for row in daily_rows
+    ]
+
+    return jsonify({
+        "monthly_seconds": monthly_seconds,
+        "monthly_liters": monthly_liters,
+        "today_seconds": today_seconds,
+        "today_liters": today_liters,
+        "baseline_liters": baseline_liters,
+        "savings_liters": savings_liters,
+        "days_elapsed": days_elapsed,
+        "daily": daily,
+    })
 
 
 # Inicializar DB una sola vez al arrancar
