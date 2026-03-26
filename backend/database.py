@@ -70,5 +70,18 @@ def create_tables(conn):
             conn.commit()
         except Exception:
             pass  # La columna ya existe
+
+    # Tabla de estado del relay — fila única (id=1), compartida entre workers Gunicorn.
+    # Fallo-seguro: desired y actual arrancan en 0 (válvula cerrada).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS relay_state(
+        id      INTEGER PRIMARY KEY,
+        desired INTEGER NOT NULL DEFAULT 0,
+        actual  INTEGER NOT NULL DEFAULT 0
+    );
+    """)
+    cursor.execute("""
+    INSERT OR IGNORE INTO relay_state(id, desired, actual) VALUES (1, 0, 0);
+    """)
     conn.commit()
     cursor.close()

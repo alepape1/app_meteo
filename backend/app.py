@@ -17,17 +17,34 @@ CORS(app)
 
 TEMPLATE_FILE = "index.html"
 
-# Estados del relay en memoria.
-# Fallo-seguro: ambos arrancan en False (válvula cerrada).
-relay_desired_state = False   # lo pide el dashboard
-relay_actual_state  = False   # lo confirma el ESP32 tras actuar
-
-
 def get_db():
     """Conexión única a la DB por petición (lazy init)."""
     if 'db' not in g:
         g.db = get_db_connection()
     return g.db
+
+
+# ── Estado del relay persistido en SQLite ────────────────────────────────────
+# Así todos los workers Gunicorn comparten el mismo estado sin condiciones de
+# carrera (cada GET/POST lee y escribe en la misma fila de la DB).
+
+def _relay_get():
+    row = get_db().execute(
+        "SELECT desired, actual FROM relay_state WHERE id=1"
+    ).fetchone()
+    return (bool(row['desired']), bool(row['actual'])) if row else (False, False)
+
+
+def _relay_set_desired(state):
+    db = get_db()
+    db.execute("UPDATE relay_state SET desired=? WHERE id=1", (1 if state else 0,))
+    db.commit()
+
+
+def _relay_set_actual(state):
+    db = get_db()
+    db.execute("UPDATE relay_state SET actual=? WHERE id=1", (1 if state else 0,))
+    db.commit()
 
 
 @app.teardown_appcontext
@@ -289,35 +306,37 @@ def api_latest():
 def relay_command():
     """El ESP32 consulta este endpoint para saber el estado deseado del relay.
     Devuelve '1' (abrir válvula) o '0' (cerrar válvula) en texto plano."""
-    return "1" if relay_desired_state else "0", 200
+    desired, _ = _relay_get()
+    return "1" if desired else "0", 200
 
 
 @app.route("/api/relay", methods=["GET"])
 def get_relay():
     """Dashboard: devuelve el estado deseado y el confirmado por el ESP32."""
-    return jsonify({"desired": relay_desired_state, "actual": relay_actual_state})
+    desired, actual = _relay_get()
+    return jsonify({"desired": desired, "actual": actual})
 
 
 @app.route("/api/relay", methods=["POST"])
 def set_relay():
     """Dashboard: cambia el estado deseado del relay."""
-    global relay_desired_state
     payload = request.get_json(silent=True)
     if payload is None or "state" not in payload:
         return jsonify({"error": "Falta campo 'state'"}), 400
-    relay_desired_state = bool(payload["state"])
-    logger.info("Relay deseado → %s", "ON" if relay_desired_state else "OFF")
-    return jsonify({"state": relay_desired_state})
+    state = bool(payload["state"])
+    _relay_set_desired(state)
+    logger.info("Relay deseado → %s", "ON" if state else "OFF")
+    return jsonify({"state": state})
 
 
 @app.route("/api/relay/ack", methods=["POST"])
 def relay_ack():
     """El ESP32 confirma el estado real del relay tras activarlo/desactivarlo."""
-    global relay_actual_state
     body = request.get_data(as_text=True).strip()
-    relay_actual_state = (body == "1")
-    logger.info("Relay ACK ESP32 → %s", "ON" if relay_actual_state else "OFF")
-    return jsonify({"actual": relay_actual_state})
+    state = (body == "1")
+    _relay_set_actual(state)
+    logger.info("Relay ACK ESP32 → %s", "ON" if state else "OFF")
+    return jsonify({"actual": state})
 
 
 @app.route("/api/irrigation/stats")
