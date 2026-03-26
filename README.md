@@ -334,7 +334,109 @@ SELECT AVG(temperature) FROM home_weather_station WHERE DATE(timestamp) = DATE('
 
 ## Despliegue en producción
 
-### Solo backend (Raspberry Pi)
+El stack de producción es **Hestia + Docker** en un servidor remoto.
+El frontend se sirve como estático desde Nginx (Hestia) y el backend Flask corre dentro de un contenedor Docker con Gunicorn.
+
+### Arquitectura
+
+```
+Internet → Nginx (Hestia) → frontend/dist/   (estáticos)
+                          → proxy /api/*  → Docker (Gunicorn Flask :5000)
+```
+
+### Primera instalación en el servidor
+
+```bash
+git clone https://github.com/alepape1/app_meteo.git
+cd app_meteo
+chmod +x deploy.sh
+
+# Levantar el contenedor por primera vez
+docker compose up -d --build
+```
+
+### Deploy (actualizar producción desde local)
+
+El flujo normal es: **compilar frontend en local → commit → push → pull en servidor**.
+
+**1. En local (PC de desarrollo):**
+```bash
+cd frontend
+npm run build          # genera frontend/dist/
+
+cd ..
+git add frontend/dist frontend/src
+git commit -m "feat: descripción del cambio"
+git push
+```
+
+**2. En el servidor:**
+```bash
+cd ~/app_meteo
+./deploy.sh            # git pull + docker compose build + up -d
+```
+
+Si solo cambió el frontend (sin tocar backend ni dependencias Python):
+```bash
+./deploy.sh --no-docker   # solo git pull, sin rebuild Docker
+```
+
+> El `dist/` precompilado se comitea al repo para que el servidor no necesite Node.js.
+
+### Gestión del contenedor Docker
+
+```bash
+# Ver estado del contenedor
+docker compose ps
+
+# Ver logs del backend Flask en tiempo real
+docker compose logs -f
+
+# Parar el contenedor (sin borrar datos)
+docker compose stop
+
+# Parar y eliminar el contenedor (la BD SQLite persiste en el volumen)
+docker compose down
+
+# Levantar el contenedor
+docker compose up -d
+
+# Rebuild completo (tras cambios en backend o requirements.txt)
+docker compose up -d --build
+
+# Reiniciar el contenedor
+docker compose restart
+```
+
+### Ver logs
+
+```bash
+# Logs en tiempo real (Flask + Gunicorn)
+docker compose logs -f
+
+# Últimas 100 líneas
+docker compose logs --tail=100
+
+# Solo errores
+docker compose logs 2>&1 | grep -i error
+```
+
+### Acceder a la base de datos en producción
+
+```bash
+# Entrar al contenedor
+docker compose exec web bash
+
+# Dentro del contenedor:
+sqlite3 home_weather_station.db
+
+# Últimos registros
+SELECT timestamp, temperature, humidity, rssi FROM home_weather_station ORDER BY timestamp DESC LIMIT 10;
+```
+
+---
+
+## Despliegue en Raspberry Pi (sin Docker)
 
 ```bash
 cd backend
@@ -363,7 +465,9 @@ sudo systemctl enable meteostation
 sudo systemctl start meteostation
 ```
 
-### Configuración de red (Flask en WSL, ESP en red local)
+---
+
+## Configuración de red (desarrollo local en WSL)
 
 Con WSL2 `networkingMode=mirrored` (`C:\Users\<usuario>\.wslconfig`), WSL y Windows comparten la misma IP. El ESP puede conectar directamente a esa IP en el puerto 7000.
 
