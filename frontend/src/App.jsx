@@ -19,7 +19,11 @@ function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
 
 export default function App() {
-  const { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay } = useWeatherData()
+  const { data, latest, loading, lastUpdate, error, deviceInfo, deviceLastSeen, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay } = useWeatherData()
+
+  const isDeviceOnline = deviceLastSeen
+    ? (Date.now() - new Date(deviceLastSeen.replace(' ', 'T')).getTime()) < 90000
+    : false
   const [activeView, setActiveView] = useState('dashboard')
 
   const handleViewChange = (view) => {
@@ -60,14 +64,26 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Estado ESP32 */}
+            {isDeviceOnline ? (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                ESP32 online
+              </span>
+            ) : deviceLastSeen ? (
+              <span className="flex items-center gap-1.5 text-xs text-[#BA7517] bg-[#FAEEDA] px-3 py-1.5 rounded-full border border-[#FAC775]">
+                <WifiOff size={11} /> ESP32 sin señal
+              </span>
+            ) : null}
+
+            {/* Estado Flask */}
             {error ? (
               <span className="flex items-center gap-1.5 text-xs text-red-500 bg-red-50 px-3 py-1.5 rounded-full border border-red-200">
-                <WifiOff size={12} /> Sin conexión con Flask
+                <WifiOff size={12} /> Sin conexión
               </span>
             ) : lastUpdate ? (
-              <span className="flex items-center gap-1.5 text-xs text-brand-500 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-100">
-                <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-pulse" />
-                <Wifi size={11} /> Actualizado {lastUpdate}
+              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-3 py-1.5 rounded-full border border-navy-100">
+                <Wifi size={11} /> {lastUpdate}
               </span>
             ) : null}
 

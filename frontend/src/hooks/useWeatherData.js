@@ -14,11 +14,13 @@ export function useWeatherData() {
   const [lastUpdate, setLastUpdate] = useState(null)
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
+  const [deviceLastSeen, setDeviceLastSeen] = useState(null)
 
   const applyData = (json) => {
     setData(json)
     setLastUpdate(new Date().toLocaleTimeString('es-ES'))
     setError(null)
+    if (json.timestamp?.length > 0) setDeviceLastSeen(json.timestamp.at(-1))
   }
 
   const fetchSamples = useCallback(async (n = 100) => {
@@ -59,6 +61,7 @@ export function useWeatherData() {
       if (json.timestamp?.length > 0) {
         setLastUpdate(new Date().toLocaleTimeString('es-ES'))
         setError(null)
+        setDeviceLastSeen(json.timestamp.at(-1))
       }
     } catch (_) {}
   }, [])
@@ -103,5 +106,5 @@ export function useWeatherData() {
     })
   }, [])
 
-  return { data, latest, loading, lastUpdate, error, deviceInfo, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay }
+  return { data, latest, loading, lastUpdate, error, deviceInfo, deviceLastSeen, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay }
 }
