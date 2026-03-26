@@ -192,21 +192,51 @@ function SectorCard({ sector }) {
 }
 
 // ── RelayControl con temporizador de sesión ──────────────────────────────────
-function RelayControl({ latest, setRelay }) {
+function RelayControl({ setRelay }) {
   const [desired, setDesired] = useState(false)
+  const [actual, setActual]   = useState(false)  // confirmado por ESP32 vía ACK
   const [busy, setBusy] = useState(false)
   const [sessionStart, setSessionStart] = useState(null)
   const [sessionSeconds, setSessionSeconds] = useState(0)
+  const pollRef = useRef(null)
 
+  // Carga el estado inicial (desired + actual) desde el servidor
   useEffect(() => {
-    fetch('/api/relay').then(r => r.json()).then(j => setDesired(j.state)).catch(() => {})
+    fetch('/api/relay')
+      .then(r => r.json())
+      .then(j => { setDesired(j.desired ?? false); setActual(j.actual ?? false) })
+      .catch(() => {})
   }, [])
+
+  // Limpia el polling al desmontar
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   useEffect(() => {
     if (!sessionStart) return
     const id = setInterval(() => setSessionSeconds(s => s + 1), 1000)
     return () => clearInterval(id)
   }, [sessionStart])
+
+  // Polling rápido hasta que el ESP32 confirme el nuevo estado (máx ~30s)
+  const startSyncPolling = useCallback((expected) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    let attempts = 0
+    pollRef.current = setInterval(async () => {
+      attempts++
+      try {
+        const res = await fetch('/api/relay')
+        const j = await res.json()
+        const confirmed = j.actual ?? false
+        setActual(confirmed)
+        if (confirmed === expected || attempts >= 15) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
+      } catch (_) {
+        if (attempts >= 15) { clearInterval(pollRef.current); pollRef.current = null }
+      }
+    }, 2000)
+  }, [])
 
   const toggle = useCallback(async () => {
     setBusy(true)
@@ -216,10 +246,10 @@ function RelayControl({ latest, setRelay }) {
     if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
     else { setSessionStart(null) }
     setBusy(false)
-  }, [desired, setRelay])
+    startSyncPolling(next)
+  }, [desired, setRelay, startSyncPolling])
 
-  const deviceRelay = latest.relay_active === 1
-  const synced = desired === deviceRelay
+  const synced = desired === actual
   const sessionLiters = (sessionSeconds / 60 * 5).toFixed(1)
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 
@@ -236,14 +266,14 @@ function RelayControl({ latest, setRelay }) {
 
       <div className="flex items-center gap-3 mb-4">
         <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-          deviceRelay ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
+          actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
         }`} />
         <div className="flex-1">
           <p className="text-sm font-semibold text-navy-900">
-            {deviceRelay ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
+            {actual ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
           </p>
           <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando… (~2s)'}
+            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando…'}
           </p>
         </div>
       </div>
@@ -525,7 +555,7 @@ export default function IrrigationView({ latest, setRelay }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
         {/* Electroválvula + temporizador de sesión */}
-        <RelayControl latest={latest} setRelay={setRelay} />
+        <RelayControl setRelay={setRelay} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">

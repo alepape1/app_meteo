@@ -17,9 +17,10 @@ CORS(app)
 
 TEMPLATE_FILE = "index.html"
 
-# Estado deseado del relay (en memoria). El ESP lo consulta tras cada envío.
-# Fallo-seguro: arranca en False (válvula cerrada).
-relay_desired_state = False
+# Estados del relay en memoria.
+# Fallo-seguro: ambos arrancan en False (válvula cerrada).
+relay_desired_state = False   # lo pide el dashboard
+relay_actual_state  = False   # lo confirma el ESP32 tras actuar
 
 
 def get_db():
@@ -293,8 +294,8 @@ def relay_command():
 
 @app.route("/api/relay", methods=["GET"])
 def get_relay():
-    """Dashboard: devuelve el estado deseado del relay."""
-    return jsonify({"state": relay_desired_state})
+    """Dashboard: devuelve el estado deseado y el confirmado por el ESP32."""
+    return jsonify({"desired": relay_desired_state, "actual": relay_actual_state})
 
 
 @app.route("/api/relay", methods=["POST"])
@@ -307,6 +308,16 @@ def set_relay():
     relay_desired_state = bool(payload["state"])
     logger.info("Relay deseado → %s", "ON" if relay_desired_state else "OFF")
     return jsonify({"state": relay_desired_state})
+
+
+@app.route("/api/relay/ack", methods=["POST"])
+def relay_ack():
+    """El ESP32 confirma el estado real del relay tras activarlo/desactivarlo."""
+    global relay_actual_state
+    body = request.get_data(as_text=True).strip()
+    relay_actual_state = (body == "1")
+    logger.info("Relay ACK ESP32 → %s", "ON" if relay_actual_state else "OFF")
+    return jsonify({"actual": relay_actual_state})
 
 
 @app.route("/api/irrigation/stats")
