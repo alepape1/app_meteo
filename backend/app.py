@@ -96,7 +96,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) not in (9, 11, 14, 15):
+        if len(parts) not in (9, 11, 14, 15, 17):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -122,6 +122,8 @@ def rows_to_dict(rows):
         "free_heap":             [r["free_heap"]             for r in rows],
         "uptime_s":              [r["uptime_s"]              for r in rows],
         "relay_active":          [r["relay_active"]          for r in rows],
+        "pipeline_pressure":     [r["pipeline_pressure"]     for r in rows],
+        "pipeline_flow":         [r["pipeline_flow"]         for r in rows],
     }
 
 
@@ -174,12 +176,14 @@ def send_message():
         logger.warning("Mensaje inválido descartado: %s", message)
         return "Error: se esperan 9, 11 u 14 valores separados por coma", 400
 
-    dht_temp     = data[9]  if len(data) >= 11 else None
-    dht_hum      = data[10] if len(data) >= 11 else None
-    rssi         = int(data[11]) if len(data) >= 14 else None
-    free_heap    = int(data[12]) if len(data) >= 14 else None
-    uptime_s     = int(data[13]) if len(data) >= 14 else None
-    relay_active = int(data[14]) if len(data) >= 15 else 0
+    dht_temp          = data[9]  if len(data) >= 11 else None
+    dht_hum           = data[10] if len(data) >= 11 else None
+    rssi              = int(data[11]) if len(data) >= 14 else None
+    free_heap         = int(data[12]) if len(data) >= 14 else None
+    uptime_s          = int(data[13]) if len(data) >= 14 else None
+    relay_active      = int(data[14]) if len(data) >= 15 else 0
+    pipeline_pressure = data[15] if len(data) >= 17 else None
+    pipeline_flow     = data[16] if len(data) >= 17 else None
 
     db = get_db()
     cursor = db.cursor()
@@ -188,9 +192,11 @@ def send_message():
             temperature, pressure, temperature_barometer, humidity,
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
             light, dht_temperature, dht_humidity,
-            rssi, free_heap, uptime_s, relay_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s, relay_active))
+            rssi, free_heap, uptime_s, relay_active,
+            pipeline_pressure, pipeline_flow
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s,
+                            relay_active, pipeline_pressure, pipeline_flow))
     db.commit()
     cursor.close()
 
@@ -513,53 +519,73 @@ def irrigation_history():
 
 # ── Pipeline: simulación de caudalímetro y sensor de presión ─────────────────
 
+def _db_rows_to_pipeline(rows, scenario):
+    """Convierte filas de DB con pipeline_pressure/flow a dicts para detect_leaks."""
+    return [
+        {
+            "timestamp":    row["timestamp"],
+            "valve_open":   bool(row["relay_active"]),
+            "scenario":     scenario,
+            "pressure_bar": row["pipeline_pressure"],
+            "flow_lpm":     row["pipeline_flow"],
+        }
+        for row in rows
+        if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
+    ]
+
+
 @app.route("/api/pipeline/status")
 def pipeline_status():
-    """Estado actual simulado del pipeline + análisis de detección de fugas.
+    """Estado actual del pipeline + análisis de detección de fugas.
 
-    Lee los últimos 90 registros de la DB (30 min a 20 s/muestra) para
-    construir el histórico de simulación y calcular estadísticos base.
-    Si la DB está vacía genera un histórico sintético.
+    Usa datos reales del ESP32 (pipeline_pressure/flow de la DB) si existen.
+    Si la DB no tiene aún datos de pipeline, genera un histórico sintético
+    como fallback para que la vista funcione desde el primer arranque.
     """
     cfg = _get_settings()
     scenario = cfg.get('pipeline_scenario', 'normal')
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
-
     _, actual = _relay_get()
 
     rows = get_db().execute("""
-        SELECT timestamp, relay_active
+        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
         FROM home_weather_station
         ORDER BY timestamp DESC
         LIMIT 90
     """).fetchall()
 
-    if rows:
-        history = build_history_from_db_rows(reversed(rows), scenario, nominal_flow)
+    real_history = _db_rows_to_pipeline(list(reversed(rows)), scenario)
+    using_db = bool(real_history)
+
+    if using_db:
+        history = real_history
+        current = history[-1]
     else:
+        # Fallback: sin datos de pipeline en DB aún → simular
         history = build_synthetic_history(90, actual, scenario, nominal_flow)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        current = simulate_reading(now, actual, scenario, nominal_flow)
 
     detection = detect_leaks(history)
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    current = simulate_reading(now, actual, scenario, nominal_flow)
 
     return jsonify({
         "current":   current,
         "detection": detection,
         "config": {
-            "scenario":            scenario,
-            "nominal_flow_lpm":    nominal_flow,
-            "static_pressure_bar": STATIC_PRESSURE_BAR,
+            "scenario":             scenario,
+            "nominal_flow_lpm":     nominal_flow,
+            "static_pressure_bar":  STATIC_PRESSURE_BAR,
             "dynamic_pressure_bar": DYNAMIC_PRESSURE_BAR,
+            "source":               "db" if using_db else "sim",
         },
     })
 
 
 @app.route("/api/pipeline/readings")
 def pipeline_readings():
-    """Histórico simulado de lecturas de presión y caudal para gráficos.
+    """Histórico de lecturas de presión y caudal para gráficos.
 
+    Usa datos reales del ESP32 si existen; si no, fallback a simulación.
     Query param: n (int, máx 200, defecto 60)
     """
     n = min(int(request.args.get('n', 60)), 200)
@@ -568,19 +594,27 @@ def pipeline_readings():
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
 
     rows = get_db().execute("""
-        SELECT timestamp, relay_active
+        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
         FROM home_weather_station
         ORDER BY timestamp DESC
         LIMIT ?
     """, (n,)).fetchall()
 
-    if rows:
-        readings = build_history_from_db_rows(reversed(rows), scenario, nominal_flow)
-    else:
+    readings = _db_rows_to_pipeline(list(reversed(rows)), scenario)
+
+    if not readings:
         _, actual = _relay_get()
         readings = build_synthetic_history(n, actual, scenario, nominal_flow)
 
     return jsonify(readings)
+
+
+@app.route("/api/pipeline/scenario", methods=["GET"])
+def get_pipeline_scenario():
+    """El ESP32 consulta este endpoint para saber el escenario activo.
+    Devuelve texto plano: 'normal', 'leak' o 'burst'."""
+    cfg = _get_settings()
+    return cfg.get('pipeline_scenario', 'normal'), 200
 
 
 @app.route("/api/pipeline/scenario", methods=["POST"])

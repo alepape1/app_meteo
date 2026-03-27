@@ -9,6 +9,7 @@ El microcontrolador recoge datos de los sensores y los envía por HTTP al servid
 
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Tecnologías](#tecnologías)
+- [Vistas del dashboard](#vistas-del-dashboard)
 - [Datos que recoge la estación](#datos-que-recoge-la-estación)
 - [Instalación](#instalación)
 - [Arrancar en desarrollo](#arrancar-en-desarrollo)
@@ -17,6 +18,7 @@ El microcontrolador recoge datos de los sensores y los envía por HTTP al servid
 - [API endpoints](#api-endpoints)
 - [Formato de datos del ESP](#formato-de-datos-del-esp)
 - [Base de datos](#base-de-datos)
+- [Pipeline y detección de fugas](#pipeline-y-detección-de-fugas)
 - [Despliegue en producción](#despliegue-en-producción)
 
 ---
@@ -38,10 +40,14 @@ app_meteo/
 │   ├── src/
 │   │   ├── App.jsx             # Layout principal, navegación entre vistas
 │   │   ├── components/
-│   │   │   ├── Sidebar.jsx     # Sidebar con navegación, selector y filtros
+│   │   │   ├── Sidebar.jsx     # Sidebar con navegación y filtros de fecha
 │   │   │   ├── StatCard.jsx    # Cards con valor actual, min y max
 │   │   │   ├── WeatherChart.jsx# Gráficos ApexCharts con eje datetime
-│   │   │   └── DeviceStatus.jsx# Vista de estado del ESP32 (señal, heap, info)
+│   │   │   ├── DeviceStatus.jsx# Vista de estado del ESP32 (señal, heap, info)
+│   │   │   ├── IrrigationView.jsx # Control electroválvula + estadísticas riego
+│   │   │   ├── PipelineView.jsx   # Presión/caudal + detección de fugas
+│   │   │   ├── NodesView.jsx   # Nodos LoRa (pendiente de hardware)
+│   │   │   └── SettingsView.jsx   # Configuración de la aplicación
 │   │   ├── hooks/
 │   │   │   └── useWeatherData.js # Hook: fetching, estado y auto-refresco
 │   │   └── index.css           # Tailwind + fuente Inter
@@ -52,6 +58,19 @@ app_meteo/
 ├── start.bat                   # Arranque rápido Windows
 └── README.md
 ```
+
+---
+
+## Vistas del dashboard
+
+| Vista | Descripción |
+|-------|-------------|
+| **Meteorología** | Gráficos históricos de temperatura, humedad, presión, viento y luz. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
+| **Riego** | Control de la electroválvula principal (relay GPIO26). Temporizador de sesión, estadísticas de consumo mensual y ahorro vs. riego manual. Gráfico de consumo por día/semana/mes. |
+| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas y roturas con 3 algoritmos (umbral absoluto, dP/dt, EWMA). Selector de escenario de simulación para pruebas. |
+| **Nodos LoRa** | Vista preparada para nodos remotos de riego (pendiente de hardware). |
+| **ESP32** | Estado del dispositivo: WiFi RSSI, heap libre, uptime, IP, versión SDK. |
+| **Configuración** | Caudal nominal, referencia diaria de riego, nombre y ubicación de la estación. |
 
 ---
 
@@ -88,8 +107,12 @@ app_meteo/
 | `rssi` | dBm | WiFi ESP | Intensidad de señal WiFi |
 | `free_heap` | bytes | ESP32 | Memoria heap libre |
 | `uptime_s` | s | ESP32 | Segundos desde el arranque |
+| `relay_active` | 0/1 | GPIO26 | Estado de la electroválvula |
+| `pipeline_pressure` | bar | Simulado† | Presión de tubería |
+| `pipeline_flow` | L/min | Simulado† | Caudal de tubería |
 
-> *La presión se almacena en kPa (~101.3). Pendiente corregir a hPa en firmware.
+> *La presión atmosférica se almacena en kPa (~101.3). Pendiente corregir a hPa en firmware.
+> †Datos de pipeline generados por el simulador integrado en el ESP32 hasta que se instalen los sensores físicos.
 
 ### Info estática del dispositivo (al arrancar)
 
@@ -477,3 +500,51 @@ networkingMode=mirrored
 ```
 
 Tras editar: `wsl --shutdown` y reabrir WSL.
+
+---
+
+## Pipeline y detección de fugas
+
+La vista **Pipeline** monitoriza la presión de tubería y el caudal para detectar fugas y roturas en la instalación de riego.
+
+### Arquitectura
+
+```
+ESP32 (simulador)          Flask backend              React frontend
+──────────────────         ──────────────────         ──────────────
+Consulta escenario  ──────► GET /api/pipeline/scenario
+Genera P y Q
+Envía CSV (campo 15,16) ──► POST /send_message
+                            Almacena en DB
+                            GET /api/pipeline/status ◄── PipelineView
+                            Aplica detección            muestra gauges
+                            Devuelve status+alerts      + gráfico + alertas
+```
+
+### Algoritmos de detección
+
+| Método | Disparador | Status |
+|--------|-----------|--------|
+| **Umbral absoluto** | Caudal > 0.10 L/min con válvula cerrada | `LEAK` |
+| **dP/dt** | Presión < 30% del valor esperado | `BURST` |
+| **dP/dt consecutivo** | Caída > 20% entre dos muestras consecutivas (válvula abierta) | `BURST` |
+| **EWMA** (λ=0.15) | Deriva estadística > 2.5σ en presión o caudal | `LEAK_SUSPECTED` |
+
+### Endpoints de pipeline
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/api/pipeline/status` | Lectura actual + análisis de detección |
+| `GET` | `/api/pipeline/readings?n=N` | Histórico para gráficos (máx 200) |
+| `GET` | `/api/pipeline/scenario` | Escenario activo en texto plano (para ESP32) |
+| `POST` | `/api/pipeline/scenario` | Cambiar escenario (`normal`/`leak`/`burst`) |
+
+### Escenarios de simulación
+
+El escenario se configura desde el dashboard y el ESP32 lo consulta antes de cada envío:
+
+- **`normal`** — operación sin anomalías
+- **`leak`** — fuga pequeña (~0.28 L/min de fondo con válvula cerrada)
+- **`burst`** — rotura de tubería (presión colapsa a ~0.25 bar)
+
+Cuando se instalen los sensores físicos (caudalímetro + sensor de presión), basta con sustituir las variables `sim_pipeline_pressure` y `sim_pipeline_flow` en el firmware por las lecturas reales del hardware. El resto del sistema (DB, detección, frontend) no requiere cambios.
