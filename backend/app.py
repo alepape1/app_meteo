@@ -2,10 +2,17 @@ from flask import Flask, g, render_template, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
-import sqlite3
 import logging
 import datetime
 from database import get_db_connection, create_tables
+from pipeline_sim import (
+    simulate_reading,
+    build_history_from_db_rows,
+    build_synthetic_history,
+    detect_leaks,
+    STATIC_PRESSURE_BAR,
+    DYNAMIC_PRESSURE_BAR,
+)
 
 load_dotenv()
 
@@ -502,6 +509,101 @@ def irrigation_history():
         }
         for r in rows
     ])
+
+
+# ── Pipeline: simulación de caudalímetro y sensor de presión ─────────────────
+
+@app.route("/api/pipeline/status")
+def pipeline_status():
+    """Estado actual simulado del pipeline + análisis de detección de fugas.
+
+    Lee los últimos 90 registros de la DB (30 min a 20 s/muestra) para
+    construir el histórico de simulación y calcular estadísticos base.
+    Si la DB está vacía genera un histórico sintético.
+    """
+    cfg = _get_settings()
+    scenario = cfg.get('pipeline_scenario', 'normal')
+    nominal_flow = float(cfg.get('flow_lpm', '5.0'))
+
+    _, actual = _relay_get()
+
+    rows = get_db().execute("""
+        SELECT timestamp, relay_active
+        FROM home_weather_station
+        ORDER BY timestamp DESC
+        LIMIT 90
+    """).fetchall()
+
+    if rows:
+        history = build_history_from_db_rows(reversed(rows), scenario, nominal_flow)
+    else:
+        history = build_synthetic_history(90, actual, scenario, nominal_flow)
+
+    detection = detect_leaks(history)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    current = simulate_reading(now, actual, scenario, nominal_flow)
+
+    return jsonify({
+        "current":   current,
+        "detection": detection,
+        "config": {
+            "scenario":            scenario,
+            "nominal_flow_lpm":    nominal_flow,
+            "static_pressure_bar": STATIC_PRESSURE_BAR,
+            "dynamic_pressure_bar": DYNAMIC_PRESSURE_BAR,
+        },
+    })
+
+
+@app.route("/api/pipeline/readings")
+def pipeline_readings():
+    """Histórico simulado de lecturas de presión y caudal para gráficos.
+
+    Query param: n (int, máx 200, defecto 60)
+    """
+    n = min(int(request.args.get('n', 60)), 200)
+    cfg = _get_settings()
+    scenario = cfg.get('pipeline_scenario', 'normal')
+    nominal_flow = float(cfg.get('flow_lpm', '5.0'))
+
+    rows = get_db().execute("""
+        SELECT timestamp, relay_active
+        FROM home_weather_station
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (n,)).fetchall()
+
+    if rows:
+        readings = build_history_from_db_rows(reversed(rows), scenario, nominal_flow)
+    else:
+        _, actual = _relay_get()
+        readings = build_synthetic_history(n, actual, scenario, nominal_flow)
+
+    return jsonify(readings)
+
+
+@app.route("/api/pipeline/scenario", methods=["POST"])
+def set_pipeline_scenario():
+    """Cambia el escenario de simulación del pipeline.
+
+    Body JSON: {"scenario": "normal" | "leak" | "burst"}
+    """
+    payload = request.get_json(silent=True)
+    if not payload or 'scenario' not in payload:
+        return jsonify({"error": "Falta campo 'scenario'"}), 400
+    scenario = payload['scenario']
+    if scenario not in ('normal', 'leak', 'burst'):
+        return jsonify({"error": "Escenario inválido. Use: normal, leak, burst"}), 400
+
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)",
+        (scenario,)
+    )
+    db.commit()
+    logger.info("Pipeline scenario → %s", scenario)
+    return jsonify({"scenario": scenario})
 
 
 # Inicializar DB una sola vez al arrancar

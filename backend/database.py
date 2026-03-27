@@ -79,10 +79,11 @@ def create_tables(conn):
     );
     """)
     for key, value in [
-        ('flow_lpm',         '5.0'),
-        ('baseline_daily_l', '15.0'),
-        ('station_name',     'Aquantia'),
-        ('station_location', 'Lanzarote'),
+        ('flow_lpm',           '5.0'),
+        ('baseline_daily_l',   '15.0'),
+        ('station_name',       'Aquantia'),
+        ('station_location',   'Lanzarote'),
+        ('pipeline_scenario',  'normal'),
     ]:
         cursor.execute(
             "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
