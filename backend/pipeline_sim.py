@@ -230,12 +230,34 @@ def detect_leaks(readings: list) -> dict:
                 confidence = c
                 status = "LEAK"
 
-    # ── Método 2: tasa de cambio de presión (burst) ──────────────────────────
+    # ── Método 2: detección de rotura ────────────────────────────────────────
+    # 2a) Umbral absoluto: presión < 30% del valor esperado (cualquier estado)
+    if readings:
+        cur_valve = readings[-1]["valve_open"]
+        expected_p = DYNAMIC_PRESSURE_BAR if cur_valve else STATIC_PRESSURE_BAR
+        cur_p = readings[-1]["pressure_bar"]
+        if cur_p < expected_p * 0.30:
+            rel_drop = 1.0 - cur_p / expected_p
+            alerts.append({
+                "method":   "dpdt",
+                "severity": "CRITICAL",
+                "message":  (
+                    f"Presión crítica: {cur_p:.3f} bar "
+                    f"(esperado ~{expected_p:.2f} bar, "
+                    f"caída {rel_drop * 100:.0f}%)"
+                ),
+            })
+            c = min(1.0, rel_drop)
+            if c > confidence:
+                confidence = c
+                status = "BURST"
+
+    # 2b) Tasa de cambio en lecturas consecutivas (válvula abierta)
     if len(readings) >= 2:
         last = readings[-1]
         prev = readings[-2]
         if last["valve_open"] and prev["valve_open"] and prev["pressure_bar"] > 0.1:
-            dp      = last["pressure_bar"] - prev["pressure_bar"]
+            dp       = last["pressure_bar"] - prev["pressure_bar"]
             rel_drop = -dp / prev["pressure_bar"]
             if rel_drop > BURST_DROP_RATIO:
                 alerts.append({
