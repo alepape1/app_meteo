@@ -8,6 +8,7 @@ import DeviceStatus from './components/DeviceStatus'
 import IrrigationView from './components/IrrigationView'
 import NodesView from './components/NodesView'
 import SettingsView from './components/SettingsView'
+import PipelineView from './components/PipelineView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -94,6 +95,7 @@ export default function App() {
         {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
         {activeView === 'riego'     && <IrrigationView latest={latest} setRelay={setRelay} />}
         {activeView === 'nodos'     && <NodesView />}
+        {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'settings'  && <SettingsView />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>

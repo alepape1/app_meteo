@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
-  Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings
+  Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity
 } from 'lucide-react'
 
 const fmt = d => {
@@ -21,10 +21,11 @@ const PRESETS = [
 ]
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Meteorología', icon: LayoutDashboard },
-  { id: 'riego',     label: 'Riego',        icon: Droplets },
-  { id: 'nodos',     label: 'Nodos LoRa',   icon: Radio },
-  { id: 'device',    label: 'ESP32',        icon: Cpu },
+  { id: 'dashboard', label: 'Meteorología',  icon: LayoutDashboard },
+  { id: 'riego',     label: 'Riego',         icon: Droplets },
+  { id: 'pipeline',  label: 'Pipeline',      icon: Activity },
+  { id: 'nodos',     label: 'Nodos LoRa',    icon: Radio },
+  { id: 'device',    label: 'ESP32',         icon: Cpu },
   { id: 'settings',  label: 'Configuración', icon: Settings },
 ]
 
