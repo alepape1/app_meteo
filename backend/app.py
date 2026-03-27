@@ -47,6 +47,36 @@ def _relay_set_actual(state):
     db.commit()
 
 
+# ── Configuración de la aplicación ───────────────────────────────────────────
+
+def _get_settings():
+    rows = get_db().execute("SELECT key, value FROM app_settings").fetchall()
+    return {r['key']: r['value'] for r in rows}
+
+
+@app.route("/api/settings")
+def api_get_settings():
+    """Devuelve todos los parámetros de configuración."""
+    return jsonify(_get_settings())
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_set_settings():
+    """Actualiza uno o varios parámetros de configuración."""
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({"error": "JSON requerido"}), 400
+    db = get_db()
+    for key, value in payload.items():
+        db.execute(
+            "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?, ?)",
+            (key, str(value))
+        )
+    db.commit()
+    logger.info("Settings actualizados: %s", list(payload.keys()))
+    return jsonify(_get_settings())
+
+
 @app.teardown_appcontext
 def close_connection(exception):
     """Cierra la conexión a la DB al terminar la petición."""
@@ -358,9 +388,10 @@ def irrigation_stats():
     Baseline de ahorro: 15 L/día de riego manual diario.
     Solo cuenta registros posteriores al último reset manual (si existe).
     """
-    FLOW_LPS = 5.0 / 60.0   # litros/segundo a 5 L/min
-    INTERVAL_S = 20          # segundos por registro del ESP32
-    BASELINE_DAILY_L = 15.0  # litros/día de referencia (riego manual)
+    cfg = _get_settings()
+    FLOW_LPS = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    INTERVAL_S = 20
+    BASELINE_DAILY_L = float(cfg.get('baseline_daily_l', '15.0'))
 
     db = get_db()
     cursor = db.cursor()
@@ -431,6 +462,34 @@ def irrigation_stats():
         "days_elapsed": days_elapsed,
         "daily": daily,
     })
+
+
+@app.route("/api/irrigation/history")
+def irrigation_history():
+    """Consumo diario de los últimos N días (ignora resets, para el gráfico)."""
+    days = min(int(request.args.get('days', 30)), 365)
+    cfg = _get_settings()
+    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    interval_s = 20
+
+    db = get_db()
+    rows = db.execute("""
+        SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
+        FROM home_weather_station
+        WHERE relay_active = 1
+          AND timestamp >= DATE('now', :offset)
+        GROUP BY DATE(timestamp)
+        ORDER BY day ASC
+    """, {"offset": f"-{days} days"}).fetchall()
+
+    return jsonify([
+        {
+            "date": r["day"],
+            "liters": round(r["cnt"] * interval_s * flow_lps, 1),
+            "seconds": r["cnt"] * interval_s,
+        }
+        for r in rows
+    ])
 
 
 # Inicializar DB una sola vez al arrancar

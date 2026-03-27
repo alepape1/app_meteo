@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   BarChart2, Search, ChevronLeft, ChevronRight,
-  Calendar, Hash, Zap, Cpu, LayoutDashboard, Droplets, Radio
+  Calendar, Hash, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings
 } from 'lucide-react'
 
 const fmt = d => {
@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { id: 'riego',     label: 'Riego',        icon: Droplets },
   { id: 'nodos',     label: 'Nodos LoRa',   icon: Radio },
   { id: 'device',    label: 'ESP32',        icon: Cpu },
+  { id: 'settings',  label: 'Configuración', icon: Settings },
 ]
 
 export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, sampleCount, activeView, onViewChange }) {

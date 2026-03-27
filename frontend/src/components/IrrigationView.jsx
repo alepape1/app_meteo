@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import ReactApexChart from 'react-apexcharts'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
+  BarChart2,
 } from 'lucide-react'
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
@@ -448,6 +450,70 @@ function SavingsCard({ stats }) {
   )
 }
 
+// ── Gráfico de consumo diario ─────────────────────────────────────────────────
+function ConsumptionChart() {
+  const [history, setHistory] = useState([])
+
+  useEffect(() => {
+    fetch('/api/irrigation/history?days=30')
+      .then(r => r.json())
+      .then(setHistory)
+      .catch(() => {})
+  }, [])
+
+  const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.date, y: d.liters })) }]
+
+  const options = {
+    chart: {
+      type: 'bar', toolbar: { show: false }, background: 'transparent',
+      fontFamily: '"DM Sans", system-ui, sans-serif',
+    },
+    colors: ['#0c8ecc'],
+    plotOptions: { bar: { borderRadius: 5, columnWidth: '55%' } },
+    dataLabels: { enabled: false },
+    xaxis: {
+      type: 'category',
+      labels: {
+        style: { fontSize: '11px', colors: '#8a9aaa' },
+        formatter: v => {
+          const d = new Date(v + 'T12:00:00')
+          return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+        },
+      },
+      axisBorder: { show: false }, axisTicks: { show: false },
+    },
+    yaxis: {
+      labels: {
+        style: { fontSize: '11px', colors: '#8a9aaa' },
+        formatter: v => `${v.toFixed(0)} L`,
+      },
+    },
+    grid: { borderColor: '#f3f3ef', strokeDashArray: 3, xaxis: { lines: { show: false } } },
+    tooltip: {
+      theme: 'light',
+      y: { formatter: v => `${v.toFixed(1)} L` },
+      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
+    },
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-5 pt-4 pb-1">
+        <BarChart2 size={15} className="text-navy-300 shrink-0" />
+        <h3 className="font-semibold text-navy-900 text-sm">Consumo diario</h3>
+        <span className="ml-auto text-xs text-navy-200">últimos 30 días</span>
+      </div>
+      {history.length > 0 ? (
+        <ReactApexChart options={options} series={series} type="bar" height={220} />
+      ) : (
+        <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
+          Sin datos de riego en los últimos 30 días
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Asesor de riego (banner inteligente) ─────────────────────────────────────
 function IrrigationAdvisor({ latest, onIrrigate }) {
   const et0 = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
@@ -649,10 +715,10 @@ export default function IrrigationView({ latest, setRelay }) {
             </div>
             <button
               onClick={() => setShowResetConfirm(true)}
-              title="Restablecer contador"
-              className="p-1.5 rounded-lg text-navy-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+              className="flex items-center gap-1.5 text-xs text-navy-400 hover:text-red-500 bg-navy-50 hover:bg-red-50 border border-navy-100 hover:border-red-200 px-2.5 py-1 rounded-lg transition-colors"
             >
-              <RotateCcw size={13} />
+              <RotateCcw size={11} />
+              Resetear
             </button>
           </div>
           <p className="text-3xl font-bold text-navy-900 leading-none">
@@ -686,6 +752,9 @@ export default function IrrigationView({ latest, setRelay }) {
         <SavingsCard stats={stats} />
 
       </div>
+
+      {/* ── Gráfico de consumo diario ── */}
+      <ConsumptionChart />
 
       {/* ── Sectores de riego ── */}
       <div>

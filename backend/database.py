@@ -71,6 +71,24 @@ def create_tables(conn):
         except Exception:
             pass  # La columna ya existe
 
+    # Tabla de configuración de la aplicación (clave-valor).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    """)
+    for key, value in [
+        ('flow_lpm',         '5.0'),
+        ('baseline_daily_l', '15.0'),
+        ('station_name',     'Aquantia'),
+        ('station_location', 'Lanzarote'),
+    ]:
+        cursor.execute(
+            "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
+            (key, value)
+        )
+
     # Tabla de resets de consumo — cada fila es un reset manual del usuario.
     # Las estadísticas solo cuentan registros posteriores al último reset.
     cursor.execute("""
