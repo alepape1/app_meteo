@@ -1,8 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
-  CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp,
+  CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
 } from 'lucide-react'
+
+// ── Modal de confirmación genérico ───────────────────────────────────────────
+function ConfirmModal({ message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-xl p-6 mx-4 max-w-sm w-full">
+        <p className="text-sm font-semibold text-navy-900 mb-1">¿Confirmar acción?</p>
+        <p className="text-xs text-navy-400 leading-relaxed mb-5">{message}</p>
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-xs font-medium text-navy-500 bg-navy-50 rounded-xl hover:bg-navy-100 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-xs font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors"
+          >
+            Restablecer
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ── Penman-Monteith FAO-56 simplificado ──────────────────────────────────────
 // Ra fijado en ~10 MJ/m²/día (media anual Lanzarote ~29°N)
@@ -514,24 +540,41 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 // ── Vista principal ──────────────────────────────────────────────────────────
 export default function IrrigationView({ latest, setRelay }) {
   const [stats, setStats] = useState(null)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  const loadStats = useCallback(() =>
+    fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
+  [])
 
   useEffect(() => {
-    const load = () =>
-      fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {})
-    load()
-    const id = setInterval(load, 120_000)
+    loadStats()
+    const id = setInterval(loadStats, 120_000)
     return () => clearInterval(id)
-  }, [])
+  }, [loadStats])
 
   const handleIrrigate = useCallback(async () => {
     await setRelay(true)
   }, [setRelay])
+
+  const handleReset = useCallback(async () => {
+    setShowResetConfirm(false)
+    await fetch('/api/irrigation/reset', { method: 'POST' })
+    loadStats()
+  }, [loadStats])
 
   const et0 = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
   const et0Num = et0 != null ? parseFloat(et0) : null
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
+
+      {showResetConfirm && (
+        <ConfirmModal
+          message="Se restablecerá el contador de litros consumidos. Los datos históricos de la base de datos no se borran."
+          onConfirm={handleReset}
+          onCancel={() => setShowResetConfirm(false)}
+        />
+      )}
 
       {/* ── Banner desarrollo ── */}
       <div className="bg-[#FAEEDA] border border-[#FAC775] rounded-2xl p-4 flex items-start gap-3">
@@ -595,13 +638,22 @@ export default function IrrigationView({ latest, setRelay }) {
 
         {/* Consumo de agua hoy / mes */}
         <div className="bg-white rounded-2xl border border-[#c5c2ef] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="bg-[#EEEDFE] p-1.5 rounded-lg">
-              <Droplets size={15} className="text-[#534AB7]" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="bg-[#EEEDFE] p-1.5 rounded-lg">
+                <Droplets size={15} className="text-[#534AB7]" />
+              </div>
+              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+                Consumo de agua
+              </p>
             </div>
-            <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-              Consumo de agua
-            </p>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              title="Restablecer contador"
+              className="p-1.5 rounded-lg text-navy-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <RotateCcw size={13} />
+            </button>
           </div>
           <p className="text-3xl font-bold text-navy-900 leading-none">
             {stats ? stats.today_liters.toFixed(1) : '—'}

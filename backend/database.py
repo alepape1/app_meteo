@@ -71,6 +71,15 @@ def create_tables(conn):
         except Exception:
             pass  # La columna ya existe
 
+    # Tabla de resets de consumo — cada fila es un reset manual del usuario.
+    # Las estadísticas solo cuentan registros posteriores al último reset.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS irrigation_resets(
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        reset_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
     # Tabla de estado del relay — fila única (id=1), compartida entre workers Gunicorn.
     # Fallo-seguro: desired y actual arrancan en 0 (válvula cerrada).
     cursor.execute("""

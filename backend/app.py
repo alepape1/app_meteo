@@ -339,6 +339,16 @@ def relay_ack():
     return jsonify({"actual": state})
 
 
+@app.route("/api/irrigation/reset", methods=["POST"])
+def irrigation_reset():
+    """Registra un reset manual del contador de consumo."""
+    db = get_db()
+    db.execute("INSERT INTO irrigation_resets DEFAULT VALUES")
+    db.commit()
+    logger.info("Reset de consumo de riego registrado")
+    return jsonify({"ok": True})
+
+
 @app.route("/api/irrigation/stats")
 def irrigation_stats():
     """Estadísticas de consumo y ahorro de riego del mes actual.
@@ -346,6 +356,7 @@ def irrigation_stats():
     Cada registro con relay_active=1 representa ~20s de válvula abierta.
     Caudal nominal: 5 L/min → 5/60 L/s.
     Baseline de ahorro: 15 L/día de riego manual diario.
+    Solo cuenta registros posteriores al último reset manual (si existe).
     """
     FLOW_LPS = 5.0 / 60.0   # litros/segundo a 5 L/min
     INTERVAL_S = 20          # segundos por registro del ESP32
@@ -354,23 +365,31 @@ def irrigation_stats():
     db = get_db()
     cursor = db.cursor()
 
-    # Registros con relay activo este mes, agrupados por día
+    # Fecha del último reset (o inicio del mes si no hay ninguno)
+    cursor.execute("""
+        SELECT COALESCE(MAX(reset_at), strftime('%Y-%m-01T00:00:00', 'now')) AS since
+        FROM irrigation_resets
+        WHERE reset_at >= strftime('%Y-%m-01', 'now')
+    """)
+    since = cursor.fetchone()["since"]
+
+    # Registros con relay activo desde el último reset, agrupados por día
     cursor.execute("""
         SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
         FROM home_weather_station
         WHERE relay_active = 1
-          AND timestamp >= strftime('%Y-%m-01', 'now')
+          AND timestamp >= ?
         GROUP BY DATE(timestamp)
         ORDER BY day ASC
-    """)
+    """, (since,))
     daily_rows = cursor.fetchall()
 
-    # Total registros con relay activo este mes
+    # Total registros con relay activo desde el último reset
     cursor.execute("""
         SELECT COUNT(*) FROM home_weather_station
         WHERE relay_active = 1
-          AND timestamp >= strftime('%Y-%m-01', 'now')
-    """)
+          AND timestamp >= ?
+    """, (since,))
     total_active = cursor.fetchone()[0]
 
     # Total registros con relay activo hoy
@@ -378,7 +397,8 @@ def irrigation_stats():
         SELECT COUNT(*) FROM home_weather_station
         WHERE relay_active = 1
           AND DATE(timestamp) = DATE('now')
-    """)
+          AND timestamp >= ?
+    """, (since,))
     today_active = cursor.fetchone()[0]
 
     cursor.close()
