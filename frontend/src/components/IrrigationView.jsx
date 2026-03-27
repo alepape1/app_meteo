@@ -220,7 +220,7 @@ function SectorCard({ sector }) {
 }
 
 // ── RelayControl con temporizador de sesión ──────────────────────────────────
-function RelayControl({ setRelay }) {
+function RelayControl({ setRelay, flowLpm = 5 }) {
   const [desired, setDesired] = useState(false)
   const [actual, setActual]   = useState(false)  // confirmado por ESP32 vía ACK
   const [busy, setBusy] = useState(false)
@@ -278,7 +278,7 @@ function RelayControl({ setRelay }) {
   }, [desired, setRelay, startSyncPolling])
 
   const synced = desired === actual
-  const sessionLiters = (sessionSeconds / 60 * 5).toFixed(1)
+  const sessionLiters = (sessionSeconds / 60 * flowLpm).toFixed(1)
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 
   return (
@@ -323,7 +323,7 @@ function RelayControl({ setRelay }) {
             </span>
             <span className="font-semibold text-brand-600">{sessionLiters} L</span>
           </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal nominal: 5 L/min</p>
+          <p className="text-xs text-navy-300 mt-1">Caudal nominal: {flowLpm} L/min</p>
         </div>
       )}
 
@@ -450,18 +450,40 @@ function SavingsCard({ stats }) {
   )
 }
 
-// ── Gráfico de consumo diario ─────────────────────────────────────────────────
+// ── Gráfico de consumo con selector de período ────────────────────────────────
+const PERIODS = [
+  { id: 'day',   label: 'Días',    hint: 'últimos 30 días' },
+  { id: 'week',  label: 'Semanas', hint: 'últimas 16 semanas' },
+  { id: 'month', label: 'Meses',   hint: 'últimos 12 meses' },
+]
+
+function fmtPeriodLabel(key, periodId) {
+  if (periodId === 'day') {
+    const d = new Date(key + 'T12:00:00')
+    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  }
+  if (periodId === 'week') {
+    const [, w] = key.split('-W')
+    return `Sem ${parseInt(w, 10)}`
+  }
+  // month: "2025-03"
+  const [y, m] = key.split('-')
+  return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+}
+
 function ConsumptionChart() {
+  const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
 
   useEffect(() => {
-    fetch('/api/irrigation/history?days=30')
+    fetch(`/api/irrigation/history?period=${period}`)
       .then(r => r.json())
       .then(setHistory)
       .catch(() => {})
-  }, [])
+  }, [period])
 
-  const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.date, y: d.liters })) }]
+  const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
+  const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.period, y: d.liters })) }]
 
   const options = {
     chart: {
@@ -469,16 +491,14 @@ function ConsumptionChart() {
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
     colors: ['#0c8ecc'],
-    plotOptions: { bar: { borderRadius: 5, columnWidth: '55%' } },
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '58%' } },
     dataLabels: { enabled: false },
     xaxis: {
       type: 'category',
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => {
-          const d = new Date(v + 'T12:00:00')
-          return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-        },
+        formatter: v => fmtPeriodLabel(v, period),
+        rotate: -30,
       },
       axisBorder: { show: false }, axisTicks: { show: false },
     },
@@ -491,6 +511,7 @@ function ConsumptionChart() {
     grid: { borderColor: '#f3f3ef', strokeDashArray: 3, xaxis: { lines: { show: false } } },
     tooltip: {
       theme: 'light',
+      x: { formatter: v => fmtPeriodLabel(v, period) },
       y: { formatter: v => `${v.toFixed(1)} L` },
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
@@ -498,16 +519,31 @@ function ConsumptionChart() {
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-1">
+      <div className="flex items-center gap-2 px-5 pt-4 pb-2">
         <BarChart2 size={15} className="text-navy-300 shrink-0" />
-        <h3 className="font-semibold text-navy-900 text-sm">Consumo diario</h3>
-        <span className="ml-auto text-xs text-navy-200">últimos 30 días</span>
+        <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
+        <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
+        <div className="ml-auto flex gap-1">
+          {PERIODS.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setPeriod(p.id)}
+              className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                period === p.id
+                  ? 'bg-brand-500 text-white'
+                  : 'text-navy-400 hover:bg-navy-50'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
       {history.length > 0 ? (
         <ReactApexChart options={options} series={series} type="bar" height={220} />
       ) : (
         <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
-          Sin datos de riego en los últimos 30 días
+          Sin datos de riego en este período
         </div>
       )}
     </div>
@@ -557,47 +593,42 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
   }[advice.level] ?? AlertTriangle
 
   return (
-    <div className={`rounded-2xl border p-5 ${c.wrap}`}>
-      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-        {/* Recomendación */}
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <Icon size={20} className={`${c.title} shrink-0 mt-0.5`} />
-          <div className="min-w-0">
-            <p className={`font-bold text-sm ${c.title}`}>{advice.title}</p>
-            <p className={`text-xs mt-0.5 leading-relaxed ${c.sub}`}>{advice.reason}</p>
-          </div>
+    <div className={`rounded-2xl border p-4 ${c.wrap}`}>
+      {/* Fila título + botón */}
+      <div className="flex items-start gap-3 mb-3">
+        <Icon size={18} className={`${c.title} shrink-0 mt-0.5`} />
+        <div className="flex-1 min-w-0">
+          <p className={`font-bold text-sm ${c.title}`}>{advice.title}</p>
+          <p className={`text-xs mt-0.5 leading-relaxed ${c.sub}`}>{advice.reason}</p>
         </div>
-
-        {/* Chips de condiciones */}
-        <div className="flex flex-wrap gap-2">
-          {conditions.map(cond => (
-            <div
-              key={cond.label}
-              className="flex items-center gap-1.5 bg-white/60 rounded-lg px-2.5 py-2 border border-white/80"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                cond.ok ? 'bg-emerald-400' : 'bg-red-400'
-              }`} />
-              <div>
-                <p className="text-xs text-navy-400 leading-none">{cond.label}</p>
-                <p className={`text-xs font-semibold leading-none mt-0.5 ${
-                  cond.ok ? 'text-navy-700' : 'text-red-600'
-                }`}>{cond.val}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Botón de acción rápida cuando condiciones son óptimas */}
         {advice.level === 'go' && (
           <button
             onClick={onIrrigate}
-            className="shrink-0 flex items-center gap-2 bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors whitespace-nowrap"
+            className="shrink-0 flex items-center gap-1.5 bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors"
           >
-            <Unlock size={14} />
-            Regar ahora
+            <Unlock size={12} /> Regar
           </button>
         )}
+      </div>
+
+      {/* Grid de chips — 2 col en móvil/estrecho, 4 col en ancho */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+        {conditions.map(cond => (
+          <div
+            key={cond.label}
+            className="flex items-center gap-1.5 bg-white/60 rounded-lg px-2 py-1.5 border border-white/80"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              cond.ok ? 'bg-emerald-400' : 'bg-red-400'
+            }`} />
+            <div className="min-w-0">
+              <p className="text-xs text-navy-400 leading-none truncate">{cond.label}</p>
+              <p className={`text-xs font-semibold leading-none mt-0.5 ${
+                cond.ok ? 'text-navy-700' : 'text-red-600'
+              }`}>{cond.val}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -606,11 +637,19 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 // ── Vista principal ──────────────────────────────────────────────────────────
 export default function IrrigationView({ latest, setRelay }) {
   const [stats, setStats] = useState(null)
+  const [flowLpm, setFlowLpm] = useState(5.0)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const loadStats = useCallback(() =>
     fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
   [])
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0')))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     loadStats()
@@ -664,7 +703,7 @@ export default function IrrigationView({ latest, setRelay }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
         {/* Electroválvula + temporizador de sesión */}
-        <RelayControl setRelay={setRelay} />
+        <RelayControl setRelay={setRelay} flowLpm={flowLpm} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">

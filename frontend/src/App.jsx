@@ -36,7 +36,6 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
       <Sidebar
-        onFetchSamples={fetchSamples}
         onFetchFiltered={fetchFiltered}
         loading={loading}
         sampleCount={ts.length}

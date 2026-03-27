@@ -466,25 +466,37 @@ def irrigation_stats():
 
 @app.route("/api/irrigation/history")
 def irrigation_history():
-    """Consumo diario de los últimos N días (ignora resets, para el gráfico)."""
-    days = min(int(request.args.get('days', 30)), 365)
+    """Consumo agrupado por periodo (day/week/month) para el gráfico de barras."""
+    period = request.args.get('period', 'day')
+    if period not in ('day', 'week', 'month'):
+        period = 'day'
+
     cfg = _get_settings()
     flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
     interval_s = 20
 
-    db = get_db()
-    rows = db.execute("""
-        SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
+    if period == 'month':
+        group_expr = "strftime('%Y-%m', timestamp)"
+        offset = "-12 months"
+    elif period == 'week':
+        group_expr = "strftime('%Y-W%W', timestamp)"
+        offset = "-16 weeks"
+    else:
+        group_expr = "DATE(timestamp)"
+        offset = "-30 days"
+
+    rows = get_db().execute(f"""
+        SELECT {group_expr} AS period_key, COUNT(*) AS cnt
         FROM home_weather_station
         WHERE relay_active = 1
           AND timestamp >= DATE('now', :offset)
-        GROUP BY DATE(timestamp)
-        ORDER BY day ASC
-    """, {"offset": f"-{days} days"}).fetchall()
+        GROUP BY {group_expr}
+        ORDER BY period_key ASC
+    """, {"offset": offset}).fetchall()
 
     return jsonify([
         {
-            "date": r["day"],
+            "period": r["period_key"],
             "liters": round(r["cnt"] * interval_s * flow_lps, 1),
             "seconds": r["cnt"] * interval_s,
         }

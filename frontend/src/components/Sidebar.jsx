@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  BarChart2, Search, ChevronLeft, ChevronRight,
-  Calendar, Hash, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings
+  Search, ChevronLeft, ChevronRight,
+  Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings
 } from 'lucide-react'
 
 const fmt = d => {
@@ -28,21 +28,14 @@ const NAV_ITEMS = [
   { id: 'settings',  label: 'Configuración', icon: Settings },
 ]
 
-export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, sampleCount, activeView, onViewChange }) {
+export default function Sidebar({ onFetchFiltered, loading, sampleCount, activeView, onViewChange }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [samples, setSamples]     = useState(150)
   const [activePreset, setActivePreset] = useState(null)
 
   const now     = new Date()
   const midnight = new Date(); midnight.setHours(0,0,0,0)
   const [startDt, setStartDt] = useState(toInputVal(midnight))
   const [endDt,   setEndDt]   = useState(toInputVal(now))
-
-  const handleSamples = (e) => {
-    e.preventDefault()
-    setActivePreset(null)
-    onFetchSamples(samples)
-  }
 
   const applyPreset = (preset, idx) => {
     const [s, e] = preset.getDates()
@@ -122,52 +115,27 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
         ))}
       </div>
 
-      {/* ── Controls (only when not collapsed and on dashboard view) ── */}
+      {/* ── Controls (only when not collapsed) ── */}
       {!collapsed && (
-        <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
-
-          {/* Muestras rápidas */}
-          <section>
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
-              <Hash size={11} /> Muestras recientes
-            </p>
-            <form onSubmit={handleSamples} className="flex gap-2">
-              <input
-                type="number"
-                value={samples}
-                onChange={e => setSamples(Number(e.target.value))}
-                min={1} max={5000}
-                className="flex-1 w-0 bg-navy-800 text-white text-sm rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none placeholder:text-navy-300"
-                placeholder="Ej: 200"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg px-3 py-2 transition-colors"
-              >
-                <BarChart2 size={14} /> Ver
-              </button>
-            </form>
-          </section>
-
-          <div className="border-t border-navy-800" />
+        <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
 
           {/* Filtro por fechas */}
           <section>
             <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
-              <Calendar size={11} /> Filtrar por fecha
+              <Calendar size={11} /> Rango de datos
             </p>
 
-            <div className="grid grid-cols-4 gap-1.5 mb-4">
+            {/* Presets rápidos */}
+            <div className="grid grid-cols-2 gap-1.5 mb-3">
               {PRESETS.map((p, i) => (
                 <button
                   key={p.label}
                   onClick={() => applyPreset(p, i)}
                   disabled={loading}
-                  className={`text-xs font-medium py-1.5 rounded-lg transition-colors ${
+                  className={`text-xs font-semibold py-2 rounded-xl transition-colors ${
                     activePreset === i
                       ? 'bg-brand-500 text-white'
-                      : 'bg-navy-800 text-navy-300 hover:bg-navy-700 hover:text-white'
+                      : 'bg-navy-800 text-navy-400 hover:bg-navy-700 hover:text-white border border-navy-700'
                   }`}
                 >
                   {p.label}
@@ -175,34 +143,48 @@ export default function Sidebar({ onFetchSamples, onFetchFiltered, loading, samp
               ))}
             </div>
 
-            <div className="space-y-2.5">
-              <div>
-                <label className="text-xs text-navy-300 mb-1 block">Desde</label>
-                <input
-                  type="datetime-local"
-                  value={startDt}
-                  onChange={e => { setStartDt(e.target.value); setActivePreset(null) }}
-                  className="w-full bg-navy-800 text-navy-100 text-xs rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none [color-scheme:dark]"
-                />
+            {/* Separador */}
+            <div className="flex items-center gap-2 my-3">
+              <div className="flex-1 border-t border-navy-800" />
+              <span className="text-xs text-navy-600">o personalizado</span>
+              <div className="flex-1 border-t border-navy-800" />
+            </div>
+
+            {/* Date pickers compactos */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 bg-navy-800 rounded-xl px-3 py-2 border border-navy-700 focus-within:border-brand-500">
+                <Calendar size={12} className="text-navy-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-navy-500 text-xs leading-none mb-1">Desde</p>
+                  <input
+                    type="datetime-local"
+                    value={startDt}
+                    onChange={e => { setStartDt(e.target.value); setActivePreset(null) }}
+                    className="w-full bg-transparent text-navy-100 text-xs focus:outline-none [color-scheme:dark]"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-navy-300 mb-1 block">Hasta</label>
-                <input
-                  type="datetime-local"
-                  value={endDt}
-                  onChange={e => { setEndDt(e.target.value); setActivePreset(null) }}
-                  className="w-full bg-navy-800 text-navy-100 text-xs rounded-lg px-3 py-2 border border-navy-700 focus:border-brand-500 focus:outline-none [color-scheme:dark]"
-                />
+              <div className="flex items-center gap-2 bg-navy-800 rounded-xl px-3 py-2 border border-navy-700 focus-within:border-brand-500">
+                <Calendar size={12} className="text-navy-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-navy-500 text-xs leading-none mb-1">Hasta</p>
+                  <input
+                    type="datetime-local"
+                    value={endDt}
+                    onChange={e => { setEndDt(e.target.value); setActivePreset(null) }}
+                    className="w-full bg-transparent text-navy-100 text-xs focus:outline-none [color-scheme:dark]"
+                  />
+                </div>
               </div>
             </div>
 
             <button
               onClick={handleFilter}
               disabled={loading}
-              className="mt-3 w-full flex items-center justify-center gap-2 bg-navy-800 hover:bg-navy-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg px-3 py-2.5 transition-colors"
+              className="mt-3 w-full flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-sm font-semibold rounded-xl px-3 py-2.5 transition-colors"
             >
-              <Search size={14} />
-              Consultar rango
+              <Search size={13} />
+              {loading ? 'Cargando…' : 'Consultar'}
             </button>
           </section>
 
