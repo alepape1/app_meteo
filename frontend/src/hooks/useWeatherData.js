@@ -15,6 +15,8 @@ export function useWeatherData() {
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
   const [deviceLastSeen, setDeviceLastSeen] = useState(null)
+  const [devices, setDevices] = useState([])
+  const [selectedMac, setSelectedMac] = useState(null)
 
   const applyData = (json) => {
     setData(json)
@@ -26,7 +28,10 @@ export function useWeatherData() {
   const fetchSamples = useCallback(async (n = 100) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/muestras/${n}`)
+      const url = selectedMac
+        ? `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
+        : `/api/muestras/${n}`
+      const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
     } catch (e) {
@@ -34,15 +39,17 @@ export function useWeatherData() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedMac])
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
     setLoading(true)
     try {
+      const body = { start_date: startDate, end_date: endDate }
+      if (selectedMac) body.mac = selectedMac
       const res = await fetch('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ start_date: startDate, end_date: endDate }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
@@ -51,11 +58,14 @@ export function useWeatherData() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedMac])
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/latest')
+      const url = selectedMac
+        ? `/api/latest?mac=${encodeURIComponent(selectedMac)}`
+        : '/api/latest'
+      const res = await fetch(url)
       if (!res.ok) return
       const json = await res.json()
       if (json.timestamp?.length > 0) {
@@ -64,26 +74,39 @@ export function useWeatherData() {
         setDeviceLastSeen(json.timestamp.at(-1))
       }
     } catch (_) {}
-  }, [])
+  }, [selectedMac])
 
   const fetchDeviceInfo = useCallback(async () => {
     try {
-      const res = await fetch('/api/device_info')
+      const url = selectedMac
+        ? `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
+        : '/api/device_info'
+      const res = await fetch(url)
       if (!res.ok) return
       const json = await res.json()
       if (Object.keys(json).length > 0) setDeviceInfo(json)
     } catch (_) {}
+  }, [selectedMac])
+
+  const fetchDevices = useCallback(async () => {
+    try {
+      const res = await fetch('/api/devices')
+      if (!res.ok) return
+      setDevices(await res.json())
+    } catch (_) {}
   }, [])
 
-  // Carga inicial
+  // Carga inicial y recarga al cambiar dispositivo
   useEffect(() => { fetchSamples(150) }, [fetchSamples])
   useEffect(() => { fetchDeviceInfo() }, [fetchDeviceInfo])
+  // Fetch de dispositivos una vez al montar
+  useEffect(() => { fetchDevices() }, [fetchDevices])
 
   // Auto-refresco cada 60s
   useEffect(() => {
-    const id = setInterval(refresh, 60000)
+    const id = setInterval(() => { refresh(); fetchDevices() }, 60000)
     return () => clearInterval(id)
-  }, [refresh])
+  }, [refresh, fetchDevices])
 
   const latest = {
     temperature:     data.temperature.at(-1),
@@ -106,5 +129,10 @@ export function useWeatherData() {
     })
   }, [])
 
-  return { data, latest, loading, lastUpdate, error, deviceInfo, deviceLastSeen, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay }
+  return {
+    data, latest, loading, lastUpdate, error,
+    deviceInfo, deviceLastSeen,
+    devices, selectedMac, setSelectedMac,
+    fetchSamples, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
+  }
 }

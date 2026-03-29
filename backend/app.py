@@ -185,7 +185,16 @@ def send_message():
     pipeline_pressure = data[15] if len(data) >= 17 else None
     pipeline_flow     = data[16] if len(data) >= 17 else None
 
+    # Identificar dispositivo: primero por header X-Device-MAC, luego por IP
+    device_mac = request.headers.get('X-Device-MAC')
     db = get_db()
+    if not device_mac:
+        mac_row = db.execute(
+            "SELECT mac_address FROM device_info WHERE ip_address=?",
+            (request.remote_addr,)
+        ).fetchone()
+        device_mac = mac_row['mac_address'] if mac_row else None
+
     cursor = db.cursor()
     cursor.execute("""
         INSERT INTO home_weather_station(
@@ -193,10 +202,11 @@ def send_message():
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
             light, dht_temperature, dht_humidity,
             rssi, free_heap, uptime_s, relay_active,
-            pipeline_pressure, pipeline_flow
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            pipeline_pressure, pipeline_flow, device_mac
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s,
-                            relay_active, pipeline_pressure, pipeline_flow))
+                            relay_active, pipeline_pressure, pipeline_flow,
+                            device_mac))
     db.commit()
     cursor.close()
 
@@ -259,13 +269,21 @@ def filtrar_datos_api():
     if not start_date or not end_date:
         return jsonify({"error": "Faltan fechas start_date o end_date"}), 400
 
+    mac = payload.get('mac')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM home_weather_station
-        WHERE timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC
-    """, (start_date, end_date))
+    if mac:
+        cursor.execute("""
+            SELECT * FROM home_weather_station
+            WHERE timestamp BETWEEN ? AND ? AND device_mac=?
+            ORDER BY timestamp ASC
+        """, (start_date, end_date, mac))
+    else:
+        cursor.execute("""
+            SELECT * FROM home_weather_station
+            WHERE timestamp BETWEEN ? AND ?
+            ORDER BY timestamp ASC
+        """, (start_date, end_date))
     rows = cursor.fetchall()
     cursor.close()
 
@@ -275,16 +293,28 @@ def filtrar_datos_api():
 @app.route("/api/muestras/<int:n>")
 def api_muestras(n):
     """Devuelve las últimas N muestras como JSON para el dashboard React."""
+    mac = request.args.get('mac')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT COUNT(*) FROM home_weather_station;")
+    if mac:
+        cursor.execute(
+            "SELECT COUNT(*) FROM home_weather_station WHERE device_mac=?",
+            (mac,)
+        )
+    else:
+        cursor.execute("SELECT COUNT(*) FROM home_weather_station;")
     total = cursor.fetchone()[0]
     offset = max(0, total - n)
-    cursor.execute("""
-        SELECT * FROM home_weather_station
-        ORDER BY timestamp ASC
-        LIMIT ? OFFSET ?
-    """, (n, offset))
+    if mac:
+        cursor.execute("""
+            SELECT * FROM home_weather_station WHERE device_mac=?
+            ORDER BY timestamp ASC LIMIT ? OFFSET ?
+        """, (mac, n, offset))
+    else:
+        cursor.execute("""
+            SELECT * FROM home_weather_station
+            ORDER BY timestamp ASC LIMIT ? OFFSET ?
+        """, (n, offset))
     rows = cursor.fetchall()
     cursor.close()
     return jsonify(rows_to_dict(rows))
@@ -298,10 +328,18 @@ def post_device_info():
     db = get_db()
     cursor = db.cursor()
     cursor.execute("""
-        INSERT OR REPLACE INTO device_info(
-            id, chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
+        INSERT INTO device_info(
+            chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
             sdk_version, mac_address, ip_address, last_seen
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(mac_address) DO UPDATE SET
+            chip_model=excluded.chip_model,
+            chip_revision=excluded.chip_revision,
+            cpu_freq_mhz=excluded.cpu_freq_mhz,
+            flash_size_mb=excluded.flash_size_mb,
+            sdk_version=excluded.sdk_version,
+            ip_address=excluded.ip_address,
+            last_seen=CURRENT_TIMESTAMP
     """, (
         payload.get("chip_model"),
         payload.get("chip_revision"),
@@ -313,32 +351,64 @@ def post_device_info():
     ))
     db.commit()
     cursor.close()
-    logger.info("DeviceInfo actualizado: %s", payload.get("chip_model"))
+    logger.info("DeviceInfo actualizado: %s / %s",
+                payload.get("chip_model"), payload.get("mac_address"))
     return "OK", 200
 
 
 @app.route("/api/device_info", methods=["GET"])
 def get_device_info():
+    mac = request.args.get('mac')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM device_info WHERE id = 1")
+    if mac:
+        cursor.execute("SELECT * FROM device_info WHERE mac_address=?", (mac,))
+        row = cursor.fetchone()
+        cursor.close()
+        return jsonify(dict(row) if row else {})
+    # Sin filtro: devuelve el más reciente (compatibilidad con DeviceStatus)
+    cursor.execute("SELECT * FROM device_info ORDER BY last_seen DESC LIMIT 1")
     row = cursor.fetchone()
     cursor.close()
-    if not row:
-        return jsonify({}), 200
-    return jsonify(dict(row))
+    return jsonify(dict(row) if row else {})
+
+
+@app.route("/api/devices")
+def api_devices():
+    """Lista todos los dispositivos conocidos con su último timestamp de lectura."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM device_info ORDER BY last_seen DESC"
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        latest = db.execute(
+            "SELECT timestamp FROM home_weather_station"
+            " WHERE device_mac=? ORDER BY timestamp DESC LIMIT 1",
+            (r['mac_address'],)
+        ).fetchone()
+        d['latest_reading'] = latest['timestamp'] if latest else None
+        result.append(d)
+    return jsonify(result)
 
 
 @app.route("/api/latest")
 def api_latest():
     """Devuelve el registro más reciente como JSON (útil para auto-refresco)."""
+    mac = request.args.get('mac')
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM home_weather_station
-        ORDER BY timestamp DESC
-        LIMIT 1;
-    """)
+    if mac:
+        cursor.execute("""
+            SELECT * FROM home_weather_station WHERE device_mac=?
+            ORDER BY timestamp DESC LIMIT 1
+        """, (mac,))
+    else:
+        cursor.execute("""
+            SELECT * FROM home_weather_station
+            ORDER BY timestamp DESC LIMIT 1
+        """)
     rows = cursor.fetchall()
     cursor.close()
 
@@ -517,6 +587,72 @@ def irrigation_history():
     ])
 
 
+@app.route("/api/irrigation/sessions")
+def irrigation_sessions():
+    """Sesiones individuales de riego.
+
+    Agrupa registros consecutivos relay_active=1 con gaps < gap_s segundos.
+    Devuelve las 60 sesiones más recientes en orden descendente.
+    """
+    cfg = _get_settings()
+    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    interval_s = 20
+    gap_s = 60  # salto > 60s entre registros activos → nueva sesión
+
+    rows = get_db().execute("""
+        SELECT timestamp
+        FROM home_weather_station
+        WHERE relay_active = 1
+          AND timestamp >= datetime('now', '-180 days')
+        ORDER BY timestamp ASC
+    """).fetchall()
+
+    sessions = []
+    if not rows:
+        return jsonify([])
+
+    session_start = None
+    session_end = None
+    session_count = 0
+    prev_ts = None
+
+    def _parse(ts_str):
+        s = str(ts_str).replace(' ', 'T').rstrip('Z')
+        return datetime.datetime.fromisoformat(s)
+
+    def _close_session():
+        sessions.append({
+            "start": str(session_start).replace(' ', 'T'),
+            "end": str(session_end).replace(' ', 'T'),
+            "duration_s": session_count * interval_s,
+            "liters": round(session_count * interval_s * flow_lps, 1),
+        })
+
+    for row in rows:
+        ts = _parse(row["timestamp"])
+        if prev_ts is None:
+            session_start = ts
+            session_end = ts
+            session_count = 1
+        else:
+            gap = (ts - prev_ts).total_seconds()
+            if gap > gap_s:
+                _close_session()
+                session_start = ts
+                session_end = ts
+                session_count = 1
+            else:
+                session_end = ts
+                session_count += 1
+        prev_ts = ts
+
+    if session_start is not None:
+        _close_session()
+
+    sessions.reverse()
+    return jsonify(sessions[:60])
+
+
 # ── Pipeline: simulación de caudalímetro y sensor de presión ─────────────────
 
 def _db_rows_to_pipeline(rows, scenario):
@@ -586,13 +722,30 @@ def pipeline_readings():
     """Histórico de lecturas de presión y caudal para gráficos.
 
     Usa datos reales del ESP32 si existen; si no, fallback a simulación.
-    Query param: n (int, máx 200, defecto 60)
+    Query params:
+      n    (int, máx 500, defecto 90) — para modo en vivo
+      from (datetime str)             — rango histórico inicio
+      to   (datetime str)             — rango histórico fin
+    Si se proveen from/to se ignora n y no hay fallback a simulación.
     """
-    n = min(int(request.args.get('n', 60)), 200)
     cfg = _get_settings()
     scenario = cfg.get('pipeline_scenario', 'normal')
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
 
+    from_dt = request.args.get('from')
+    to_dt   = request.args.get('to')
+
+    if from_dt and to_dt:
+        rows = get_db().execute("""
+            SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
+            FROM home_weather_station
+            WHERE timestamp BETWEEN ? AND ?
+            ORDER BY timestamp ASC
+        """, (from_dt, to_dt)).fetchall()
+        readings = _db_rows_to_pipeline(list(rows), scenario)
+        return jsonify(readings)
+
+    n = min(int(request.args.get('n', 90)), 500)
     rows = get_db().execute("""
         SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
         FROM home_weather_station

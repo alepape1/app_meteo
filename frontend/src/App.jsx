@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
@@ -21,7 +21,21 @@ function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
 
 export default function App() {
-  const { data, latest, loading, lastUpdate, error, deviceInfo, deviceLastSeen, fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay } = useWeatherData()
+  const {
+    data, latest, loading, lastUpdate, error,
+    deviceInfo, deviceLastSeen,
+    devices, selectedMac, setSelectedMac,
+    fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay,
+  } = useWeatherData()
+
+  // Auto-seleccionar el primer dispositivo cuando cargue la lista
+  const autoSelected = useRef(false)
+  useEffect(() => {
+    if (!autoSelected.current && devices.length > 0) {
+      autoSelected.current = true
+      setSelectedMac(devices[0].mac_address)
+    }
+  }, [devices, setSelectedMac])
 
   const isDeviceOnline = deviceLastSeen
     ? (Date.now() - new Date(deviceLastSeen.replace(' ', 'T')).getTime()) < 90000
@@ -42,6 +56,9 @@ export default function App() {
         sampleCount={ts.length}
         activeView={activeView}
         onViewChange={handleViewChange}
+        devices={devices}
+        selectedMac={selectedMac}
+        onSelectDevice={setSelectedMac}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -75,7 +92,8 @@ export default function App() {
                   ? <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
                   : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
                 }
-                ECUaquantia {isDeviceOnline ? 'online' : 'offline'}
+                {selectedMac ? `ECU ···${selectedMac.slice(-5)}` : 'ECUaquantia'}{' '}
+                {isDeviceOnline ? 'online' : 'offline'}
                 {lastUpdate && <span className="text-navy-200 pl-1.5 border-l border-navy-200 ml-0.5">{lastUpdate}</span>}
               </span>
             )}

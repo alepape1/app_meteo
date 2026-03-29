@@ -68,12 +68,15 @@ def create_tables(conn):
         "ALTER TABLE home_weather_station ADD COLUMN relay_active INTEGER DEFAULT 0;",
         "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure REAL DEFAULT NULL;",
         "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow REAL DEFAULT NULL;",
+        "ALTER TABLE home_weather_station ADD COLUMN device_mac TEXT DEFAULT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_info_mac ON device_info(mac_address);",
+        "CREATE INDEX IF NOT EXISTS idx_device_mac ON home_weather_station(device_mac);",
     ]:
         try:
             cursor.execute(migration)
             conn.commit()
         except Exception:
-            pass  # La columna ya existe
+            pass  # La columna/índice ya existe
 
     # Tabla de configuración de la aplicación (clave-valor).
     cursor.execute("""
