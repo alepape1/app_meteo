@@ -746,7 +746,8 @@ def pipeline_status():
     cfg = _get_settings()
     scenario = cfg.get('pipeline_scenario', 'normal')
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
-    _, actual = _relay_get()
+    states = _relay_get()
+    actual = states[0]['actual'] if states else False
 
     rows = get_db().execute("""
         SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
@@ -821,7 +822,8 @@ def pipeline_readings():
     readings = _db_rows_to_pipeline(list(reversed(rows)), scenario)
 
     if not readings:
-        _, actual = _relay_get()
+        states = _relay_get()
+        actual = states[0]['actual'] if states else False
         readings = build_synthetic_history(n, actual, scenario, nominal_flow)
 
     return jsonify(readings)
