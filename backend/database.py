@@ -4,7 +4,11 @@ import os
 # Definimos la ruta de la DB relativa a este archivo para evitar problemas de rutas
 DB_NAME = "home_weather_station.db"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, DB_NAME)
+# DATA_DIR permite montar la DB en un volumen persistente via variable de entorno.
+# En Docker: DATA_DIR=/app/data. En local: usa el directorio del script.
+DATA_DIR = os.environ.get('DATA_DIR', BASE_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, DB_NAME)
 
 def get_db_connection():
     conexion = sqlite3.connect(DB_PATH, check_same_thread=False)
