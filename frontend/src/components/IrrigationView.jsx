@@ -219,24 +219,23 @@ function SectorCard({ sector }) {
   )
 }
 
-// ── RelayControl con temporizador de sesión ──────────────────────────────────
-function RelayControl({ setRelay, flowLpm = 5 }) {
-  const [desired, setDesired] = useState(false)
-  const [actual, setActual]   = useState(false)  // confirmado por ESP32 vía ACK
+// ── ValveCard — control individual de una electroválvula ─────────────────────
+function ValveCard({ index, mac, flowLpm = 5, initialState }) {
+  const [desired, setDesired] = useState(initialState?.desired ?? false)
+  const [actual,  setActual]  = useState(initialState?.actual  ?? false)
   const [busy, setBusy] = useState(false)
   const [sessionStart, setSessionStart] = useState(null)
-  const [sessionSeconds, setSessionSeconds] = useState(0)
+  const [sessionSeconds, setSessionSeconds] = useState(null)
   const pollRef = useRef(null)
 
-  // Carga el estado inicial (desired + actual) desde el servidor
+  // Sync state when parent passes new initialState
   useEffect(() => {
-    fetch('/api/relay')
-      .then(r => r.json())
-      .then(j => { setDesired(j.desired ?? false); setActual(j.actual ?? false) })
-      .catch(() => {})
-  }, [])
+    if (initialState) {
+      setDesired(initialState.desired)
+      setActual(initialState.actual)
+    }
+  }, [initialState?.desired, initialState?.actual])
 
-  // Limpia el polling al desmontar
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   useEffect(() => {
@@ -245,41 +244,51 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
     return () => clearInterval(id)
   }, [sessionStart])
 
-  // Polling rápido hasta que el ESP32 confirme el nuevo estado (máx ~30s)
   const startSyncPolling = useCallback((expected) => {
     if (pollRef.current) clearInterval(pollRef.current)
     let attempts = 0
     pollRef.current = setInterval(async () => {
       attempts++
       try {
-        const res = await fetch('/api/relay')
-        const j = await res.json()
-        const confirmed = j.actual ?? false
-        setActual(confirmed)
-        if (confirmed === expected || attempts >= 15) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
+        const url = mac ? `/api/relay?mac=${encodeURIComponent(mac)}` : '/api/relay'
+        const res = await fetch(url)
+        const arr = await res.json()
+        const row = Array.isArray(arr) ? arr.find(r => r.index === index) : null
+        if (row) {
+          setActual(row.actual)
+          if (row.actual === expected || attempts >= 15) {
+            clearInterval(pollRef.current); pollRef.current = null
+          }
+        } else if (attempts >= 15) {
+          clearInterval(pollRef.current); pollRef.current = null
         }
       } catch (_) {
         if (attempts >= 15) { clearInterval(pollRef.current); pollRef.current = null }
       }
     }, 2000)
-  }, [])
+  }, [mac, index])
 
   const toggle = useCallback(async () => {
     setBusy(true)
     const next = !desired
-    await setRelay(next)
-    setDesired(next)
-    if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
-    else { setSessionStart(null) }
-    setBusy(false)
-    startSyncPolling(next)
-  }, [desired, setRelay, startSyncPolling])
+    try {
+      await fetch('/api/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, index, state: next }),
+      })
+      setDesired(next)
+      if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
+      else { setSessionStart(null) }
+      startSyncPolling(next)
+    } finally {
+      setBusy(false)
+    }
+  }, [desired, mac, index, startSyncPolling])
 
   const synced = desired === actual
-  const sessionLiters = (sessionSeconds / 60 * flowLpm).toFixed(1)
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+  const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * flowLpm).toFixed(1) : null
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -288,7 +297,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
           <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Electroválvula principal
+          Válvula {index + 1}
         </p>
       </div>
 
@@ -298,15 +307,14 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
         }`} />
         <div className="flex-1">
           <p className="text-sm font-semibold text-navy-900">
-            {actual ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
+            {actual ? 'Abierta — Regando' : 'Cerrada'}
           </p>
           <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando…'}
+            {synced ? 'Sincronizado' : 'Sincronizando…'}
           </p>
         </div>
       </div>
 
-      {/* Info de sesión — visible cuando está abierta o recién cerrada */}
       {(desired || sessionSeconds > 0) && (
         <div className={`rounded-xl p-3 mb-4 ${
           desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
@@ -315,7 +323,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             <span className="flex items-center gap-1 text-navy-400">
               <Clock size={11} /> Tiempo abierta
             </span>
-            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds)}</span>
+            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
           </div>
           <div className="flex justify-between text-xs mt-1.5">
             <span className="flex items-center gap-1 text-navy-400">
@@ -323,7 +331,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             </span>
             <span className="font-semibold text-brand-600">{sessionLiters} L</span>
           </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal nominal: {flowLpm} L/min</p>
+          <p className="text-xs text-navy-300 mt-1">Caudal: {flowLpm} L/min</p>
         </div>
       )}
 
@@ -339,11 +347,46 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
         {desired ? <Lock size={14} /> : <Unlock size={14} />}
         {busy ? 'Enviando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
       </button>
-
-      <p className="text-xs text-navy-300 mt-2.5 text-center">
-        GPIO 26 · JQC-3FF-S-Z · Relay activo-LOW
-      </p>
     </div>
+  )
+}
+
+// ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
+function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
+  const [states, setStates] = useState([])
+
+  useEffect(() => {
+    const url = selectedMac
+      ? `/api/relay?mac=${encodeURIComponent(selectedMac)}`
+      : '/api/relay'
+    fetch(url)
+      .then(r => r.json())
+      .then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      })
+      .catch(() => {})
+    const id = setInterval(() => {
+      fetch(url).then(r => r.json()).then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      }).catch(() => {})
+    }, 5000)
+    return () => clearInterval(id)
+  }, [selectedMac])
+
+  return (
+    <>
+      {Array.from({ length: relayCount }, (_, i) => (
+        <ValveCard
+          key={i}
+          index={i}
+          mac={selectedMac}
+          flowLpm={flowLpm}
+          initialState={states.find(s => s.index === i)}
+        />
+      ))}
+    </>
   )
 }
 
@@ -452,9 +495,10 @@ function SavingsCard({ stats }) {
 
 // ── Gráfico de consumo con selector de período ────────────────────────────────
 const PERIODS = [
-  { id: 'day',   label: 'Días',    hint: 'últimos 30 días' },
-  { id: 'week',  label: 'Semanas', hint: 'últimas 16 semanas' },
-  { id: 'month', label: 'Meses',   hint: 'últimos 12 meses' },
+  { id: 'day',     label: 'Días',     hint: 'últimos 30 días' },
+  { id: 'week',    label: 'Semanas',  hint: 'últimas 16 semanas' },
+  { id: 'month',   label: 'Meses',    hint: 'últimos 12 meses' },
+  { id: 'session', label: 'Sesiones', hint: 'últimas 60 sesiones' },
 ]
 
 function fmtPeriodLabel(key, periodId) {
@@ -466,23 +510,129 @@ function fmtPeriodLabel(key, periodId) {
     const [, w] = key.split('-W')
     return `Sem ${parseInt(w, 10)}`
   }
+  if (periodId === 'session') {
+    const d = new Date(key)
+    return d.toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
   // month: "2025-03"
   const [y, m] = key.split('-')
   return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
 }
 
+function fmtDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
 function ConsumptionChart() {
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
+  const [sessions, setSessions] = useState([])
 
   useEffect(() => {
-    fetch(`/api/irrigation/history?period=${period}`)
-      .then(r => r.json())
-      .then(setHistory)
-      .catch(() => {})
+    if (period === 'session') {
+      fetch('/api/irrigation/sessions')
+        .then(r => r.json())
+        .then(setSessions)
+        .catch(() => {})
+    } else {
+      fetch(`/api/irrigation/history?period=${period}`)
+        .then(r => r.json())
+        .then(setHistory)
+        .catch(() => {})
+    }
   }, [period])
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
+
+  // ── Sessions view ──
+  if (period === 'session') {
+    const sessionSeries = [{
+      name: 'Consumo',
+      data: sessions.map(s => ({ x: new Date(s.start).getTime(), y: s.liters })),
+    }]
+    const sessionOptions = {
+      chart: {
+        type: 'bar', toolbar: { show: false }, background: 'transparent',
+        fontFamily: '"DM Sans", system-ui, sans-serif',
+        animations: { enabled: false },
+      },
+      colors: ['#10b981'],
+      plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
+      dataLabels: { enabled: false },
+      xaxis: {
+        type: 'datetime',
+        labels: {
+          style: { fontSize: '10px', colors: '#8a9aaa' },
+          datetimeUTC: false,
+          format: 'dd MMM HH:mm',
+          rotate: -35,
+        },
+        axisBorder: { show: false }, axisTicks: { show: false },
+      },
+      yaxis: {
+        labels: {
+          style: { fontSize: '11px', colors: '#8a9aaa' },
+          formatter: v => `${v.toFixed(0)} L`,
+        },
+      },
+      grid: { borderColor: '#f3f3ef', strokeDashArray: 3, xaxis: { lines: { show: false } } },
+      tooltip: {
+        theme: 'light',
+        x: { format: 'dd MMM yyyy HH:mm' },
+        custom: ({ dataPointIndex }) => {
+          const s = sessions[dataPointIndex]
+          if (!s) return ''
+          return `<div style="padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:12px">
+            <div style="font-weight:600;color:#1e2d3d;margin-bottom:4px">${fmtDuration(s.duration_s)}</div>
+            <div style="color:#5a7a9a">${s.liters.toFixed(1)} L consumidos</div>
+          </div>`
+        },
+      },
+    }
+
+    const totalL = sessions.reduce((a, s) => a + s.liters, 0)
+
+    return (
+      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
+          <BarChart2 size={15} className="text-navy-300 shrink-0" />
+          <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
+          {sessions.length > 0 && (
+            <span className="text-xs text-navy-300">
+              {sessions.length} sesiones · {totalL.toFixed(1)} L total
+            </span>
+          )}
+          <div className="ml-auto flex gap-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  period === p.id
+                    ? 'bg-brand-500 text-white'
+                    : 'text-navy-400 hover:bg-navy-50'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {sessions.length > 0 ? (
+          <ReactApexChart options={sessionOptions} series={sessionSeries} type="bar" height={220} />
+        ) : (
+          <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
+            Sin sesiones de riego registradas
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Días / Semanas / Meses view ──
   const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.period, y: d.liters })) }]
 
   const options = {
@@ -635,10 +785,12 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 }
 
 // ── Vista principal ──────────────────────────────────────────────────────────
-export default function IrrigationView({ latest, setRelay }) {
+export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   const [stats, setStats] = useState(null)
   const [flowLpm, setFlowLpm] = useState(5.0)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  const relayCount = deviceInfo?.relay_count ?? 1
 
   const loadStats = useCallback(() =>
     fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
@@ -658,8 +810,12 @@ export default function IrrigationView({ latest, setRelay }) {
   }, [loadStats])
 
   const handleIrrigate = useCallback(async () => {
-    await setRelay(true)
-  }, [setRelay])
+    await fetch('/api/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: selectedMac, index: 0, state: true }),
+    })
+  }, [selectedMac])
 
   const handleReset = useCallback(async () => {
     setShowResetConfirm(false)
@@ -702,8 +858,8 @@ export default function IrrigationView({ latest, setRelay }) {
       {/* ── Grid de control: 1 col → 2 col → 4 col ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-        {/* Electroválvula + temporizador de sesión */}
-        <RelayControl setRelay={setRelay} flowLpm={flowLpm} />
+        {/* Electroválvulas — una card por relay */}
+        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">

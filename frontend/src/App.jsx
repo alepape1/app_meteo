@@ -25,7 +25,7 @@ export default function App() {
     data, latest, loading, lastUpdate, error,
     deviceInfo, deviceLastSeen,
     devices, selectedMac, setSelectedMac,
-    fetchSamples, fetchFiltered, fetchDeviceInfo, setRelay,
+    fetchSamples, fetchFiltered, fetchDeviceInfo,
   } = useWeatherData()
 
   // Auto-seleccionar el primer dispositivo cuando cargue la lista
@@ -111,7 +111,7 @@ export default function App() {
 
         {/* ── Views ── */}
         {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-        {activeView === 'riego'     && <IrrigationView latest={latest} setRelay={setRelay} />}
+        {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={deviceInfo} />}
         {activeView === 'nodos'     && <NodesView />}
         {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'settings'  && <SettingsView />}

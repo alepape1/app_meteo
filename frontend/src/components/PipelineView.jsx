@@ -3,12 +3,20 @@ import ReactApexChart from 'react-apexcharts'
 import {
   Activity, AlertTriangle, CheckCircle, Gauge,
   Droplets, Zap, FlaskConical, RefreshCw, Info,
+  Radio, Calendar, Search,
 } from 'lucide-react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toMs(t) {
   if (t == null) return null
   return new Date(String(t).replace(' ', 'T')).getTime()
+}
+
+const pad = n => String(n).padStart(2, '0')
+const toInputVal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+const toQueryStr = d => {
+  const dd = new Date(d)
+  return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
 // ── Configuración de estados de detección ─────────────────────────────────────
@@ -184,7 +192,7 @@ function DetectionStats({ detection }) {
   )
 }
 
-function PipelineChart({ readings }) {
+function PipelineChart({ readings, mode, histLoading }) {
   const ts       = readings.map(r => toMs(r.timestamp))
   const pressure = readings.map((r, i) => ({ x: ts[i], y: r.pressure_bar }))
   const flow     = readings.map((r, i) => ({ x: ts[i], y: r.flow_lpm }))
@@ -266,18 +274,22 @@ function PipelineChart({ readings }) {
     dataLabels: { enabled: false },
   }
 
+  const title = mode === 'live' ? 'Presión y Caudal — En vivo' : 'Presión y Caudal — Histórico'
+
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-5 pt-4 pb-1">
         <Activity size={15} className="text-navy-300 shrink-0" />
-        <h3 className="text-sm font-semibold text-navy-900">Presión y Caudal — Histórico</h3>
-        <span className="ml-auto text-xs text-navy-200">{readings.length} muestras</span>
+        <h3 className="text-sm font-semibold text-navy-900">{title}</h3>
+        <span className="ml-auto text-xs text-navy-200">
+          {histLoading ? 'Cargando…' : `${readings.length} muestras`}
+        </span>
       </div>
       {readings.length > 0 ? (
         <ReactApexChart options={options} series={series} type="line" height={260} />
       ) : (
         <div className="flex items-center justify-center text-navy-200 text-sm" style={{ height: 260 }}>
-          Sin datos históricos
+          {histLoading ? 'Cargando datos…' : 'Sin datos en este rango'}
         </div>
       )}
     </div>
@@ -294,7 +306,16 @@ export default function PipelineView() {
   const [applyBusy, setApplyBusy] = useState(false)
   const timerRef = useRef(null)
 
-  const fetchAll = useCallback(async () => {
+  // Historical mode
+  const [mode, setMode] = useState('live')  // 'live' | 'history'
+  const [histLoading, setHistLoading] = useState(false)
+  const now      = new Date()
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
+  const [startDt, setStartDt] = useState(toInputVal(yesterday))
+  const [endDt,   setEndDt]   = useState(toInputVal(now))
+  const [histReadings, setHistReadings] = useState([])
+
+  const fetchLive = useCallback(async () => {
     try {
       const [sRes, rRes] = await Promise.all([
         fetch('/api/pipeline/status'),
@@ -308,11 +329,37 @@ export default function PipelineView() {
     finally { setLoading(false) }
   }, [])
 
+  // Live auto-refresh
   useEffect(() => {
-    fetchAll()
-    timerRef.current = setInterval(fetchAll, 20000)
+    if (mode !== 'live') return
+    fetchLive()
+    timerRef.current = setInterval(fetchLive, 20000)
     return () => clearInterval(timerRef.current)
-  }, [fetchAll])
+  }, [fetchLive, mode])
+
+  // When switching back to live, clear historical data
+  const switchMode = (m) => {
+    if (m === 'live') {
+      clearInterval(timerRef.current)
+      setMode('live')
+      setLoading(true)
+    } else {
+      clearInterval(timerRef.current)
+      setMode('history')
+    }
+  }
+
+  const fetchHistory = async () => {
+    setHistLoading(true)
+    try {
+      const from = toQueryStr(new Date(startDt))
+      const to   = toQueryStr(new Date(endDt))
+      const res  = await fetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      const data = await res.json()
+      setHistReadings(Array.isArray(data) ? data : [])
+    } catch (_) {}
+    finally { setHistLoading(false) }
+  }
 
   const applyScenario = async (sc) => {
     setApplyBusy(true)
@@ -323,7 +370,7 @@ export default function PipelineView() {
         body:    JSON.stringify({ scenario: sc }),
       })
       setScenario(sc)
-      await fetchAll()
+      if (mode === 'live') await fetchLive()
     } catch (_) {}
     finally { setApplyBusy(false) }
   }
@@ -331,6 +378,8 @@ export default function PipelineView() {
   const cur = status?.current
   const det = status?.detection
   const cfg = status?.config
+
+  const chartReadings = mode === 'live' ? readings : histReadings
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -346,47 +395,118 @@ export default function PipelineView() {
             <p className="text-xs text-navy-400">Detección de fugas y roturas — simulación de sensores</p>
           </div>
         </div>
-        <button
-          onClick={fetchAll}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          {loading ? 'Cargando…' : 'Actualizar'}
-        </button>
+        {mode === 'live' && (
+          <button
+            onClick={fetchLive}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Cargando…' : 'Actualizar'}
+          </button>
+        )}
       </div>
 
       {/* ── Banner de estado ── */}
-      <StatusBanner detection={det} />
+      {mode === 'live' && <StatusBanner detection={det} />}
 
       {/* ── Cards de lectura actual + selector de escenario ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <ReadingCard
-          title="Presión"
-          icon={Gauge}
-          value={cur?.pressure_bar}
-          unit="bar"
-          sub={`Estática: ${cfg?.static_pressure_bar ?? '—'} bar · Dinámica: ${cfg?.dynamic_pressure_bar ?? '—'} bar`}
-        />
-        <ReadingCard
-          title="Caudal"
-          icon={Droplets}
-          value={cur?.flow_lpm}
-          unit="L/min"
-          sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
-        />
-        <ScenarioSelector
-          current={scenario}
-          onSelect={applyScenario}
-          busy={applyBusy}
-        />
+      {mode === 'live' && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <ReadingCard
+            title="Presión"
+            icon={Gauge}
+            value={cur?.pressure_bar}
+            unit="bar"
+            sub={`Estática: ${cfg?.static_pressure_bar ?? '—'} bar · Dinámica: ${cfg?.dynamic_pressure_bar ?? '—'} bar`}
+          />
+          <ReadingCard
+            title="Caudal"
+            icon={Droplets}
+            value={cur?.flow_lpm}
+            unit="L/min"
+            sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
+          />
+          <ScenarioSelector
+            current={scenario}
+            onSelect={applyScenario}
+            busy={applyBusy}
+          />
+        </div>
+      )}
+
+      {/* ── Toggle En vivo / Histórico ── */}
+      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Mode toggle */}
+          <div className="flex gap-1 bg-navy-50 p-1 rounded-xl">
+            <button
+              onClick={() => switchMode('live')}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                mode === 'live'
+                  ? 'bg-brand-500 text-white shadow-sm'
+                  : 'text-navy-400 hover:text-navy-700'
+              }`}
+            >
+              <Radio size={12} />
+              En vivo
+            </button>
+            <button
+              onClick={() => switchMode('history')}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                mode === 'history'
+                  ? 'bg-brand-500 text-white shadow-sm'
+                  : 'text-navy-400 hover:text-navy-700'
+              }`}
+            >
+              <Calendar size={12} />
+              Histórico
+            </button>
+          </div>
+
+          {/* Date range pickers — only in history mode */}
+          {mode === 'history' && (
+            <>
+              <div className="flex items-center gap-2 bg-navy-50 rounded-xl px-3 py-1.5 border border-navy-100 focus-within:border-brand-400">
+                <p className="text-navy-400 text-xs shrink-0">Desde</p>
+                <input
+                  type="datetime-local"
+                  value={startDt}
+                  onChange={e => setStartDt(e.target.value)}
+                  className="bg-transparent text-navy-700 text-xs focus:outline-none [color-scheme:light]"
+                />
+              </div>
+              <div className="flex items-center gap-2 bg-navy-50 rounded-xl px-3 py-1.5 border border-navy-100 focus-within:border-brand-400">
+                <p className="text-navy-400 text-xs shrink-0">Hasta</p>
+                <input
+                  type="datetime-local"
+                  value={endDt}
+                  onChange={e => setEndDt(e.target.value)}
+                  className="bg-transparent text-navy-700 text-xs focus:outline-none [color-scheme:light]"
+                />
+              </div>
+              <button
+                onClick={fetchHistory}
+                disabled={histLoading}
+                className="flex items-center gap-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
+              >
+                <Search size={12} />
+                Consultar
+              </button>
+            </>
+          )}
+
+          {mode === 'live' && (
+            <p className="text-xs text-navy-300 ml-auto">Auto-refresh cada 20 s</p>
+          )}
+        </div>
       </div>
 
       {/* ── Gráfico presión + caudal ── */}
-      <PipelineChart readings={readings} />
+      <PipelineChart readings={chartReadings} mode={mode} histLoading={histLoading} />
 
-      {/* ── Estadísticos de detección ── */}
-      <DetectionStats detection={det} />
+      {/* ── Estadísticos de detección (solo en vivo) ── */}
+      {mode === 'live' && <DetectionStats detection={det} />}
 
       {/* ── Nota ── */}
       <p className="text-xs text-navy-200 text-center pb-2">

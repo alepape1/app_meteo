@@ -37,6 +37,7 @@ def create_tables(conn):
         relay_active       INTEGER DEFAULT 0,
         pipeline_pressure  REAL    DEFAULT NULL,
         pipeline_flow      REAL    DEFAULT NULL,
+        soil_moisture      REAL    DEFAULT NULL,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -67,10 +68,15 @@ def create_tables(conn):
         "ALTER TABLE home_weather_station ADD COLUMN uptime_s INTEGER;",
         "ALTER TABLE home_weather_station ADD COLUMN relay_active INTEGER DEFAULT 0;",
         "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure REAL DEFAULT NULL;",
+        "ALTER TABLE home_weather_station ADD COLUMN soil_moisture REAL DEFAULT NULL;",
         "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow REAL DEFAULT NULL;",
         "ALTER TABLE home_weather_station ADD COLUMN device_mac TEXT DEFAULT NULL;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_info_mac ON device_info(mac_address);",
         "CREATE INDEX IF NOT EXISTS idx_device_mac ON home_weather_station(device_mac);",
+        "ALTER TABLE device_info ADD COLUMN relay_count INTEGER DEFAULT 1;",
+        "ALTER TABLE relay_state ADD COLUMN device_mac TEXT DEFAULT NULL;",
+        "ALTER TABLE relay_state ADD COLUMN relay_index INTEGER DEFAULT 0;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_state ON relay_state(device_mac, relay_index);",
     ]:
         try:
             cursor.execute(migration)

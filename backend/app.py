@@ -32,25 +32,67 @@ def get_db():
 
 
 # ── Estado del relay persistido en SQLite ────────────────────────────────────
-# Así todos los workers Gunicorn comparten el mismo estado sin condiciones de
-# carrera (cada GET/POST lee y escribe en la misma fila de la DB).
+# Soporta múltiples dispositivos y múltiples relays por dispositivo.
+# Cada relay es una fila (device_mac, relay_index). La fila id=1 es legacy.
 
-def _relay_get():
-    row = get_db().execute(
-        "SELECT desired, actual FROM relay_state WHERE id=1"
-    ).fetchone()
-    return (bool(row['desired']), bool(row['actual'])) if row else (False, False)
-
-
-def _relay_set_desired(state):
+def _relay_ensure(mac):
+    """Crea filas de relay_state para cada relay del dispositivo si no existen."""
     db = get_db()
-    db.execute("UPDATE relay_state SET desired=? WHERE id=1", (1 if state else 0,))
+    row = db.execute(
+        "SELECT relay_count FROM device_info WHERE mac_address=?", (mac,)
+    ).fetchone()
+    count = row['relay_count'] if row else 1
+    for i in range(count):
+        db.execute(
+            "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
+            " VALUES (?, ?, 0, 0)",
+            (mac, i)
+        )
     db.commit()
 
 
-def _relay_set_actual(state):
+def _relay_get(mac=None):
+    """Devuelve lista de {index, desired, actual} para el dispositivo."""
     db = get_db()
-    db.execute("UPDATE relay_state SET actual=? WHERE id=1", (1 if state else 0,))
+    if mac:
+        rows = db.execute(
+            "SELECT relay_index, desired, actual FROM relay_state"
+            " WHERE device_mac=? ORDER BY relay_index",
+            (mac,)
+        ).fetchall()
+        return [{"index": r['relay_index'], "desired": bool(r['desired']),
+                 "actual": bool(r['actual'])} for r in rows]
+    # Legacy: fila id=1
+    row = db.execute(
+        "SELECT desired, actual FROM relay_state WHERE id=1"
+    ).fetchone()
+    if row:
+        return [{"index": 0, "desired": bool(row['desired']),
+                 "actual": bool(row['actual'])}]
+    return [{"index": 0, "desired": False, "actual": False}]
+
+
+def _relay_set_desired(mac, index, state):
+    db = get_db()
+    if mac:
+        db.execute(
+            "UPDATE relay_state SET desired=? WHERE device_mac=? AND relay_index=?",
+            (1 if state else 0, mac, index)
+        )
+    else:
+        db.execute("UPDATE relay_state SET desired=? WHERE id=1", (1 if state else 0,))
+    db.commit()
+
+
+def _relay_set_actual(mac, index, state):
+    db = get_db()
+    if mac:
+        db.execute(
+            "UPDATE relay_state SET actual=? WHERE device_mac=? AND relay_index=?",
+            (1 if state else 0, mac, index)
+        )
+    else:
+        db.execute("UPDATE relay_state SET actual=? WHERE id=1", (1 if state else 0,))
     db.commit()
 
 
@@ -96,7 +138,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) not in (9, 11, 14, 15, 17):
+        if len(parts) not in (9, 11, 14, 15, 16, 17):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -124,6 +166,7 @@ def rows_to_dict(rows):
         "relay_active":          [r["relay_active"]          for r in rows],
         "pipeline_pressure":     [r["pipeline_pressure"]     for r in rows],
         "pipeline_flow":         [r["pipeline_flow"]         for r in rows],
+        "soil_moisture":         [r["soil_moisture"]         for r in rows],
     }
 
 
@@ -182,6 +225,7 @@ def send_message():
     free_heap         = int(data[12]) if len(data) >= 14 else None
     uptime_s          = int(data[13]) if len(data) >= 14 else None
     relay_active      = int(data[14]) if len(data) >= 15 else 0
+    soil_moisture     = data[15] if len(data) == 16 else None
     pipeline_pressure = data[15] if len(data) >= 17 else None
     pipeline_flow     = data[16] if len(data) >= 17 else None
 
@@ -202,11 +246,11 @@ def send_message():
             windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
             light, dht_temperature, dht_humidity,
             rssi, free_heap, uptime_s, relay_active,
-            pipeline_pressure, pipeline_flow, device_mac
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            pipeline_pressure, pipeline_flow, soil_moisture, device_mac
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, tuple(data[:9]) + (dht_temp, dht_hum, rssi, free_heap, uptime_s,
                             relay_active, pipeline_pressure, pipeline_flow,
-                            device_mac))
+                            soil_moisture, device_mac))
     db.commit()
     cursor.close()
 
@@ -330,8 +374,8 @@ def post_device_info():
     cursor.execute("""
         INSERT INTO device_info(
             chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
-            sdk_version, mac_address, ip_address, last_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            sdk_version, mac_address, ip_address, relay_count, last_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(mac_address) DO UPDATE SET
             chip_model=excluded.chip_model,
             chip_revision=excluded.chip_revision,
@@ -339,6 +383,7 @@ def post_device_info():
             flash_size_mb=excluded.flash_size_mb,
             sdk_version=excluded.sdk_version,
             ip_address=excluded.ip_address,
+            relay_count=excluded.relay_count,
             last_seen=CURRENT_TIMESTAMP
     """, (
         payload.get("chip_model"),
@@ -348,6 +393,7 @@ def post_device_info():
         payload.get("sdk_version"),
         payload.get("mac_address"),
         payload.get("ip_address"),
+        int(payload.get("relay_count", 1)),
     ))
     db.commit()
     cursor.close()
@@ -417,39 +463,58 @@ def api_latest():
 
 @app.route("/api/relay/command")
 def relay_command():
-    """El ESP32 consulta este endpoint para saber el estado deseado del relay.
-    Devuelve '1' (abrir válvula) o '0' (cerrar válvula) en texto plano."""
-    desired, _ = _relay_get()
-    return "1" if desired else "0", 200
+    """El ESP32 consulta el estado deseado de sus relays.
+    Devuelve bitmask en texto plano: bit 0 = relay 0, bit 1 = relay 1, etc."""
+    mac = request.args.get('mac')
+    if mac:
+        _relay_ensure(mac)
+    states = _relay_get(mac)
+    bitmask = sum((1 << s['index']) for s in states if s['desired'])
+    return str(bitmask), 200
 
 
 @app.route("/api/relay", methods=["GET"])
 def get_relay():
-    """Dashboard: devuelve el estado deseado y el confirmado por el ESP32."""
-    desired, actual = _relay_get()
-    return jsonify({"desired": desired, "actual": actual})
+    """Dashboard: devuelve lista de estados [{index, desired, actual}] para el dispositivo."""
+    mac = request.args.get('mac')
+    return jsonify(_relay_get(mac))
 
 
 @app.route("/api/relay", methods=["POST"])
 def set_relay():
-    """Dashboard: cambia el estado deseado del relay."""
+    """Dashboard: cambia el estado deseado de un relay específico."""
     payload = request.get_json(silent=True)
     if payload is None or "state" not in payload:
         return jsonify({"error": "Falta campo 'state'"}), 400
-    state = bool(payload["state"])
-    _relay_set_desired(state)
-    logger.info("Relay deseado → %s", "ON" if state else "OFF")
-    return jsonify({"state": state})
+    mac = payload.get('mac')
+    index = int(payload.get('index', 0))
+    state = bool(payload['state'])
+    if mac:
+        _relay_ensure(mac)
+    _relay_set_desired(mac, index, state)
+    logger.info("Relay %d deseado → %s (mac=%s)", index, "ON" if state else "OFF", mac)
+    return jsonify({"index": index, "state": state})
 
 
 @app.route("/api/relay/ack", methods=["POST"])
 def relay_ack():
-    """El ESP32 confirma el estado real del relay tras activarlo/desactivarlo."""
+    """El ESP32 confirma el estado real de sus relays (bitmask)."""
+    mac = request.headers.get('X-Device-MAC') or request.args.get('mac')
     body = request.get_data(as_text=True).strip()
-    state = (body == "1")
-    _relay_set_actual(state)
-    logger.info("Relay ACK ESP32 → %s", "ON" if state else "OFF")
-    return jsonify({"actual": state})
+    try:
+        bitmask = int(body)
+    except ValueError:
+        bitmask = 0
+    if mac:
+        states = _relay_get(mac)
+        for s in states:
+            _relay_set_actual(mac, s['index'], bool((bitmask >> s['index']) & 1))
+        logger.info("Relay ACK (mac=%s) bitmask=%d", mac, bitmask)
+        return jsonify({"mac": mac, "bitmask": bitmask})
+    # Legacy sin mac
+    _relay_set_actual(None, 0, bool(bitmask & 1))
+    logger.info("Relay ACK (legacy) → %s", "ON" if bitmask & 1 else "OFF")
+    return jsonify({"actual": bool(bitmask & 1)})
 
 
 @app.route("/api/irrigation/reset", methods=["POST"])
