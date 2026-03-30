@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, WifiOff } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
@@ -150,6 +150,11 @@ export default function App() {
               value={latest.windDirection}
               subtitle={degreesToCompass(latest.windDirection)}
             />
+            <StatCard
+              title="Humedad Suelo" icon={Sprout} color="green" unit="%"
+              value={latest.soil_moisture}
+              min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
+            />
           </div>
 
           {/* ── Charts ── */}
@@ -202,6 +207,12 @@ export default function App() {
               ]}
               colors={['#534AB7', '#8b83dc']}
               yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
+            />
+            <WeatherChart
+              title="Humedad del Suelo" icon={Sprout} timestamps={ts}
+              series={[{ name: 'Suelo', data: data.soil_moisture }]}
+              colors={['#10b981']}
+              yUnit="%" yMin={0} yMax={100} type="area"
             />
           </div>
 

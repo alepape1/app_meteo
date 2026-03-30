@@ -6,6 +6,7 @@ const EMPTY = {
   windDirectionFiltered: [], light: [],
   dht_temperature: [], dht_humidity: [],
   rssi: [], free_heap: [], uptime_s: [], relay_active: [],
+  soil_moisture: [],
 }
 
 export function useWeatherData() {
@@ -119,6 +120,7 @@ export function useWeatherData() {
     free_heap:       data.free_heap.at(-1),
     uptime_s:        data.uptime_s.at(-1),
     relay_active:    data.relay_active.at(-1) ?? 0,
+    soil_moisture:   data.soil_moisture.at(-1),
   }
 
   const setRelay = useCallback(async (state) => {
