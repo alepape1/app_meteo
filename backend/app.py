@@ -426,16 +426,41 @@ def api_devices():
     rows = db.execute(
         "SELECT * FROM device_info ORDER BY last_seen DESC"
     ).fetchall()
+
+    if rows:
+        result = []
+        for r in rows:
+            d = dict(r)
+            latest = db.execute(
+                "SELECT timestamp FROM home_weather_station"
+                " WHERE device_mac=? ORDER BY timestamp DESC LIMIT 1",
+                (r['mac_address'],)
+            ).fetchone()
+            d['latest_reading'] = latest['timestamp'] if latest else None
+            result.append(d)
+        return jsonify(result)
+
+    # Fallback: device_info vacía (contenedor recién reiniciado, ESP32 aún no reenvió
+    # el DeviceInfo). Inferir dispositivos desde los datos recibidos.
+    mac_rows = db.execute(
+        "SELECT DISTINCT device_mac FROM home_weather_station"
+        " WHERE device_mac IS NOT NULL"
+    ).fetchall()
     result = []
-    for r in rows:
-        d = dict(r)
+    for r in mac_rows:
+        mac = r['device_mac']
         latest = db.execute(
             "SELECT timestamp FROM home_weather_station"
             " WHERE device_mac=? ORDER BY timestamp DESC LIMIT 1",
-            (r['mac_address'],)
+            (mac,)
         ).fetchone()
-        d['latest_reading'] = latest['timestamp'] if latest else None
-        result.append(d)
+        result.append({
+            'id': mac,
+            'chip_model': None,
+            'mac_address': mac,
+            'relay_count': 1,
+            'latest_reading': latest['timestamp'] if latest else None,
+        })
     return jsonify(result)
 
 
