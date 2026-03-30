@@ -120,9 +120,11 @@ def create_tables(conn):
     # Fallo-seguro: desired y actual arrancan en 0 (válvula cerrada).
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS relay_state(
-        id      INTEGER PRIMARY KEY,
-        desired INTEGER NOT NULL DEFAULT 0,
-        actual  INTEGER NOT NULL DEFAULT 0
+        id          INTEGER PRIMARY KEY,
+        desired     INTEGER NOT NULL DEFAULT 0,
+        actual      INTEGER NOT NULL DEFAULT 0,
+        device_mac  TEXT    DEFAULT NULL,
+        relay_index INTEGER DEFAULT 0
     );
     """)
     cursor.execute("""
