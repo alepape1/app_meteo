@@ -578,10 +578,11 @@ def irrigation_stats():
     since = cursor.fetchone()["since"]
 
     # Registros con relay activo desde el último reset, agrupados por día
+    # relay_active es bitmask: >0 significa al menos una válvula abierta
     cursor.execute("""
         SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
         FROM home_weather_station
-        WHERE relay_active = 1
+        WHERE relay_active > 0
           AND timestamp >= ?
         GROUP BY DATE(timestamp)
         ORDER BY day ASC
@@ -591,7 +592,7 @@ def irrigation_stats():
     # Total registros con relay activo desde el último reset
     cursor.execute("""
         SELECT COUNT(*) FROM home_weather_station
-        WHERE relay_active = 1
+        WHERE relay_active > 0
           AND timestamp >= ?
     """, (since,))
     total_active = cursor.fetchone()[0]
@@ -599,7 +600,7 @@ def irrigation_stats():
     # Total registros con relay activo hoy
     cursor.execute("""
         SELECT COUNT(*) FROM home_weather_station
-        WHERE relay_active = 1
+        WHERE relay_active > 0
           AND DATE(timestamp) = DATE('now')
           AND timestamp >= ?
     """, (since,))
@@ -661,7 +662,7 @@ def irrigation_history():
     rows = get_db().execute(f"""
         SELECT {group_expr} AS period_key, COUNT(*) AS cnt
         FROM home_weather_station
-        WHERE relay_active = 1
+        WHERE relay_active > 0
           AND timestamp >= DATE('now', :offset)
         GROUP BY {group_expr}
         ORDER BY period_key ASC
@@ -692,7 +693,7 @@ def irrigation_sessions():
     rows = get_db().execute("""
         SELECT timestamp
         FROM home_weather_station
-        WHERE relay_active = 1
+        WHERE relay_active > 0
           AND timestamp >= datetime('now', '-180 days')
         ORDER BY timestamp ASC
     """).fetchall()
