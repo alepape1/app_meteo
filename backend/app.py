@@ -5,6 +5,7 @@ import os
 import logging
 import datetime
 from database import get_db_connection, create_tables
+import mqtt_client
 from pipeline_sim import (
     simulate_reading,
     build_history_from_db_rows,
@@ -518,6 +519,19 @@ def set_relay():
         _relay_ensure(mac)
     _relay_set_desired(mac, index, state)
     logger.info("Relay %d deseado → %s (mac=%s)", index, "ON" if state else "OFF", mac)
+
+    # Si el dispositivo tiene finca_id, envía el comando también por MQTT
+    if mac:
+        db = get_db()
+        finca_row = db.execute(
+            "SELECT finca_id FROM device_info WHERE mac_address=?", (mac,)
+        ).fetchone()
+        if finca_row and finca_row['finca_id']:
+            mqtt_client.publish_cmd(finca_row['finca_id'], {
+                "relay_index": index,
+                "state": state,
+            })
+
     return jsonify({"index": index, "state": state})
 
 
@@ -886,11 +900,51 @@ def set_pipeline_scenario():
     return jsonify({"scenario": scenario})
 
 
+@app.route("/api/alerts")
+def api_alerts():
+    """Lista alertas recientes (últimas 100). Filtros opcionales: mac, finca_id, acked."""
+    mac      = request.args.get('mac')
+    finca_id = request.args.get('finca_id')
+    acked    = request.args.get('acked')  # "0" solo no acks, "1" solo acks, None = todas
+
+    query = "SELECT * FROM alerts WHERE 1=1"
+    params = []
+    if mac:
+        query += " AND device_mac=?"
+        params.append(mac)
+    if finca_id:
+        query += " AND finca_id=?"
+        params.append(finca_id)
+    if acked == "0":
+        query += " AND acked=0"
+    elif acked == "1":
+        query += " AND acked=1"
+    query += " ORDER BY created_at DESC LIMIT 100"
+
+    rows = get_db().execute(query, params).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/alerts/<int:alert_id>/ack", methods=["POST"])
+def api_alert_ack(alert_id):
+    """Marca una alerta como resuelta."""
+    db = get_db()
+    db.execute(
+        "UPDATE alerts SET acked=1, acked_at=CURRENT_TIMESTAMP WHERE id=?",
+        (alert_id,)
+    )
+    db.commit()
+    return jsonify({"ok": True, "id": alert_id})
+
+
 # Inicializar DB una sola vez al arrancar
 with app.app_context():
     conn = get_db_connection()
     create_tables(conn)
     conn.close()
+
+# Iniciar cliente MQTT (hilo daemon, no bloquea aunque el broker no esté disponible)
+mqtt_client.start()
 
 if __name__ == "__main__":
     host = os.getenv("FLASK_HOST", "0.0.0.0")

@@ -81,6 +81,8 @@ def create_tables(conn):
         "ALTER TABLE relay_state ADD COLUMN device_mac TEXT DEFAULT NULL;",
         "ALTER TABLE relay_state ADD COLUMN relay_index INTEGER DEFAULT 0;",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_state ON relay_state(device_mac, relay_index);",
+        "ALTER TABLE device_info ADD COLUMN finca_id TEXT DEFAULT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_device_info_finca ON device_info(finca_id);",
     ]:
         try:
             cursor.execute(migration)
@@ -106,6 +108,27 @@ def create_tables(conn):
             "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
             (key, value)
         )
+
+    # Tabla de alertas generadas por los dispositivos via MQTT.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS alerts(
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        finca_id   TEXT,
+        device_mac TEXT,
+        alert_type TEXT NOT NULL DEFAULT 'unknown',
+        severity   TEXT NOT NULL DEFAULT 'info',
+        message    TEXT,
+        acked      INTEGER NOT NULL DEFAULT 0,
+        acked_at   DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_alerts_finca ON alerts(finca_id);
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
+    """)
 
     # Tabla de resets de consumo — cada fila es un reset manual del usuario.
     # Las estadísticas solo cuentan registros posteriores al último reset.
