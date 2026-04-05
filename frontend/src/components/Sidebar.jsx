@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server,
+  Server, Bell,
 } from 'lucide-react'
 
 const fmt = d => {
@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { id: 'riego',     label: 'Riego',         icon: Droplets },
   { id: 'pipeline',  label: 'Pipeline',      icon: Activity },
   { id: 'nodos',     label: 'Nodos LoRa',    icon: Radio },
+  { id: 'alerts',    label: 'Alertas',       icon: Bell },
   { id: 'device',    label: 'ESP32',         icon: Cpu },
   { id: 'settings',  label: 'Configuración', icon: Settings },
 ]
@@ -37,7 +38,7 @@ function isOnline(ts) {
 
 export default function Sidebar({
   onFetchFiltered, loading, sampleCount, activeView, onViewChange,
-  devices, selectedMac, onSelectDevice,
+  devices, selectedMac, onSelectDevice, unackedAlerts,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [activePreset, setActivePreset] = useState(null)
@@ -121,6 +122,11 @@ export default function Sidebar({
           >
             <Icon size={14} className="shrink-0" />
             {!collapsed && label}
+            {id === 'alerts' && unackedAlerts > 0 && (
+              <span className="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {unackedAlerts}
+              </span>
+            )}
           </button>
         ))}
       </div>

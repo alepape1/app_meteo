@@ -9,6 +9,7 @@ import IrrigationView from './components/IrrigationView'
 import NodesView from './components/NodesView'
 import SettingsView from './components/SettingsView'
 import PipelineView from './components/PipelineView'
+import AlertsPanel from './components/AlertsPanel'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -41,6 +42,22 @@ export default function App() {
     ? (Date.now() - new Date(deviceLastSeen.replace(' ', 'T')).getTime()) < 90000
     : false
   const [activeView, setActiveView] = useState('dashboard')
+  const [unackedAlerts, setUnackedAlerts] = useState(0)
+
+  // Polling ligero del contador de alertas no resueltas (cada 60s)
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const res = await fetch('/api/alerts?acked=0')
+        if (!res.ok) return
+        const data = await res.json()
+        setUnackedAlerts(data.length)
+      } catch (_) {}
+    }
+    fetchCount()
+    const id = setInterval(fetchCount, 60000)
+    return () => clearInterval(id)
+  }, [])
 
   const handleViewChange = (view) => {
     setActiveView(view)
@@ -59,6 +76,7 @@ export default function App() {
         devices={devices}
         selectedMac={selectedMac}
         onSelectDevice={setSelectedMac}
+        unackedAlerts={unackedAlerts}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -114,6 +132,7 @@ export default function App() {
         {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={deviceInfo} />}
         {activeView === 'nodos'     && <NodesView />}
         {activeView === 'pipeline'  && <PipelineView />}
+        {activeView === 'alerts'    && <AlertsPanel />}
         {activeView === 'settings'  && <SettingsView />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
