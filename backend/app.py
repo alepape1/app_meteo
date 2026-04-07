@@ -1000,7 +1000,12 @@ def claim_device():
 @app.route("/api/devices/register_factory", methods=["POST"])
 def register_factory():
     """Llamado por el script de fábrica para registrar un dispositivo nuevo."""
-    if request.remote_addr not in ("127.0.0.1", "::1"):
+    allowed = ("127.0.0.1", "::1")
+    addr = request.remote_addr or ""
+    # Permitir también redes internas Docker (172.16-31.x.x, 10.x.x.x, 192.168.x.x)
+    if addr not in allowed and not (
+        addr.startswith("172.") or addr.startswith("10.") or addr.startswith("192.168.")
+    ):
         return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
     mac = (data.get("mac") or "").upper()
