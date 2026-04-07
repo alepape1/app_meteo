@@ -81,6 +81,20 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("soil_moisture"),
             device_mac,
         ))
+        # Actualizar relay_state.actual desde el bitmask relay_active
+        if device_mac:
+            relay_mask = int(payload.get("relay_active", 0))
+            row = db.execute(
+                "SELECT relay_count FROM device_info WHERE mac_address=?", (device_mac,)
+            ).fetchone()
+            relay_count = row["relay_count"] if row else 1
+            for i in range(relay_count):
+                actual = 1 if (relay_mask & (1 << i)) else 0
+                db.execute(
+                    "UPDATE relay_state SET actual=? WHERE device_mac=? AND relay_index=?",
+                    (actual, device_mac, i),
+                )
+
         db.commit()
         logger.debug("Telemetría MQTT insertada: finca_id=%s", finca_id)
     finally:
