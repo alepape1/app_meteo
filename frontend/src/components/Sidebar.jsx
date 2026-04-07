@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server, Bell,
+  Server, Bell, PackagePlus,
 } from 'lucide-react'
 
 const fmt = d => {
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { id: 'alerts',    label: 'Alertas',       icon: Bell },
   { id: 'device',    label: 'ESP32',         icon: Cpu },
   { id: 'settings',  label: 'Configuración', icon: Settings },
+  { id: 'claim',     label: 'Añadir dispositivo', icon: PackagePlus },
 ]
 
 function isOnline(ts) {

@@ -153,5 +153,36 @@ def create_tables(conn):
     cursor.execute("""
     INSERT OR IGNORE INTO relay_state(id, desired, actual) VALUES (1, 0, 0);
     """)
+
+    # Tabla de credenciales por dispositivo — una fila por ESP32 registrado en fábrica.
+    # token_hash: bcrypt del token único del dispositivo (nunca el token en claro).
+    # serial_number: SN legible para el usuario, impreso en la etiqueta del dispositivo.
+    # claimed_by_finca_id: NULL hasta que el usuario reclame el dispositivo.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS device_credentials(
+        mac                  TEXT PRIMARY KEY,
+        token_hash           TEXT NOT NULL,
+        serial_number        TEXT UNIQUE NOT NULL,
+        claimed_by_finca_id  TEXT DEFAULT NULL,
+        claimed_at           DATETIME DEFAULT NULL,
+        created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_devcred_serial
+    ON device_credentials(serial_number);
+    """)
+
+    # Migraciones aditivas para device_info
+    for migration in [
+        "ALTER TABLE device_info ADD COLUMN serial_number TEXT DEFAULT NULL;",
+        "ALTER TABLE device_info ADD COLUMN claimed_at DATETIME DEFAULT NULL;",
+    ]:
+        try:
+            cursor.execute(migration)
+            conn.commit()
+        except Exception:
+            pass
+
     conn.commit()
     cursor.close()

@@ -3,3 +3,4 @@ flask-cors
 gunicorn
 python-dotenv
 paho-mqtt
+bcrypt>=4.0

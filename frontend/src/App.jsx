@@ -10,6 +10,7 @@ import NodesView from './components/NodesView'
 import SettingsView from './components/SettingsView'
 import PipelineView from './components/PipelineView'
 import AlertsPanel from './components/AlertsPanel'
+import ClaimDeviceView from './components/ClaimDeviceView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -134,6 +135,7 @@ export default function App() {
         {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'alerts'    && <AlertsPanel />}
         {activeView === 'settings'  && <SettingsView />}
+        {activeView === 'claim'     && <ClaimDeviceView />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 

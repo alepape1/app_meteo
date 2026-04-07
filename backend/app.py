@@ -1,4 +1,6 @@
 from flask import Flask, g, render_template, request, jsonify
+import bcrypt
+import secrets as _secrets
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
@@ -938,6 +940,82 @@ def api_alert_ack(alert_id):
     )
     db.commit()
     return jsonify({"ok": True, "id": alert_id})
+
+
+# ── Provisioning endpoints ──────────────────────────────────────────────────
+
+@app.route("/api/mqtt/auth", methods=["POST"])
+def mqtt_auth():
+    """Llamado por mosquitto-go-auth para validar credenciales de dispositivos."""
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "")  # MAC del dispositivo
+    password = data.get("password", "")  # mqtt_token en claro
+    if not username or not password:
+        return jsonify({"error": "missing"}), 401
+    row = get_db().execute(
+        "SELECT token_hash FROM device_credentials WHERE mac=?", (username,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "unknown"}), 401
+    if not bcrypt.checkpw(password.encode(), row["token_hash"].encode()):
+        return jsonify({"error": "forbidden"}), 401
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/devices/claim", methods=["POST"])
+def claim_device():
+    """El usuario reclama un dispositivo introduciendo su serial number."""
+    data = request.get_json(silent=True) or {}
+    serial_number = (data.get("serial_number") or "").strip().upper()
+    finca_id = data.get("finca_id", "").strip()
+    if not serial_number:
+        return jsonify({"error": "Falta serial_number"}), 400
+    db = get_db()
+    row = db.execute(
+        "SELECT mac, claimed_by_finca_id FROM device_credentials WHERE serial_number=?",
+        (serial_number,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "Dispositivo no encontrado"}), 404
+    if row["claimed_by_finca_id"]:
+        return jsonify({"error": "Dispositivo ya reclamado"}), 409
+    db.execute(
+        "UPDATE device_credentials SET claimed_by_finca_id=?, claimed_at=CURRENT_TIMESTAMP WHERE serial_number=?",
+        (finca_id or serial_number, serial_number)
+    )
+    db.commit()
+    device = db.execute(
+        "SELECT chip_model, relay_count, ip_address FROM device_info WHERE mac_address=?",
+        (row["mac"],)
+    ).fetchone()
+    return jsonify({
+        "mac": row["mac"],
+        "serial_number": serial_number,
+        "finca_id": finca_id or serial_number,
+        "chip_model": device["chip_model"] if device else None,
+        "relay_count": device["relay_count"] if device else None,
+    })
+
+
+@app.route("/api/devices/register_factory", methods=["POST"])
+def register_factory():
+    """Llamado por el script de fábrica para registrar un dispositivo nuevo."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    mac = (data.get("mac") or "").upper()
+    token_hash = data.get("token_hash", "")
+    serial_number = (data.get("serial_number") or "").upper()
+    if not mac or not token_hash or not serial_number:
+        return jsonify({"error": "Faltan campos: mac, token_hash, serial_number"}), 400
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO device_credentials(mac, token_hash, serial_number) VALUES (?, ?, ?)",
+        (mac, token_hash, serial_number)
+    )
+    db.commit()
+    logger.info("Dispositivo registrado en fábrica: mac=%s sn=%s", mac, serial_number)
+    return jsonify({"ok": True, "mac": mac, "serial_number": serial_number})
 
 
 # Inicializar DB una sola vez al arrancar
