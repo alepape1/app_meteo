@@ -956,7 +956,7 @@ def mqtt_auth():
 
     # Usuario interno del backend Flask
     if username == "backend":
-        expected = os.getenv("MQTT_BACKEND_PASSWORD", "")
+        expected = os.getenv("MQTT_PASSWORD", "")
         if expected and password == expected:
             return jsonify({"ok": True}), 200
         return jsonify({"error": "forbidden"}), 401
