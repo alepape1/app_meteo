@@ -91,6 +91,11 @@ def _handle_telemetry(finca_id: str, payload: dict):
             for i in range(relay_count):
                 actual = 1 if (relay_mask & (1 << i)) else 0
                 db.execute(
+                    "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
+                    " VALUES (?, ?, 0, ?)",
+                    (device_mac, i, actual),
+                )
+                db.execute(
                     "UPDATE relay_state SET actual=? WHERE device_mac=? AND relay_index=?",
                     (actual, device_mac, i),
                 )
