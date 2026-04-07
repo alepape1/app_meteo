@@ -1,6 +1,5 @@
 from flask import Flask, g, render_template, request, jsonify
 import bcrypt
-import secrets as _secrets
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
@@ -10,7 +9,6 @@ from database import get_db_connection, create_tables
 import mqtt_client
 from pipeline_sim import (
     simulate_reading,
-    build_history_from_db_rows,
     build_synthetic_history,
     detect_leaks,
     STATIC_PRESSURE_BAR,
@@ -946,12 +944,24 @@ def api_alert_ack(alert_id):
 
 @app.route("/api/mqtt/auth", methods=["POST"])
 def mqtt_auth():
-    """Llamado por mosquitto-go-auth para validar credenciales de dispositivos."""
+    """Llamado por mosquitto-go-auth para validar credenciales.
+    - Usuario 'backend': contraseña comparada con env MQTT_BACKEND_PASSWORD
+    - Dispositivos (MAC): token comparado con bcrypt hash en device_credentials
+    """
     data = request.get_json(silent=True) or {}
-    username = data.get("username", "")  # MAC del dispositivo
-    password = data.get("password", "")  # mqtt_token en claro
+    username = data.get("username", "")
+    password = data.get("password", "")
     if not username or not password:
         return jsonify({"error": "missing"}), 401
+
+    # Usuario interno del backend Flask
+    if username == "backend":
+        expected = os.getenv("MQTT_BACKEND_PASSWORD", "")
+        if expected and password == expected:
+            return jsonify({"ok": True}), 200
+        return jsonify({"error": "forbidden"}), 401
+
+    # Dispositivos: username = MAC, password = token en claro
     row = get_db().execute(
         "SELECT token_hash FROM device_credentials WHERE mac=?", (username,)
     ).fetchone()
@@ -959,6 +969,14 @@ def mqtt_auth():
         return jsonify({"error": "unknown"}), 401
     if not bcrypt.checkpw(password.encode(), row["token_hash"].encode()):
         return jsonify({"error": "forbidden"}), 401
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/mqtt/acl", methods=["POST"])
+def mqtt_acl():
+    """Llamado por mosquitto-go-auth para validar permisos de topic.
+    Por ahora permisivo para todos los usuarios autenticados.
+    """
     return jsonify({"ok": True}), 200
 
 
