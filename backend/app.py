@@ -528,7 +528,7 @@ def set_relay():
         ).fetchone()
         if finca_row and finca_row['finca_id']:
             mqtt_client.publish_cmd(finca_row['finca_id'], {
-                "relay_index": index,
+                "relay": index,
                 "state": state,
             })
 
