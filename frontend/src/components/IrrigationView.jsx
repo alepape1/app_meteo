@@ -337,15 +337,15 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
 
       <button
         onClick={toggle}
-        disabled={busy}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 ${
+        disabled={busy || !synced}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
           desired
             ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
             : 'bg-brand-500 text-white hover:bg-brand-600'
         }`}
       >
         {desired ? <Lock size={14} /> : <Unlock size={14} />}
-        {busy ? 'Enviando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+        {busy ? 'Enviando…' : !synced ? 'Sincronizando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
       </button>
     </div>
   )
