@@ -531,6 +531,9 @@ def set_relay():
                 "relay": index,
                 "state": state,
             })
+            # Actualizar actual de forma optimista — QoS 1 garantiza entrega.
+            # La telemetría corregirá cualquier discrepancia en el siguiente ciclo.
+            _relay_set_actual(mac, index, state)
 
     return jsonify({"index": index, "state": state})
 
