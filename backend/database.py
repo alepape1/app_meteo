@@ -210,7 +210,7 @@ def create_tables(conn: _CompatConn):
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS home_weather_station (
-        id                     BIGSERIAL PRIMARY KEY,
+        id                     BIGSERIAL       NOT NULL,
         temperature            REAL,
         temperature_barometer  REAL,
         humidity               REAL,
@@ -230,7 +230,8 @@ def create_tables(conn: _CompatConn):
         pipeline_flow          REAL    DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
         device_mac             TEXT    DEFAULT NULL,
-        timestamp              TIMESTAMPTZ DEFAULT NOW()
+        timestamp              TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (id, timestamp)
     );
     """)
 
@@ -244,6 +245,9 @@ def create_tables(conn: _CompatConn):
         ON home_weather_station(device_mac);
     """)
 
+    # Commit antes de intentar hypertable: si falla, las tablas ya existen
+    raw.commit()
+
     # ── TimescaleDB hypertable ────────────────────────────────────────────────
     # Particionado automático por tiempo (chunks de 7 días).
     # Si TimescaleDB no está instalado, continúa como tabla PostgreSQL normal.
@@ -255,6 +259,7 @@ def create_tables(conn: _CompatConn):
             migrate_data   => TRUE
         );
         """)
+        raw.commit()
         logger.info("TimescaleDB hypertable activa en home_weather_station")
     except Exception as e:
         logger.warning("TimescaleDB no disponible — usando tabla PostgreSQL normal: %s", e)
