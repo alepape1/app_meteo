@@ -51,7 +51,7 @@ services:
     image: iegomez/mosquitto-go-auth:latest
     restart: unless-stopped
     volumes:
-      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/config/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
       - /etc/letsencrypt:/etc/letsencrypt:ro   # certs TLS para puerto 8883
