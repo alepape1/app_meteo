@@ -1038,7 +1038,9 @@ def register_factory():
         return jsonify({"error": "Faltan campos: mac, token_hash, serial_number"}), 400
     db = get_db()
     db.execute(
-        "INSERT OR REPLACE INTO device_credentials(mac, token_hash, serial_number) VALUES (?, ?, ?)",
+        "INSERT INTO device_credentials(mac, token_hash, serial_number) VALUES (%s, %s, %s)"
+        " ON CONFLICT (mac) DO UPDATE SET token_hash = EXCLUDED.token_hash,"
+        " serial_number = EXCLUDED.serial_number",
         (mac, token_hash, serial_number)
     )
     db.commit()

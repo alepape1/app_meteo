@@ -120,13 +120,29 @@ class _CompatRow:
     def __getitem__(self, key):
         if isinstance(key, int):
             return self._vals[key]
-        return self._d[key]
+        if key in self._d:
+            return self._d[key]
+        # PostgreSQL devuelve nombres en minúsculas; buscar sin distinción de mayúsculas
+        lower = key.lower()
+        for k in self._d:
+            if k.lower() == lower:
+                return self._d[k]
+        return self._d[key]  # lanza KeyError con el nombre original
 
     def __contains__(self, key):
-        return key in self._d
+        if key in self._d:
+            return True
+        lower = key.lower()
+        return any(k.lower() == lower for k in self._d)
 
     def get(self, key, default=None):
-        return self._d.get(key, default)
+        if key in self._d:
+            return self._d[key]
+        lower = key.lower()
+        for k in self._d:
+            if k.lower() == lower:
+                return self._d[k]
+        return default
 
     def keys(self):
         return self._d.keys()
