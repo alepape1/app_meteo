@@ -12,5 +12,4 @@ EXPOSE 7000
 
 # 1 worker: el cliente MQTT de paho usa un hilo interno; con >1 worker
 # cada proceso abriría su propia conexión MQTT y duplicaría mensajes.
-CMD ["gunicorn", "--bind", "0.0.0.0:7000", "--workers", "1",
-     "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:7000", "--workers", "1", "--timeout", "120", "app:app"]
