@@ -689,9 +689,9 @@ def irrigation_stats():
 
     # Fecha del último reset (o inicio del mes si no hay ninguno)
     cursor.execute("""
-        SELECT COALESCE(MAX(reset_at), strftime('%Y-%m-01T00:00:00', 'now')) AS since
+        SELECT COALESCE(MAX(reset_at), date_trunc('month', now())) AS since
         FROM irrigation_resets
-        WHERE reset_at >= strftime('%Y-%m-01', 'now')
+        WHERE reset_at >= date_trunc('month', now())
     """)
     since = cursor.fetchone()["since"]
 
@@ -719,7 +719,7 @@ def irrigation_stats():
     cursor.execute("""
         SELECT COUNT(*) FROM home_weather_station
         WHERE relay_active > 0
-          AND DATE(timestamp) = DATE('now')
+          AND DATE(timestamp) = CURRENT_DATE
           AND timestamp >= ?
     """, (since,))
     today_active = cursor.fetchone()[0]
@@ -768,23 +768,23 @@ def irrigation_history():
     interval_s = 20
 
     if period == 'month':
-        group_expr = "strftime('%Y-%m', timestamp)"
+        group_expr = "to_char(timestamp, 'YYYY-MM')"
         offset = "-12 months"
     elif period == 'week':
-        group_expr = "strftime('%Y-W%W', timestamp)"
+        group_expr = "to_char(timestamp, 'YYYY-\"W\"WW')"
         offset = "-16 weeks"
     else:
-        group_expr = "DATE(timestamp)"
+        group_expr = "to_char(timestamp, 'YYYY-MM-DD')"
         offset = "-30 days"
 
     rows = get_db().execute(f"""
         SELECT {group_expr} AS period_key, COUNT(*) AS cnt
         FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= DATE('now', :offset)
+          AND timestamp >= now() + interval %s
         GROUP BY {group_expr}
         ORDER BY period_key ASC
-    """, {"offset": offset}).fetchall()
+    """, (offset,)).fetchall()
 
     return jsonify([
         {
@@ -812,7 +812,7 @@ def irrigation_sessions():
         SELECT timestamp
         FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= datetime('now', '-180 days')
+          AND timestamp >= now() - INTERVAL '180 days'
         ORDER BY timestamp ASC
     """).fetchall()
 

@@ -66,7 +66,7 @@ export default function ClaimDeviceView({ initialSerial = '' }) {
               type="text"
               value={serialNumber}
               onChange={e => setSerialNumber(e.target.value)}
-              placeholder="AQ-0001"
+              placeholder="AQ-FCB467F37748"
               required
               className="w-full bg-navy-50 border border-navy-200 rounded-xl px-4 py-2.5 text-sm font-mono text-navy-900 placeholder:text-navy-300 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-all"
             />
