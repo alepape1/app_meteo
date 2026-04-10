@@ -20,6 +20,7 @@ import logging
 import os
 import ssl
 import threading
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 from database import get_db_connection
@@ -48,18 +49,36 @@ def _finca_id_from_topic(topic: str) -> str | None:
 # ── Callbacks de mensajes entrantes ──────────────────────────────────────────
 
 def _handle_telemetry(finca_id: str, payload: dict):
-    """Inserta lectura de telemetría JSON en home_weather_station."""
+    """Inserta lectura de telemetría JSON en home_weather_station.
+
+    Si el ESP32 envía 'ts' (epoch Unix, sincronizado por NTP) se usa como
+    timestamp de la medición. Si no, se usa NOW() del servidor.
+    """
     db = get_db_connection()
     try:
         device_mac = payload.get("mac_address") or payload.get("device_mac")
+
+        # Timestamp del ESP32: solo válido si NTP sincronizó (epoch > año 2001)
+        ts_dt = None
+        ts_raw = payload.get("ts")
+        if ts_raw:
+            try:
+                ts_epoch = int(ts_raw)
+                if ts_epoch > 1_000_000_000:
+                    ts_dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc)
+            except (ValueError, TypeError):
+                pass
+
         db.execute("""
             INSERT INTO home_weather_station(
                 temperature, pressure, temperature_barometer, humidity,
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
-                pipeline_pressure, pipeline_flow, soil_moisture, device_mac
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pipeline_pressure, pipeline_flow, soil_moisture, device_mac,
+                timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      COALESCE(?, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -80,6 +99,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_flow"),
             payload.get("soil_moisture"),
             device_mac,
+            ts_dt,
         ))
         # Actualizar relay_state.actual desde el bitmask relay_active
         if device_mac:
