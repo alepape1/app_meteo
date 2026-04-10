@@ -355,13 +355,14 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
 
 // ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
 function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
+  const { authFetch } = useAuth()
   const [states, setStates] = useState([])
 
   useEffect(() => {
     const url = selectedMac
       ? `/api/relay?mac=${encodeURIComponent(selectedMac)}`
       : '/api/relay'
-    fetch(url)
+    authFetch(url)
       .then(r => r.json())
       .then(arr => {
         const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
@@ -369,7 +370,7 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
       })
       .catch(() => {})
     const id = setInterval(() => {
-      fetch(url).then(r => r.json()).then(arr => {
+      authFetch(url).then(r => r.json()).then(arr => {
         const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
         setStates(normalized)
       }).catch(() => {})

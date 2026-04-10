@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { PackagePlus, CheckCircle, AlertCircle, Loader } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
-export default function ClaimDeviceView() {
+export default function ClaimDeviceView({ initialSerial = '' }) {
   const { authFetch } = useAuth()
-  const [serialNumber, setSerialNumber] = useState('')
+  const [serialNumber, setSerialNumber] = useState(initialSerial)
   const [fincaId, setFincaId] = useState('')
   const [status, setStatus] = useState(null)   // null | 'loading' | 'ok' | 'error'
   const [result, setResult]   = useState(null)

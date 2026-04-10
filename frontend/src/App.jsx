@@ -54,7 +54,10 @@ function AppInner({ user, logout }) {
   const isDeviceOnline = deviceLastSeen
     ? (Date.now() - new Date(deviceLastSeen.replace(' ', 'T')).getTime()) < 90000
     : false
-  const [activeView, setActiveView] = useState('dashboard')
+  // Detectar ?serial= en la URL (QR de etiqueta del dispositivo)
+  const serialFromUrl = new URLSearchParams(window.location.search).get('serial')
+  const [activeView, setActiveView] = useState(serialFromUrl ? 'claim' : 'dashboard')
+  const [claimSerial, setClaimSerial] = useState(serialFromUrl || '')
   const [unackedAlerts, setUnackedAlerts] = useState(0)
 
   // Polling ligero del contador de alertas no resueltas (cada 60s)
@@ -158,7 +161,7 @@ function AppInner({ user, logout }) {
         {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'alerts'    && <AlertsPanel />}
         {activeView === 'settings'  && <SettingsView />}
-        {activeView === 'claim'     && <ClaimDeviceView />}
+        {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 
