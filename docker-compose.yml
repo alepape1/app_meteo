@@ -54,7 +54,7 @@ services:
       - ./mosquitto/config/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
-      - /etc/letsencrypt:/etc/letsencrypt:ro   # certs TLS para puerto 8883
+      - /home/alejandro/conf/web/meteo.aquantialab.com/ssl:/certs:ro
     ports:
       - "1883:1883"     # interno (backend dentro de Docker)
       - "8883:8883"     # externo TLS (dispositivos ESP32)
