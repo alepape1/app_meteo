@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 import logging
 import datetime
-from database import get_db_connection, create_tables
+from database import get_db_connection, create_tables, init_pool
 import mqtt_client
 from pipeline_sim import (
     simulate_reading,
@@ -25,8 +25,12 @@ CORS(app)
 
 TEMPLATE_FILE = "index.html"
 
+# Inicializar pool de conexiones PostgreSQL al arrancar
+init_pool()
+
+
 def get_db():
-    """Conexión única a la DB por petición (lazy init)."""
+    """Conexión única a la DB por petición (devuelta al pool al finalizar)."""
     if 'db' not in g:
         g.db = get_db_connection()
     return g.db
@@ -895,7 +899,8 @@ def set_pipeline_scenario():
 
     db = get_db()
     db.execute(
-        "INSERT OR REPLACE INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)",
+        "INSERT INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)"
+        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
         (scenario,)
     )
     db.commit()

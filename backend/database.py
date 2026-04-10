@@ -1,188 +1,366 @@
-import sqlite3
+"""
+database.py — Capa de acceso a datos para Aquantia Backend
+Usa PostgreSQL + extensión TimescaleDB para datos de series temporales.
+
+Variables de entorno requeridas (o valores por defecto de desarrollo):
+    PG_HOST      localhost
+    PG_PORT      5432
+    PG_DB        aquantia
+    PG_USER      aquantia
+    PG_PASS      aquantia
+
+TimescaleDB convierte home_weather_station en una hypertable particionada
+por tiempo, lo que acelera enormemente las consultas de rango y reduce el
+tamaño en disco con compresión automática.
+"""
+
 import os
+import re
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
+import logging
 
-# Definimos la ruta de la DB relativa a este archivo para evitar problemas de rutas
-DB_NAME = "home_weather_station.db"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# DATA_DIR permite montar la DB en un volumen persistente via variable de entorno.
-# En Docker: DATA_DIR=/app/data. En local: usa el directorio del script.
-DATA_DIR = os.environ.get('DATA_DIR', BASE_DIR)
-os.makedirs(DATA_DIR, exist_ok=True)
-DB_PATH = os.path.join(DATA_DIR, DB_NAME)
+logger = logging.getLogger(__name__)
 
-def get_db_connection():
-    conexion = sqlite3.connect(DB_PATH, check_same_thread=False)
-    # Row permite acceder a columnas por nombre en vez de índice,
-    # evitando bugs cuando el orden difiere entre DBs nuevas y migradas.
-    conexion.row_factory = sqlite3.Row
-    return conexion
+# ── Configuración de conexión ─────────────────────────────────────────────────
 
-def create_tables(conn):
-    cursor = conn.cursor()
+PG_HOST = os.environ.get("PG_HOST", "localhost")
+PG_PORT = int(os.environ.get("PG_PORT", 5432))
+PG_DB   = os.environ.get("PG_DB",   "aquantia")
+PG_USER = os.environ.get("PG_USER", "aquantia")
+PG_PASS = os.environ.get("PG_PASS", "aquantia")
 
-    # Esta sentencia solo crea la tabla si no existe. Es más segura y limpia.
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS home_weather_station(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        temperature REAL,
-        temperature_barometer REAL,
-        humidity REAL,
-        pressure REAL,
-        windSpeed REAL,
-        windDirection REAL,
-        windSpeedFiltered REAL,
-        windDirectionFiltered REAL,
-        light REAL DEFAULT 0,
-        dht_temperature REAL,
-        dht_humidity REAL,
-        rssi INTEGER,
-        free_heap INTEGER,
-        uptime_s INTEGER,
-        relay_active       INTEGER DEFAULT 0,
-        pipeline_pressure  REAL    DEFAULT NULL,
-        pipeline_flow      REAL    DEFAULT NULL,
-        soil_moisture      REAL    DEFAULT NULL,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+_pool: psycopg2.pool.ThreadedConnectionPool = None
+
+
+def init_pool():
+    """Inicializa el pool de conexiones. Llamar una vez al arrancar la app."""
+    global _pool
+    _pool = psycopg2.pool.ThreadedConnectionPool(
+        minconn=2, maxconn=20,
+        host=PG_HOST, port=PG_PORT,
+        dbname=PG_DB, user=PG_USER, password=PG_PASS
+    )
+    logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", PG_HOST, PG_PORT, PG_DB)
+
+
+# ── Capa de compatibilidad sqlite3 → psycopg2 ─────────────────────────────────
+# Permite mantener el código de app.py casi sin cambios:
+#   - db.execute(sql, params) y db.cursor() funcionan igual que con sqlite3
+#   - Filas accesibles por nombre (row['col']) y por índice (row[0])
+#   - Placeholder ? convertido automáticamente a %s
+
+_SQL_FIXES = [
+    # Placeholder SQLite → PostgreSQL
+    (re.compile(r'\?'), '%s'),
+]
+
+_INSERT_OR_IGNORE = re.compile(
+    r'\bINSERT\s+OR\s+IGNORE\s+INTO\b', re.IGNORECASE
+)
+
+# Patrones de INSERT OR REPLACE necesitan tratamiento especial por tabla
+_UPSERT_PATTERNS = {
+    'app_settings': (
+        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+app_settings\s*\(key,\s*value\)\s*VALUES\s*\(%s,\s*%s\)",
+                   re.IGNORECASE),
+        "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+    ),
+    'device_credentials': (
+        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+device_credentials"
+                   r"\s*\(mac,\s*token_hash,\s*serial_number\)\s*VALUES\s*\(%s,\s*%s,\s*%s\)",
+                   re.IGNORECASE),
+        "INSERT INTO device_credentials(mac, token_hash, serial_number) VALUES (%s, %s, %s)"
+        " ON CONFLICT (mac) DO UPDATE SET token_hash = EXCLUDED.token_hash,"
+        " serial_number = EXCLUDED.serial_number"
+    ),
+}
+
+
+def _translate_sql(sql: str) -> str:
+    """Convierte SQL estilo SQLite a PostgreSQL."""
+    # Primero los upserts específicos (antes de tocar los placeholders)
+    for _, (pat, repl) in _UPSERT_PATTERNS.items():
+        if pat.search(sql):
+            sql = pat.sub(repl, sql)
+            # Aplicar ? -> %s y devolver
+            for pattern, replacement in _SQL_FIXES:
+                sql = pattern.sub(replacement, sql)
+            return sql
+
+    # INSERT OR IGNORE -> INSERT ... ON CONFLICT DO NOTHING
+    if _INSERT_OR_IGNORE.search(sql):
+        sql = _INSERT_OR_IGNORE.sub('INSERT INTO', sql)
+        for pattern, replacement in _SQL_FIXES:
+            sql = pattern.sub(replacement, sql)
+        return sql.rstrip('; \n') + ' ON CONFLICT DO NOTHING'
+
+    # INSERT OR REPLACE residual (sin patrón definido) -> INSERT INTO
+    sql = re.sub(
+        r'\bINSERT\s+OR\s+REPLACE\s+INTO\b', 'INSERT INTO',
+        sql, flags=re.IGNORECASE
+    )
+
+    # Placeholder ? -> %s
+    for pattern, replacement in _SQL_FIXES:
+        sql = pattern.sub(replacement, sql)
+    return sql
+
+
+class _CompatRow:
+    """Fila compatible con sqlite3.Row: acceso por nombre y por índice."""
+    __slots__ = ("_d", "_vals")
+
+    def __init__(self, d: dict):
+        self._d    = d
+        self._vals = list(d.values()) if d else []
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._vals[key]
+        return self._d[key]
+
+    def __contains__(self, key):
+        return key in self._d
+
+    def get(self, key, default=None):
+        return self._d.get(key, default)
+
+    def keys(self):
+        return self._d.keys()
+
+    def __bool__(self):
+        return bool(self._d)
+
+    def __repr__(self):
+        return f"_CompatRow({self._d!r})"
+
+
+class _CompatCursor:
+    """Cursor compatible con sqlite3: ejecuta SQL traducido, devuelve _CompatRow."""
+
+    def __init__(self, conn):
+        self._cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def execute(self, sql, params=None):
+        self._cur.execute(_translate_sql(sql), params or ())
+        return self
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        return [_CompatRow(dict(r)) for r in rows] if rows else []
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return _CompatRow(dict(row)) if row else None
+
+    def close(self):
+        self._cur.close()
+
+    def __iter__(self):
+        for row in self._cur:
+            yield _CompatRow(dict(row))
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+
+class _CompatConn:
+    """Conexión compatible con sqlite3: envuelve una conexión psycopg2 del pool."""
+
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def execute(self, sql, params=None):
+        """Atajo como sqlite3 connection.execute() — crea cursor, ejecuta y lo devuelve."""
+        cur = _CompatCursor(self._conn)
+        cur.execute(sql, params)
+        return cur
+
+    def cursor(self):
+        return _CompatCursor(self._conn)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        """Devuelve la conexión al pool en lugar de cerrarla."""
+        if _pool and self._conn:
+            _pool.putconn(self._conn)
+
+
+# ── API pública ───────────────────────────────────────────────────────────────
+
+def get_db_connection() -> _CompatConn:
+    """Obtiene una conexión del pool. Debe devolverse llamando a conn.close()."""
+    raw = _pool.getconn()
+    raw.autocommit = False
+    return _CompatConn(raw)
+
+
+# ── Schema ────────────────────────────────────────────────────────────────────
+
+def create_tables(conn: _CompatConn):
+    """Crea todas las tablas si no existen y activa la hypertable de TimescaleDB."""
+    raw = conn._conn
+    cur = raw.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS home_weather_station (
+        id                     BIGSERIAL PRIMARY KEY,
+        temperature            REAL,
+        temperature_barometer  REAL,
+        humidity               REAL,
+        pressure               REAL,
+        windSpeed              REAL,
+        windDirection          REAL,
+        windSpeedFiltered      REAL,
+        windDirectionFiltered  REAL,
+        light                  REAL    DEFAULT 0,
+        dht_temperature        REAL,
+        dht_humidity           REAL,
+        rssi                   INTEGER,
+        free_heap              INTEGER,
+        uptime_s               INTEGER,
+        relay_active           INTEGER DEFAULT 0,
+        pipeline_pressure      REAL    DEFAULT NULL,
+        pipeline_flow          REAL    DEFAULT NULL,
+        soil_moisture          REAL    DEFAULT NULL,
+        device_mac             TEXT    DEFAULT NULL,
+        timestamp              TIMESTAMPTZ DEFAULT NOW()
     );
     """)
-    cursor.execute("""
-    CREATE INDEX IF NOT EXISTS idx_timestamp ON home_weather_station(timestamp);
+
+    # Índices estándar (TimescaleDB añade los suyos propios sobre timestamp)
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_timestamp
+        ON home_weather_station(timestamp DESC);
     """)
-    # Tabla de información estática del dispositivo (una fila, id=1)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS device_info(
-        id INTEGER PRIMARY KEY,
-        chip_model TEXT,
-        chip_revision INTEGER,
-        cpu_freq_mhz INTEGER,
-        flash_size_mb INTEGER,
-        sdk_version TEXT,
-        mac_address TEXT,
-        ip_address TEXT,
-        last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_device_mac
+        ON home_weather_station(device_mac);
+    """)
+
+    # ── TimescaleDB hypertable ────────────────────────────────────────────────
+    # Particionado automático por tiempo (chunks de 7 días).
+    # Si TimescaleDB no está instalado, continúa como tabla PostgreSQL normal.
+    try:
+        cur.execute("""
+        SELECT create_hypertable(
+            'home_weather_station', 'timestamp',
+            if_not_exists => TRUE,
+            migrate_data   => TRUE
+        );
+        """)
+        logger.info("TimescaleDB hypertable activa en home_weather_station")
+    except Exception as e:
+        logger.warning("TimescaleDB no disponible — usando tabla PostgreSQL normal: %s", e)
+        raw.rollback()
+        cur = raw.cursor()
+
+    # ── Resto de tablas ───────────────────────────────────────────────────────
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS device_info (
+        id             SERIAL PRIMARY KEY,
+        finca_id       TEXT,
+        chip_model     TEXT,
+        chip_revision  INTEGER,
+        cpu_freq_mhz   INTEGER,
+        flash_size_mb  INTEGER,
+        sdk_version    TEXT,
+        mac_address    TEXT UNIQUE,
+        ip_address     TEXT,
+        relay_count    INTEGER DEFAULT 1,
+        serial_number  TEXT    DEFAULT NULL,
+        claimed_at     TIMESTAMPTZ DEFAULT NULL,
+        last_seen      TIMESTAMPTZ DEFAULT NOW()
     );
     """)
-    # Migraciones: añadir columnas nuevas si la tabla ya existía sin ellas
-    for migration in [
-        "ALTER TABLE home_weather_station ADD COLUMN light REAL DEFAULT 0;",
-        "ALTER TABLE home_weather_station ADD COLUMN dht_temperature REAL;",
-        "ALTER TABLE home_weather_station ADD COLUMN dht_humidity REAL;",
-        "ALTER TABLE home_weather_station ADD COLUMN rssi INTEGER;",
-        "ALTER TABLE home_weather_station ADD COLUMN free_heap INTEGER;",
-        "ALTER TABLE home_weather_station ADD COLUMN uptime_s INTEGER;",
-        "ALTER TABLE home_weather_station ADD COLUMN relay_active INTEGER DEFAULT 0;",
-        "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure REAL DEFAULT NULL;",
-        "ALTER TABLE home_weather_station ADD COLUMN soil_moisture REAL DEFAULT NULL;",
-        "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow REAL DEFAULT NULL;",
-        "ALTER TABLE home_weather_station ADD COLUMN device_mac TEXT DEFAULT NULL;",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_info_mac ON device_info(mac_address);",
-        "CREATE INDEX IF NOT EXISTS idx_device_mac ON home_weather_station(device_mac);",
-        "ALTER TABLE device_info ADD COLUMN relay_count INTEGER DEFAULT 1;",
-        "ALTER TABLE relay_state ADD COLUMN device_mac TEXT DEFAULT NULL;",
-        "ALTER TABLE relay_state ADD COLUMN relay_index INTEGER DEFAULT 0;",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_state ON relay_state(device_mac, relay_index);",
-        "ALTER TABLE device_info ADD COLUMN finca_id TEXT DEFAULT NULL;",
-        "CREATE INDEX IF NOT EXISTS idx_device_info_finca ON device_info(finca_id);",
-    ]:
-        try:
-            cursor.execute(migration)
-            conn.commit()
-        except Exception:
-            pass  # La columna/índice ya existe
+    cur.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_device_info_mac
+        ON device_info(mac_address);
+    """)
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_device_info_finca
+        ON device_info(finca_id);
+    """)
 
-    # Tabla de configuración de la aplicación (clave-valor).
-    cursor.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS app_settings (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );
     """)
     for key, value in [
-        ('flow_lpm',           '5.0'),
-        ('baseline_daily_l',   '15.0'),
-        ('station_name',       'Aquantia'),
-        ('station_location',   'Lanzarote'),
-        ('pipeline_scenario',  'normal'),
+        ('flow_lpm',          '5.0'),
+        ('baseline_daily_l',  '15.0'),
+        ('station_name',      'Aquantia'),
+        ('station_location',  'Lanzarote'),
+        ('pipeline_scenario', 'normal'),
     ]:
-        cursor.execute(
-            "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
+        cur.execute(
+            "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+            " ON CONFLICT (key) DO NOTHING",
             (key, value)
         )
 
-    # Tabla de alertas generadas por los dispositivos via MQTT.
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS alerts(
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS alerts (
+        id         BIGSERIAL PRIMARY KEY,
         finca_id   TEXT,
         device_mac TEXT,
-        alert_type TEXT NOT NULL DEFAULT 'unknown',
-        severity   TEXT NOT NULL DEFAULT 'info',
+        alert_type TEXT        NOT NULL DEFAULT 'unknown',
+        severity   TEXT        NOT NULL DEFAULT 'info',
         message    TEXT,
-        acked      INTEGER NOT NULL DEFAULT 0,
-        acked_at   DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        acked      INTEGER     NOT NULL DEFAULT 0,
+        acked_at   TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
     );
     """)
-    cursor.execute("""
-    CREATE INDEX IF NOT EXISTS idx_alerts_finca ON alerts(finca_id);
-    """)
-    cursor.execute("""
-    CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
-    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_finca   ON alerts(finca_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);")
 
-    # Tabla de resets de consumo — cada fila es un reset manual del usuario.
-    # Las estadísticas solo cuentan registros posteriores al último reset.
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS irrigation_resets(
-        id       INTEGER PRIMARY KEY AUTOINCREMENT,
-        reset_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS irrigation_resets (
+        id       BIGSERIAL PRIMARY KEY,
+        reset_at TIMESTAMPTZ DEFAULT NOW()
     );
     """)
 
-    # Tabla de estado del relay — fila única (id=1), compartida entre workers Gunicorn.
-    # Fallo-seguro: desired y actual arrancan en 0 (válvula cerrada).
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS relay_state(
-        id          INTEGER PRIMARY KEY,
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS relay_state (
+        id          SERIAL  PRIMARY KEY,
         desired     INTEGER NOT NULL DEFAULT 0,
         actual      INTEGER NOT NULL DEFAULT 0,
         device_mac  TEXT    DEFAULT NULL,
-        relay_index INTEGER DEFAULT 0
+        relay_index INTEGER DEFAULT 0,
+        UNIQUE (device_mac, relay_index)
     );
     """)
-    cursor.execute("""
-    INSERT OR IGNORE INTO relay_state(id, desired, actual) VALUES (1, 0, 0);
+    cur.execute("""
+    INSERT INTO relay_state(id, desired, actual) VALUES (1, 0, 0)
+    ON CONFLICT (id) DO NOTHING;
     """)
 
-    # Tabla de credenciales por dispositivo — una fila por ESP32 registrado en fábrica.
-    # token_hash: bcrypt del token único del dispositivo (nunca el token en claro).
-    # serial_number: SN legible para el usuario, impreso en la etiqueta del dispositivo.
-    # claimed_by_finca_id: NULL hasta que el usuario reclame el dispositivo.
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS device_credentials(
-        mac                  TEXT PRIMARY KEY,
-        token_hash           TEXT NOT NULL,
-        serial_number        TEXT UNIQUE NOT NULL,
-        claimed_by_finca_id  TEXT DEFAULT NULL,
-        claimed_at           DATETIME DEFAULT NULL,
-        created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS device_credentials (
+        mac                 TEXT PRIMARY KEY,
+        token_hash          TEXT NOT NULL,
+        serial_number       TEXT UNIQUE NOT NULL,
+        claimed_by_finca_id TEXT        DEFAULT NULL,
+        claimed_at          TIMESTAMPTZ DEFAULT NULL,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
     );
     """)
-    cursor.execute("""
+    cur.execute("""
     CREATE INDEX IF NOT EXISTS idx_devcred_serial
-    ON device_credentials(serial_number);
+        ON device_credentials(serial_number);
     """)
 
-    # Migraciones aditivas para device_info
-    for migration in [
-        "ALTER TABLE device_info ADD COLUMN serial_number TEXT DEFAULT NULL;",
-        "ALTER TABLE device_info ADD COLUMN claimed_at DATETIME DEFAULT NULL;",
-    ]:
-        try:
-            cursor.execute(migration)
-            conn.commit()
-        except Exception:
-            pass
-
-    conn.commit()
-    cursor.close()
+    raw.commit()
+    cur.close()
+    logger.info("Schema PostgreSQL listo")
