@@ -41,6 +41,7 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:-cambia_esto}
       MQTT_TLS:      0
       DATA_DIR:      /app/data
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-cambia_esto_en_produccion}
     volumes:
       - backend_data:/app/data
     ports:

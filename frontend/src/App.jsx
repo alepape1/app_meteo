@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, LogOut } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
+import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
 import WeatherChart from './components/WeatherChart'
 import Sidebar from './components/Sidebar'
@@ -11,6 +12,7 @@ import SettingsView from './components/SettingsView'
 import PipelineView from './components/PipelineView'
 import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
+import LoginView from './components/LoginView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -23,6 +25,15 @@ function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
 
 export default function App() {
+  const { token, user, logout } = useAuth()
+
+  // Guard: mostrar login si no hay sesión
+  if (!token) return <LoginView />
+
+  return <AppInner user={user} logout={logout} />
+}
+
+function AppInner({ user, logout }) {
   const {
     data, latest, loading, lastUpdate, error,
     deviceInfo, deviceLastSeen,
@@ -125,6 +136,17 @@ export default function App() {
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Cargando…' : 'Refrescar'}
             </button>
+
+            <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
+              <span className="text-xs text-navy-400 hidden sm:block">{user?.display_name}</span>
+              <button
+                onClick={logout}
+                title="Cerrar sesión"
+                className="flex items-center gap-1 text-xs text-navy-400 hover:text-red-500 transition-colors"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
           </div>
         </header>
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '../AuthContext'
 
 const EMPTY = {
   timestamp: [], temperature: [], temperature_bar: [], humidity: [],
@@ -10,6 +11,7 @@ const EMPTY = {
 }
 
 export function useWeatherData() {
+  const { authFetch } = useAuth()
   const [data, setData] = useState(EMPTY)
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
@@ -32,7 +34,7 @@ export function useWeatherData() {
       const url = selectedMac
         ? `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
         : `/api/muestras/${n}`
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
     } catch (e) {
@@ -47,7 +49,7 @@ export function useWeatherData() {
     try {
       const body = { start_date: startDate, end_date: endDate }
       if (selectedMac) body.mac = selectedMac
-      const res = await fetch('/api/filtrar', {
+      const res = await authFetch('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -66,7 +68,7 @@ export function useWeatherData() {
       const url = selectedMac
         ? `/api/latest?mac=${encodeURIComponent(selectedMac)}`
         : '/api/latest'
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (!res.ok) return
       const json = await res.json()
       if (json.timestamp?.length > 0) {
@@ -82,7 +84,7 @@ export function useWeatherData() {
       const url = selectedMac
         ? `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
         : '/api/device_info'
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (!res.ok) return
       const json = await res.json()
       if (Object.keys(json).length > 0) setDeviceInfo(json)
@@ -91,7 +93,7 @@ export function useWeatherData() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await fetch('/api/devices')
+      const res = await authFetch('/api/devices')
       if (!res.ok) return
       setDevices(await res.json())
     } catch (_) {}
@@ -124,7 +126,7 @@ export function useWeatherData() {
   }
 
   const setRelay = useCallback(async (state) => {
-    await fetch('/api/relay', {
+    await authFetch('/api/relay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ state }),

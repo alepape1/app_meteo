@@ -1,5 +1,6 @@
 Flask
 flask-cors
+flask-jwt-extended
 gunicorn
 python-dotenv
 paho-mqtt

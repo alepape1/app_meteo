@@ -382,6 +382,34 @@ def create_tables(conn: _CompatConn):
         ON device_credentials(serial_number);
     """)
 
+    # ── Usuarios ──────────────────────────────────────────────────────────────
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id            BIGSERIAL PRIMARY KEY,
+        email         TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        display_name  TEXT,
+        role          TEXT NOT NULL DEFAULT 'user',
+        is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_devices (
+        id          BIGSERIAL PRIMARY KEY,
+        user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        mac_address TEXT NOT NULL,
+        nickname    TEXT,
+        claimed_at  TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (user_id, mac_address)
+    );
+    """)
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_user_devices_user
+        ON user_devices(user_id);
+    """)
+
     raw.commit()
     cur.close()
     logger.info("Schema PostgreSQL listo")

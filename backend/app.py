@@ -1,6 +1,10 @@
 from flask import Flask, g, render_template, request, jsonify
 import bcrypt
 from flask_cors import CORS
+from flask_jwt_extended import (
+    JWTManager, create_access_token,
+    jwt_required, get_jwt_identity,
+)
 from dotenv import load_dotenv
 import os
 import logging
@@ -22,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "cambia_esto_en_produccion")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(days=30)
+jwt = JWTManager(app)
 
 TEMPLATE_FILE = "index.html"
 
@@ -99,6 +107,95 @@ def _relay_set_actual(mac, index, state):
     else:
         db.execute("UPDATE relay_state SET actual=? WHERE id=1", (1 if state else 0,))
     db.commit()
+
+
+# ── Autenticación ────────────────────────────────────────────────────────────
+
+@app.route("/api/auth/register", methods=["POST"])
+def auth_register():
+    data = request.get_json(silent=True) or {}
+    email    = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    name     = (data.get("display_name") or "").strip()
+    if not email or not password:
+        return jsonify({"error": "Faltan email o contraseña"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "La contraseña debe tener al menos 8 caracteres"}), 400
+    db = get_db()
+    if db.execute("SELECT id FROM users WHERE email=%s", (email,)).fetchone():
+        return jsonify({"error": "Email ya registrado"}), 409
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    db.execute(
+        "INSERT INTO users(email, password_hash, display_name) VALUES (%s, %s, %s)",
+        (email, pw_hash, name or email.split("@")[0])
+    )
+    db.commit()
+    user = db.execute("SELECT id, email, display_name, role FROM users WHERE email=%s", (email,)).fetchone()
+    token = create_access_token(identity=str(user["id"]))
+    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"],
+                                              "display_name": user["display_name"], "role": user["role"]}}), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json(silent=True) or {}
+    email    = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    if not email or not password:
+        return jsonify({"error": "Faltan email o contraseña"}), 400
+    db = get_db()
+    user = db.execute(
+        "SELECT id, email, display_name, role, password_hash, is_active FROM users WHERE email=%s",
+        (email,)
+    ).fetchone()
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        return jsonify({"error": "Credenciales incorrectas"}), 401
+    if not user["is_active"]:
+        return jsonify({"error": "Cuenta desactivada"}), 403
+    token = create_access_token(identity=str(user["id"]))
+    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"],
+                                              "display_name": user["display_name"], "role": user["role"]}})
+
+
+@app.route("/api/auth/me")
+@jwt_required()
+def auth_me():
+    user_id = int(get_jwt_identity())
+    user = get_db().execute(
+        "SELECT id, email, display_name, role FROM users WHERE id=%s", (user_id,)
+    ).fetchone()
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    return jsonify({"id": user["id"], "email": user["email"],
+                    "display_name": user["display_name"], "role": user["role"]})
+
+
+# ── Guard JWT para rutas /api/ ────────────────────────────────────────────────
+# Rutas públicas: llamadas por ESP32, mosquitto o el propio sistema de auth.
+_JWT_PUBLIC = {
+    "/api/auth/register",
+    "/api/auth/login",
+    "/api/mqtt/auth",
+    "/api/mqtt/acl",
+    "/api/devices/register_factory",
+}
+
+@app.before_request
+def _require_jwt():
+    if not request.path.startswith("/api/"):
+        return  # ficheros estáticos del frontend
+    if request.path in _JWT_PUBLIC:
+        return  # auth y endpoints internos
+    # POST /api/device_info y GET+POST /api/relay/command y /api/relay/ack → ESP32
+    if request.path == "/api/device_info" and request.method == "POST":
+        return
+    if request.path in ("/api/relay/command", "/api/relay/ack"):
+        return
+    from flask_jwt_extended import verify_jwt_in_request
+    try:
+        verify_jwt_in_request()
+    except Exception:
+        return jsonify({"error": "Autenticación requerida", "code": "missing_token"}), 401
 
 
 # ── Configuración de la aplicación ───────────────────────────────────────────
@@ -988,9 +1085,11 @@ def mqtt_acl():
 @app.route("/api/devices/claim", methods=["POST"])
 def claim_device():
     """El usuario reclama un dispositivo introduciendo su serial number."""
+    user_id = int(get_jwt_identity())
     data = request.get_json(silent=True) or {}
     serial_number = (data.get("serial_number") or "").strip().upper()
     finca_id = data.get("finca_id", "").strip()
+    nickname  = data.get("nickname", "").strip()
     if not serial_number:
         return jsonify({"error": "Falta serial_number"}), 400
     db = get_db()
@@ -1000,11 +1099,20 @@ def claim_device():
     ).fetchone()
     if not row:
         return jsonify({"error": "Dispositivo no encontrado"}), 404
-    if row["claimed_by_finca_id"]:
-        return jsonify({"error": "Dispositivo ya reclamado"}), 409
+    # Verificar si ya está reclamado por otro usuario
+    existing = db.execute(
+        "SELECT user_id FROM user_devices WHERE mac_address=?", (row["mac"],)
+    ).fetchone()
+    if existing and existing["user_id"] != user_id:
+        return jsonify({"error": "Dispositivo ya reclamado por otro usuario"}), 409
     db.execute(
         "UPDATE device_credentials SET claimed_by_finca_id=?, claimed_at=CURRENT_TIMESTAMP WHERE serial_number=?",
         (finca_id or serial_number, serial_number)
+    )
+    db.execute(
+        "INSERT INTO user_devices(user_id, mac_address, nickname) VALUES (%s, %s, %s)"
+        " ON CONFLICT (user_id, mac_address) DO UPDATE SET nickname = EXCLUDED.nickname",
+        (user_id, row["mac"], nickname or serial_number)
     )
     db.commit()
     device = db.execute(
