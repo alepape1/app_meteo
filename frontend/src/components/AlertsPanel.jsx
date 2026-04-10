@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Bell, CheckCheck, AlertTriangle, Info, Zap, RefreshCw } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 const SEVERITY = {
   critical: { label: 'Crítico',  color: 'bg-red-500/15 text-red-400 border-red-500/30',    icon: Zap },
@@ -57,6 +58,7 @@ function AlertRow({ alert, onAck }) {
 }
 
 export default function AlertsPanel() {
+  const { authFetch } = useAuth()
   const [alerts, setAlerts]     = useState([])
   const [filter, setFilter]     = useState('pending')   // 'all' | 'pending'
   const [loading, setLoading]   = useState(false)
@@ -65,7 +67,7 @@ export default function AlertsPanel() {
     setLoading(true)
     try {
       const qs = filter === 'pending' ? '?acked=0' : ''
-      const res = await fetch(`/api/alerts${qs}`)
+      const res = await authFetch(`/api/alerts${qs}`)
       if (!res.ok) throw new Error()
       setAlerts(await res.json())
     } catch (_) {
@@ -83,7 +85,7 @@ export default function AlertsPanel() {
   }, [fetchAlerts])
 
   const ackAlert = async (id) => {
-    await fetch(`/api/alerts/${id}/ack`, { method: 'POST' })
+    await authFetch(`/api/alerts/${id}/ack`, { method: 'POST' })
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, acked: 1 } : a))
   }
 

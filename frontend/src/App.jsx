@@ -34,6 +34,7 @@ export default function App() {
 }
 
 function AppInner({ user, logout }) {
+  const { authFetch } = useAuth()
   const {
     data, latest, loading, lastUpdate, error,
     deviceInfo, deviceLastSeen,
@@ -60,7 +61,7 @@ function AppInner({ user, logout }) {
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const res = await fetch('/api/alerts?acked=0')
+        const res = await authFetch('/api/alerts?acked=0')
         if (!res.ok) return
         const data = await res.json()
         setUnackedAlerts(data.length)

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { PackagePlus, CheckCircle, AlertCircle, Loader } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 export default function ClaimDeviceView() {
+  const { authFetch } = useAuth()
   const [serialNumber, setSerialNumber] = useState('')
   const [fincaId, setFincaId] = useState('')
   const [status, setStatus] = useState(null)   // null | 'loading' | 'ok' | 'error'
@@ -16,7 +18,7 @@ export default function ClaimDeviceView() {
     setResult(null)
     setErrorMsg('')
     try {
-      const res = await fetch('/api/devices/claim', {
+      const res = await authFetch('/api/devices/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serial_number: sn, finca_id: fincaId.trim() }),

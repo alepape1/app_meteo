@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import ReactApexChart from 'react-apexcharts'
+import { useAuth } from '../AuthContext'
 import {
   Activity, AlertTriangle, CheckCircle, Gauge,
   Droplets, Zap, FlaskConical, RefreshCw, Info,
@@ -299,6 +300,7 @@ function PipelineChart({ readings, mode, histLoading }) {
 // ── Vista principal ────────────────────────────────────────────────────────────
 
 export default function PipelineView() {
+  const { authFetch } = useAuth()
   const [status,   setStatus]   = useState(null)
   const [readings, setReadings] = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -318,8 +320,8 @@ export default function PipelineView() {
   const fetchLive = useCallback(async () => {
     try {
       const [sRes, rRes] = await Promise.all([
-        fetch('/api/pipeline/status'),
-        fetch('/api/pipeline/readings?n=90'),
+        authFetch('/api/pipeline/status'),
+        authFetch('/api/pipeline/readings?n=90'),
       ])
       const [s, r] = await Promise.all([sRes.json(), rRes.json()])
       setStatus(s)
@@ -354,7 +356,7 @@ export default function PipelineView() {
     try {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
-      const res  = await fetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch (_) {}
@@ -364,7 +366,7 @@ export default function PipelineView() {
   const applyScenario = async (sc) => {
     setApplyBusy(true)
     try {
-      await fetch('/api/pipeline/scenario', {
+      await authFetch('/api/pipeline/scenario', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ scenario: sc }),

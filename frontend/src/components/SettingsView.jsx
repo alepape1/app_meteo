@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Settings, Droplets, MapPin, Check, AlertTriangle } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 function SettingField({ label, description, value, onChange, type = 'text', unit, min, max, step }) {
   return (
@@ -40,6 +41,7 @@ function SettingTextField({ label, description, value, onChange }) {
 }
 
 export default function SettingsView() {
+  const { authFetch } = useAuth()
   const [form, setForm] = useState({
     flow_lpm:         '5.0',
     baseline_daily_l: '15.0',
@@ -49,7 +51,7 @@ export default function SettingsView() {
   const [status, setStatus] = useState(null)   // 'saving' | 'saved' | 'error'
 
   useEffect(() => {
-    fetch('/api/settings')
+    authFetch('/api/settings')
       .then(r => r.json())
       .then(s => setForm(f => ({ ...f, ...s })))
       .catch(() => {})
@@ -60,7 +62,7 @@ export default function SettingsView() {
   const save = useCallback(async () => {
     setStatus('saving')
     try {
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

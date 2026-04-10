@@ -5,6 +5,7 @@ import {
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
   BarChart2,
 } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -221,6 +222,7 @@ function SectorCard({ sector }) {
 
 // ── ValveCard — control individual de una electroválvula ─────────────────────
 function ValveCard({ index, mac, flowLpm = 5, initialState }) {
+  const { authFetch } = useAuth()
   const [desired, setDesired] = useState(initialState?.desired ?? false)
   const [actual,  setActual]  = useState(initialState?.actual  ?? false)
   const [busy, setBusy] = useState(false)
@@ -251,7 +253,7 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
       attempts++
       try {
         const url = mac ? `/api/relay?mac=${encodeURIComponent(mac)}` : '/api/relay'
-        const res = await fetch(url)
+        const res = await authFetch(url)
         const arr = await res.json()
         const row = Array.isArray(arr) ? arr.find(r => r.index === index) : null
         if (row) {
@@ -272,7 +274,7 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
     setBusy(true)
     const next = !desired
     try {
-      await fetch('/api/relay', {
+      await authFetch('/api/relay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mac, index, state: next }),
@@ -533,12 +535,12 @@ function ConsumptionChart() {
 
   useEffect(() => {
     if (period === 'session') {
-      fetch('/api/irrigation/sessions')
+      authFetch('/api/irrigation/sessions')
         .then(r => r.json())
         .then(setSessions)
         .catch(() => {})
     } else {
-      fetch(`/api/irrigation/history?period=${period}`)
+      authFetch(`/api/irrigation/history?period=${period}`)
         .then(r => r.json())
         .then(setHistory)
         .catch(() => {})
@@ -786,6 +788,7 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 
 // ── Vista principal ──────────────────────────────────────────────────────────
 export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
+  const { authFetch } = useAuth()
   const [stats, setStats] = useState(null)
   const [flowLpm, setFlowLpm] = useState(5.0)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
@@ -793,11 +796,11 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   const relayCount = deviceInfo?.relay_count ?? 1
 
   const loadStats = useCallback(() =>
-    fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
+    authFetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
   [])
 
   useEffect(() => {
-    fetch('/api/settings')
+    authFetch('/api/settings')
       .then(r => r.json())
       .then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0')))
       .catch(() => {})
@@ -810,7 +813,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   }, [loadStats])
 
   const handleIrrigate = useCallback(async () => {
-    await fetch('/api/relay', {
+    await authFetch('/api/relay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac: selectedMac, index: 0, state: true }),
@@ -819,7 +822,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
 
   const handleReset = useCallback(async () => {
     setShowResetConfirm(false)
-    await fetch('/api/irrigation/reset', { method: 'POST' })
+    await authFetch('/api/irrigation/reset', { method: 'POST' })
     loadStats()
   }, [loadStats])
 
