@@ -242,7 +242,7 @@ def start():
         if _client is not None:
             return
 
-    client = mqtt.Client(client_id="aquantia-backend", clean_session=True)
+    client = mqtt.Client(client_id=f"aquantia-backend-{os.getpid()}", clean_session=True)
 
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
