@@ -530,6 +530,7 @@ function fmtDuration(seconds) {
 }
 
 function ConsumptionChart() {
+  const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
   const [sessions, setSessions] = useState([])
