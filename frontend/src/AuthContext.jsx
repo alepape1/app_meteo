@@ -43,11 +43,18 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
-  // Wrapper de fetch que incluye el token automáticamente
-  const authFetch = useCallback((url, opts = {}) => {
+  // Wrapper de fetch que incluye el token y hace logout automático si expira
+  const authFetch = useCallback(async (url, opts = {}) => {
     const headers = { ...(opts.headers || {}) }
     if (token) headers['Authorization'] = `Bearer ${token}`
-    return fetch(url, { ...opts, headers })
+    const res = await fetch(url, { ...opts, headers })
+    if (res.status === 401) {
+      localStorage.removeItem('aq_token')
+      localStorage.removeItem('aq_user')
+      setToken(null)
+      setUser(null)
+    }
+    return res
   }, [token])
 
   return (
