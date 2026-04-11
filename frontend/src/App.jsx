@@ -52,8 +52,9 @@ function AppInner({ user, logout }) {
     }
   }, [devices, setSelectedMac])
 
-  const isDeviceOnline = deviceLastSeen
-    ? (Date.now() - new Date(deviceLastSeen.replace(' ', 'T')).getTime()) < 90000
+  const selectedDevice = devices.find(d => d.mac_address === selectedMac)
+  const isDeviceOnline = selectedDevice?.latest_reading
+    ? (Date.now() - new Date(selectedDevice.latest_reading.replace(' ', 'T')).getTime()) < 90000
     : false
   // Detectar ?serial= en la URL (QR de etiqueta del dispositivo)
   const serialFromUrl = new URLSearchParams(window.location.search).get('serial')
@@ -109,63 +110,80 @@ function AppInner({ user, logout }) {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white border-b border-black/[.08] px-4 py-3.5 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        <header className="bg-white border-b border-black/[.08] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
+
+          {/* Izquierda: hamburguesa + logo */}
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => setSidebarOpen(o => !o)}
-              className="md:hidden p-1.5 rounded-lg text-navy-400 hover:text-navy-900 hover:bg-navy-50 transition-colors"
+              className="md:hidden p-1.5 rounded-lg text-navy-400 hover:text-navy-900 hover:bg-navy-50 transition-colors shrink-0"
             >
               <Menu size={18} />
             </button>
-            {/* Aquantia logo mark */}
-            <div className="bg-brand-50 p-2 rounded-xl border border-brand-100">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <div className="bg-brand-50 p-1.5 rounded-xl border border-brand-100 shrink-0">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
                 <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#0c8ecc"/>
                 <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.75"/>
               </svg>
             </div>
-            <div>
-              <h1 className="text-sm font-bold text-navy-900 leading-none tracking-tight font-serif">
-                Aquantia
-              </h1>
-              <p className="text-xs text-navy-300 mt-0.5">Estación meteorológica · Lanzarote</p>
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-navy-900 leading-none tracking-tight font-serif">Aquantia</h1>
+              <p className="text-xs text-navy-300 mt-0.5 hidden md:block">Estación meteorológica · Lanzarote</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          {/* Derecha: estado + acciones */}
+          <div className="flex items-center gap-2 shrink-0">
+
+            {/* Indicador online/offline */}
             {error ? (
-              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-3 py-1.5 rounded-full border border-navy-100">
-                <WifiOff size={11} /> Sin conexión con el servidor
+              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
+                <WifiOff size={11} />
+                <span className="hidden sm:inline">Sin conexión</span>
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-3 py-1.5 rounded-full border border-navy-100">
+              <span className="flex items-center gap-1.5 text-xs text-navy-400 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
                 {isDeviceOnline
                   ? <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
                   : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
                 }
-                {selectedMac ? `ECU ···${selectedMac.slice(-5)}` : 'ECUaquantia'}{' '}
-                {isDeviceOnline ? 'online' : 'offline'}
-                {lastUpdate && <span className="text-navy-200 pl-1.5 border-l border-navy-200 ml-0.5">{lastUpdate}</span>}
+                <span className="hidden sm:inline">
+                  {selectedMac ? `ECU ···${selectedMac.slice(-5)}` : 'ECU'}
+                  {' '}{isDeviceOnline ? 'online' : 'offline'}
+                </span>
+                <span className="sm:hidden">{isDeviceOnline ? 'Online' : 'Offline'}</span>
+                {lastUpdate && <span className="text-navy-300 hidden md:inline pl-1.5 border-l border-navy-200 ml-0.5">{lastUpdate}</span>}
               </span>
             )}
 
+            {/* Refrescar — solo desktop */}
             <button
               onClick={() => fetchSamples(150)}
               disabled={loading}
-              className="flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
+              className="hidden md:flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Cargando…' : 'Refrescar'}
             </button>
 
-            <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
-              <span className="text-xs text-navy-400 hidden sm:block">{user?.display_name}</span>
+            {/* Refrescar móvil — solo icono */}
+            <button
+              onClick={() => fetchSamples(150)}
+              disabled={loading}
+              className="md:hidden p-1.5 rounded-lg text-navy-400 hover:text-navy-900 hover:bg-navy-50 disabled:opacity-40 transition-colors"
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            </button>
+
+            {/* Usuario + logout */}
+            <div className="flex items-center gap-1.5 pl-2 border-l border-black/[.08]">
+              <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
               <button
                 onClick={logout}
                 title="Cerrar sesión"
-                className="flex items-center gap-1 text-xs text-navy-400 hover:text-red-500 transition-colors"
+                className="p-1.5 rounded-lg text-navy-400 hover:text-red-500 hover:bg-red-50 transition-colors"
               >
-                <LogOut size={14} />
+                <LogOut size={16} />
               </button>
             </div>
           </div>
