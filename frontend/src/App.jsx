@@ -12,6 +12,7 @@ import SettingsView from './components/SettingsView'
 import PipelineView from './components/PipelineView'
 import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
+import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
 import './index.css'
 
@@ -161,6 +162,7 @@ function AppInner({ user, logout }) {
         {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'alerts'    && <AlertsPanel />}
         {activeView === 'settings'  && <SettingsView />}
+        {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}
         {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
 
         <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>

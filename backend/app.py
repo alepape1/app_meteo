@@ -1082,6 +1082,49 @@ def mqtt_acl():
     return jsonify({"ok": True}), 200
 
 
+@app.route("/api/devices/mine")
+def api_devices_mine():
+    """Lista los dispositivos vinculados al usuario autenticado."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    rows = db.execute("""
+        SELECT
+            COALESCE(di.mac_address, ud.mac_address) AS mac_address,
+            di.chip_model, di.relay_count, di.ip_address, di.last_seen, di.finca_id,
+            ud.nickname, ud.claimed_at,
+            dc.serial_number, dc.claimed_by_finca_id,
+            (SELECT timestamp FROM home_weather_station
+             WHERE device_mac = ud.mac_address
+             ORDER BY timestamp DESC LIMIT 1) AS latest_reading
+        FROM user_devices ud
+        LEFT JOIN device_info di ON di.mac_address = ud.mac_address
+        LEFT JOIN device_credentials dc ON dc.mac = ud.mac_address
+        WHERE ud.user_id = %s
+        ORDER BY ud.claimed_at DESC
+    """, (user_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/devices/<mac>", methods=["DELETE"])
+def api_release_device(mac):
+    """Desvincula un dispositivo del usuario (lo libera para ser reclamado de nuevo)."""
+    user_id = int(get_jwt_identity())
+    mac = mac.upper()
+    db = get_db()
+    existing = db.execute(
+        "SELECT id FROM user_devices WHERE user_id=%s AND mac_address=%s",
+        (user_id, mac)
+    ).fetchone()
+    if not existing:
+        return jsonify({"error": "Dispositivo no encontrado"}), 404
+    db.execute(
+        "DELETE FROM user_devices WHERE user_id=%s AND mac_address=%s",
+        (user_id, mac)
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/devices/claim", methods=["POST"])
 def claim_device():
     """El usuario reclama un dispositivo introduciendo su serial number."""
