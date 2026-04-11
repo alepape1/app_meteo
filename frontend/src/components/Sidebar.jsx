@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server, Bell, PackagePlus, Layers,
+  Server, Bell, Layers,
 } from 'lucide-react'
 
 const fmt = d => {
@@ -30,7 +30,6 @@ const NAV_ITEMS = [
   { id: 'device',    label: 'ESP32',             icon: Cpu },
   { id: 'devices',   label: 'Mis dispositivos',  icon: Layers },
   { id: 'settings',  label: 'Configuración',     icon: Settings },
-  { id: 'claim',     label: 'Añadir dispositivo', icon: PackagePlus },
 ]
 
 function isOnline(ts) {
