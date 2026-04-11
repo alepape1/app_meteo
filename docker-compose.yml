@@ -60,6 +60,13 @@ services:
       - "1883:1883"     # interno (backend dentro de Docker)
       - "8883:8883"     # externo TLS (dispositivos ESP32)
 
+  # ── Adminer — interfaz web para PostgreSQL (solo desarrollo) ──────────────
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
 volumes:
   timescaledb_data:
   backend_data:
