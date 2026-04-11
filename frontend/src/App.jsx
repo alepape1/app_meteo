@@ -105,6 +105,8 @@ function AppInner({ user, logout }) {
         onSelectDevice={setSelectedMac}
         unackedAlerts={unackedAlerts}
         mobileOpen={sidebarOpen}
+        user={user}
+        onLogout={logout}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
