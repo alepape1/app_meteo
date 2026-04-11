@@ -1,35 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { PackagePlus, CheckCircle, AlertCircle, Loader, ScanLine, X } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { PackagePlus, CheckCircle, AlertCircle, Loader, ScanLine } from 'lucide-react'
 import { Html5Qrcode } from 'html5-qrcode'
 import { useAuth } from '../AuthContext'
 
-function QrScanner({ onScan, onClose }) {
-  const qrRef = useRef(null)
-
-  useEffect(() => {
-    const qr = new Html5Qrcode('qr-reader-div')
-    qrRef.current = qr
-    qr.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 220, height: 220 } },
-      (text) => { qr.stop().catch(() => {}); onScan(text) },
-      () => {}
-    ).catch(() => {})
-    return () => { qr.stop().catch(() => {}) }
-  }, [onScan])
-
-  return (
-    <div className="relative bg-black rounded-xl overflow-hidden mb-4">
-      <button
-        onClick={onClose}
-        className="absolute top-2 right-2 z-10 bg-white/80 rounded-lg p-1 text-navy-700 transition-colors"
-      >
-        <X size={14} />
-      </button>
-      <div id="qr-reader-div" className="w-full" />
-      <p className="text-center text-xs text-white/70 py-2">Apunta la cámara al QR del dispositivo</p>
-    </div>
-  )
+function parseSerial(text) {
+  try {
+    const url = new URL(text)
+    const s = url.searchParams.get('serial')
+    if (s) return s.trim().toUpperCase()
+  } catch {}
+  return text.trim().toUpperCase()
 }
 
 export default function ClaimDeviceView({ initialSerial = '' }) {
@@ -39,17 +19,27 @@ export default function ClaimDeviceView({ initialSerial = '' }) {
   const [status, setStatus] = useState(null)   // null | 'loading' | 'ok' | 'error'
   const [result, setResult]   = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
-  const [showScanner, setShowScanner] = useState(false)
+  const [scanError, setScanError] = useState('')
 
-  const handleScan = useCallback((text) => {
-    // Soporta URL (https://meteo.aquantialab.com/claim?serial=AQ-xxx) o serial en texto plano
-    try {
-      const url = new URL(text)
-      const serial = url.searchParams.get('serial')
-      if (serial) { setSerialNumber(serial.trim().toUpperCase()); setShowScanner(false); return }
-    } catch {}
-    setSerialNumber(text.trim().toUpperCase())
-    setShowScanner(false)
+  // Abre la cámara nativa del dispositivo, toma foto y decodifica el QR
+  const handleScanClick = useCallback(async () => {
+    setScanError('')
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.capture = 'environment'   // cámara trasera en móvil
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const qr = new Html5Qrcode('_qr_offscreen')
+        const result = await qr.scanFile(file, false)
+        setSerialNumber(parseSerial(result))
+      } catch {
+        setScanError('No se detectó ningún QR en la imagen. Inténtalo de nuevo.')
+      }
+    }
+    input.click()
   }, [])
 
   const handleSubmit = async (e) => {
@@ -98,8 +88,8 @@ export default function ClaimDeviceView({ initialSerial = '' }) {
           </div>
         </div>
 
-        {/* Scanner QR */}
-        {showScanner && <QrScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+        {/* Hidden div requerido por Html5Qrcode.scanFile */}
+        <div id="_qr_offscreen" style={{ display: 'none' }} />
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="bg-white border border-black/[.08] rounded-2xl p-6 space-y-4 shadow-sm">
@@ -118,17 +108,14 @@ export default function ClaimDeviceView({ initialSerial = '' }) {
               />
               <button
                 type="button"
-                onClick={() => setShowScanner(s => !s)}
-                title="Escanear QR"
-                className={`flex items-center px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-                  showScanner
-                    ? 'bg-brand-500 text-white border-brand-500'
-                    : 'bg-navy-50 text-navy-500 border-navy-200 hover:border-brand-400 hover:text-brand-600'
-                }`}
+                onClick={handleScanClick}
+                title="Escanear QR con la cámara"
+                className="flex items-center px-3 py-2.5 rounded-xl border bg-navy-50 text-navy-500 border-navy-200 hover:border-brand-400 hover:text-brand-600 transition-colors"
               >
                 <ScanLine size={16} />
               </button>
             </div>
+            {scanError && <p className="mt-1.5 text-xs text-red-500">{scanError}</p>}
           </div>
 
           <div>
