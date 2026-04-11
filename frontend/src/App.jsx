@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, LogOut } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, LogOut, Menu } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -60,6 +60,7 @@ function AppInner({ user, logout }) {
   const [activeView, setActiveView] = useState(serialFromUrl ? 'claim' : 'dashboard')
   const [claimSerial, setClaimSerial] = useState(serialFromUrl || '')
   const [unackedAlerts, setUnackedAlerts] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Polling ligero del contador de alertas no resueltas (cada 60s)
   useEffect(() => {
@@ -78,12 +79,20 @@ function AppInner({ user, logout }) {
 
   const handleViewChange = (view) => {
     setActiveView(view)
+    setSidebarOpen(false)
     if (view === 'device') fetchDeviceInfo()
   }
   const ts = data.timestamp
 
   return (
     <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
+      {/* Backdrop móvil */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <Sidebar
         onFetchFiltered={fetchFiltered}
         loading={loading}
@@ -94,13 +103,20 @@ function AppInner({ user, logout }) {
         selectedMac={selectedMac}
         onSelectDevice={setSelectedMac}
         unackedAlerts={unackedAlerts}
+        mobileOpen={sidebarOpen}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white border-b border-black/[.08] px-6 py-3.5 flex items-center justify-between shrink-0">
+        <header className="bg-white border-b border-black/[.08] px-4 py-3.5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(o => !o)}
+              className="md:hidden p-1.5 rounded-lg text-navy-400 hover:text-navy-900 hover:bg-navy-50 transition-colors"
+            >
+              <Menu size={18} />
+            </button>
             {/* Aquantia logo mark */}
             <div className="bg-brand-50 p-2 rounded-xl border border-brand-100">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">

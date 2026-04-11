@@ -39,7 +39,7 @@ function isOnline(ts) {
 
 export default function Sidebar({
   onFetchFiltered, loading, sampleCount, activeView, onViewChange,
-  devices, selectedMac, onSelectDevice, unackedAlerts,
+  devices, selectedMac, onSelectDevice, unackedAlerts, mobileOpen,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [activePreset, setActivePreset] = useState(null)
@@ -63,7 +63,12 @@ export default function Sidebar({
   }
 
   return (
-    <aside className={`${collapsed ? 'w-16' : 'w-72'} bg-navy-900 flex flex-col transition-all duration-200 shrink-0 border-r border-navy-800`}>
+    <aside className={`
+      bg-navy-900 flex flex-col border-r border-navy-800 shrink-0 transition-all duration-200
+      fixed inset-y-0 left-0 z-50 md:relative md:translate-x-0
+      ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+      ${collapsed ? 'w-16' : 'w-72'}
+    `}>
 
       {/* ── Logo ── */}
       <div className="flex items-center justify-between px-4 py-5 border-b border-navy-800">
