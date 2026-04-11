@@ -81,7 +81,7 @@ function AppInner({ user, logout }) {
   const handleViewChange = (view) => {
     setActiveView(view)
     setSidebarOpen(false)
-    if (view === 'device') fetchDeviceInfo()
+    if (view === 'device' || view === 'riego') fetchDeviceInfo()
   }
   const ts = data.timestamp
 
@@ -193,7 +193,7 @@ function AppInner({ user, logout }) {
 
         {/* ── Views ── */}
         {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-        {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={deviceInfo} />}
+        {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={deviceInfo ?? selectedDevice} />}
         {activeView === 'nodos'     && <NodesView />}
         {activeView === 'pipeline'  && <PipelineView />}
         {activeView === 'alerts'    && <AlertsPanel />}
