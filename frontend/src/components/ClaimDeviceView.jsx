@@ -1,32 +1,33 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { PackagePlus, CheckCircle, AlertCircle, Loader, ScanLine, X } from 'lucide-react'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { Html5Qrcode } from 'html5-qrcode'
 import { useAuth } from '../AuthContext'
 
 function QrScanner({ onScan, onClose }) {
+  const qrRef = useRef(null)
+
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      'qr-reader-div',
-      { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 },
-      false
-    )
-    scanner.render(
-      (text) => { scanner.clear().catch(() => {}); onScan(text) },
+    const qr = new Html5Qrcode('qr-reader-div')
+    qrRef.current = qr
+    qr.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 220, height: 220 } },
+      (text) => { qr.stop().catch(() => {}); onScan(text) },
       () => {}
-    )
-    return () => { scanner.clear().catch(() => {}) }
+    ).catch(() => {})
+    return () => { qr.stop().catch(() => {}) }
   }, [onScan])
 
   return (
-    <div className="relative bg-navy-50 border border-navy-200 rounded-xl overflow-hidden mb-4">
+    <div className="relative bg-black rounded-xl overflow-hidden mb-4">
       <button
         onClick={onClose}
-        className="absolute top-2 right-2 z-10 bg-white border border-black/[.08] rounded-lg p-1 text-navy-400 hover:text-navy-900 transition-colors"
+        className="absolute top-2 right-2 z-10 bg-white/80 rounded-lg p-1 text-navy-700 transition-colors"
       >
         <X size={14} />
       </button>
       <div id="qr-reader-div" className="w-full" />
-      <p className="text-center text-xs text-navy-400 pb-3">Apunta la cámara al QR del dispositivo</p>
+      <p className="text-center text-xs text-white/70 py-2">Apunta la cámara al QR del dispositivo</p>
     </div>
   )
 }
