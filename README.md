@@ -1,15 +1,8 @@
-# Aquantia — MeteoStation Dashboard
+# Aquantia — Dashboard meteorológico y de riego
 
-Dashboard web para la estación meteorológica doméstica Aquantia, basada en **ESP32 / ESP8266**.
+Dashboard web para la estación meteorológica y el sistema de riego doméstico Aquantia.
 
-El sistema soporta **dos modos de comunicación** entre el firmware y el servidor:
-
-| Modo | Protocolo | Dirección | Latencia relay |
-|------|-----------|-----------|----------------|
-| **HTTP legacy** | HTTPS + CSV | ESP → servidor (push periódico) | ~2 s (polling) |
-| **MQTT** | MQTT/TLS + JSON | Bidireccional, broker intermediario | Inmediata (push) |
-
-Ambos modos comparten la misma base de datos, el mismo frontend y las mismas API REST.
+Soporta múltiples dispositivos ESP32 con dos perfiles: **METEO** (sensores + pantalla TFT) e **IRRIGATION** (4 relays de electroválvulas).
 
 Repositorio del firmware ESP32: [alepape1/weather-station-ESP](https://github.com/alepape1/weather-station-ESP)
 
@@ -17,169 +10,90 @@ Repositorio del firmware ESP32: [alepape1/weather-station-ESP](https://github.co
 
 ## Índice
 
-- [Arquitectura completa del sistema](#arquitectura-completa-del-sistema)
-  - [Modo HTTP (legacy)](#modo-http-legacy)
-  - [Modo MQTT (actual)](#modo-mqtt-actual)
-  - [Capa de transporte MQTT en detalle](#capa-de-transporte-mqtt-en-detalle)
+- [Arquitectura del sistema](#arquitectura-del-sistema)
+- [Servicios Docker](#servicios-docker)
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Tecnologías](#tecnologías)
 - [Vistas del dashboard](#vistas-del-dashboard)
+- [Autenticación](#autenticación)
 - [Base de datos](#base-de-datos)
 - [API endpoints](#api-endpoints)
+- [MQTT — topics y payloads](#mqtt--topics-y-payloads)
 - [Configuración MQTT](#configuración-mqtt)
-- [Instalación y desarrollo local](#instalación-y-desarrollo-local)
+- [Dispositivos y provisioning](#dispositivos-y-provisioning)
+- [Desarrollo local](#desarrollo-local)
 - [Despliegue en producción](#despliegue-en-producción)
-- [Simulador (sin hardware)](#simulador-sin-hardware)
+- [Simulador](#simulador)
 - [Pipeline y detección de fugas](#pipeline-y-detección-de-fugas)
 
 ---
 
-## Arquitectura completa del sistema
-
-### Modo HTTP (legacy)
+## Arquitectura del sistema
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  RED LOCAL / INTERNET                                               │
-│                                                                     │
-│  ESP32                         VPS (meteo.aquantialab.com)          │
-│  ──────                        ─────────────────────────           │
-│  Core 1: sensores              Nginx (HestiaCP)                     │
-│  Core 0: networkTask()    ──►  puerto 443 (HTTPS)                   │
-│                                │                                    │
-│   POST /send_message ──────────┤  proxy /api/* → Docker :5000      │
-│   (CSV, cada 20s)              │                                    │
-│                                │  Flask (Gunicorn, 1 worker)        │
-│   POST /api/device_info ───────┤  ├─ app.py          (endpoints)   │
-│   (JSON, al arrancar)          │  ├─ database.py      (SQLite ORM)  │
-│                                │  └─ home_weather_station.db        │
-│   GET /api/relay/command ──────┤                                    │
-│   (poll cada 2s)               │  frontend/dist/    (estáticos)     │
-│                                │  servido por Nginx directamente    │
-│   POST /api/relay/ack ─────────┘                                    │
-│                                                                     │
-│  Navegador → https://meteo.aquantialab.com                          │
-│  React (Vite build) ────────────────────────────────────────────►  │
-│  fetch /api/* → Flask (proxy Nginx)                                 │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  ESP32 (firmware Aquantia, USE_MQTT)                                  │
+│   Core 1: sensores                                                    │
+│   Core 0: networkTask()                                               │
+│    │                                                                  │
+│    │  TLS 8883         ┌─────────────────────────────────────┐       │
+│    ├─ CONNECT ────────►│  Mosquitto 2 (Docker)               │       │
+│    ├─ PUBLISH ────────►│  :8883 TLS — dispositivos externos  │       │
+│    ◄─ SUBSCRIBE ───────│  :1883 plain — red interna Docker   │       │
+│                         └──────────────┬────────────────────┘       │
+│                                        │ MQTT 1883 (interno)         │
+│                         ┌──────────────▼────────────────────┐       │
+│                         │  Flask / Gunicorn (Docker :7000)   │       │
+│                         │  ├─ app.py          (REST API)     │       │
+│                         │  ├─ mqtt_client.py  (hilo daemon)  │       │
+│                         │  └─ database.py     (PostgreSQL)   │       │
+│                         └──────────────┬────────────────────┘       │
+│                                        │ pg 5432                     │
+│                         ┌──────────────▼────────────────────┐       │
+│                         │  TimescaleDB (Docker :5432)        │       │
+│                         │  PostgreSQL 16 + extensión         │       │
+│                         │  time-series                       │       │
+│                         └────────────────────────────────────┘       │
+│                                                                       │
+│  Nginx (HestiaCP, puerto 443)                                         │
+│  ├─ /        → Flask :7000/  (sirve frontend/dist/)                  │
+│  └─ /api/*   → proxy → Flask :7000/api/*                             │
+│                                                                       │
+│  Navegador → https://meteo.aquantialab.com                            │
+│  React (Vite) ──── fetch /api/* ──► Flask                            │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Flujo de datos HTTP paso a paso:**
+### Flujo de datos MQTT
 
-1. El ESP32 conecta al WiFi y arranca `networkTask()` en Core 0
-2. Una vez: `POST /api/device_info` → Flask guarda chip model, MAC, IP en `device_info`
-3. Cada 2s: `GET /api/relay/command` → Flask devuelve el bitmask de relays deseado → ESP aplica el cambio y hace `POST /api/relay/ack`
-4. Cada 20s: el ESP hace snapshot atómico de sensores (bajo mutex FreeRTOS) → construye un CSV de 16 campos → `POST /send_message`
-5. Flask parsea el CSV → inserta fila en `home_weather_station`
-6. El navegador hace `GET /api/muestras/150` al cargar y `GET /api/latest` cada 60s para el refresco automático
+1. ESP32 conecta al WiFi y se autentica contra `meteo.aquantialab.com:8883` (TLS)
+2. Publica `register` al arrancar → Flask guarda chip info, MAC, IP, relay_count
+3. Cada 20s: publica `telemetry` con 17 campos de sensores → Flask inserta en TimescaleDB
+4. Cuando el usuario activa un relay: `POST /api/relay` → Flask publica `cmd` al broker → ESP actúa en <50ms
+5. El navegador hace polling de `/api/muestras/150` al cargar y `/api/alerts` cada 60s
 
-### Modo MQTT (actual)
+---
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  RED LOCAL / INTERNET                                                   │
-│                                                                         │
-│  ESP32 (USE_MQTT definido)                                              │
-│  ──────────────────────────                                             │
-│  Core 1: sensores                                                       │
-│  Core 0: networkTask()                                                  │
-│   │                                                                     │
-│   │  TLS 8883          ┌──────────────────────────────────────────┐    │
-│   ├─ CONNECT ─────────►│  Mosquitto 2 (Docker)                    │    │
-│   │   user=finca_id    │  meteo.aquantialab.com:8883 (TLS)        │    │
-│   │   pass=***         │  Puerto interno: 1883 (sin TLS)          │    │
-│   │                    │                                           │    │
-│   ├─ PUBLISH ─────────►│  aquantia/<finca_id>/register  (boot)   │    │
-│   ├─ PUBLISH ─────────►│  aquantia/<finca_id>/telemetry (20s)    │    │
-│   ◄─ SUBSCRIBE ────────│  aquantia/<finca_id>/cmd               │    │
-│   ◄─ PUBLISH ──────────│  (relay command desde Flask)            │    │
-│                         └─────────────┬──────────────────────────┘    │
-│                                       │ MQTT 1883 (interno)            │
-│                         ┌─────────────▼──────────────────────────┐    │
-│                         │  Flask (Gunicorn, 1 worker)             │    │
-│                         │  ├─ mqtt_client.py  (hilo daemon)       │    │
-│                         │  │   subscribe: aquantia/+/telemetry   │    │
-│                         │  │   subscribe: aquantia/+/alerts      │    │
-│                         │  │   subscribe: aquantia/+/register    │    │
-│                         │  │   publish:  aquantia/<id>/cmd       │    │
-│                         │  ├─ app.py          (REST API)          │    │
-│                         │  ├─ database.py     (SQLite)            │    │
-│                         │  └─ home_weather_station.db             │    │
-│                         └────────────────────────────────────────┘    │
-│                                                                         │
-│  Nginx (HestiaCP, puerto 443)                                           │
-│  ├─ /          → frontend/dist/    (React build, estáticos)            │
-│  └─ /api/*     → proxy → Docker Flask :5000                            │
-│                                                                         │
-│  Navegador → https://meteo.aquantialab.com                              │
-└─────────────────────────────────────────────────────────────────────────┘
+## Servicios Docker
+
+El sistema completo arranca con `docker compose up -d`:
+
+| Servicio | Imagen | Puerto | Descripción |
+|----------|--------|:------:|-------------|
+| `timescaledb` | `timescale/timescaledb:latest-pg16` | 5432 | PostgreSQL 16 + extensión TimescaleDB |
+| `backend` | build local (`backend/Dockerfile`) | 7000 | Flask + Gunicorn + MQTT client |
+| `mosquitto` | `iegomez/mosquitto-go-auth:latest` | 1883, 8883 | Broker MQTT (plain interno / TLS externo) |
+| `adminer` | `adminer:latest` | 8888 | Interfaz web para PostgreSQL (desarrollo) |
+
+### Variables de entorno requeridas (`.env`)
+
+```env
+PG_PASS=contraseña_postgres
+MQTT_PASSWORD=contraseña_broker_backend
+JWT_SECRET_KEY=clave_jwt_segura
 ```
 
-**Flujo de datos MQTT paso a paso:**
-
-1. ESP32 arranca y conecta al WiFi
-2. `networkTask()` inicializa `WiFiClientSecure` con el certificado ISRG Root X1 (CA raíz de Let's Encrypt) hardcodeado en `mqtt_cert.h`
-3. `mqttConnect()`: TLS handshake contra `meteo.aquantialab.com:8883` → autenticación con usuario/contraseña (`finca_id` / `MQTT_PASS`) → suscripción a `aquantia/<finca_id>/cmd`
-4. Inmediatamente: `mqttPublishRegister()` → publica JSON en `aquantia/<finca_id>/register` con MAC, IP, chip model, relay count
-5. Cada 20s: snapshot atómico de sensores → `StaticJsonDocument<384>` → `mqttClient.publish(topic, buf)` en `aquantia/<finca_id>/telemetry`
-6. **Mosquitto** recibe los mensajes y los reenvía al suscriptor backend (Flask via paho-mqtt interno en 1883, sin TLS)
-7. Flask (`mqtt_client.py`, hilo daemon): `_on_message()` → parsea subtopic → llama `_handle_telemetry()`, `_handle_register()` o `_handle_alert()` → `INSERT INTO home_weather_station / device_info / alerts`
-8. Cuando el usuario pulsa un relay en el dashboard: `POST /api/relay` → Flask llama `publish_cmd(finca_id, {"relay": 0, "state": true})` → Mosquitto → ESP32 recibe en `mqttCallback()` → `digitalWrite(RELAY_PINS[relay], state ? LOW : HIGH)` en <50ms
-
-### Capa de transporte MQTT en detalle
-
-#### Broker Mosquitto
-
-Mosquitto corre como servicio Docker separado en el mismo `docker-compose.yml` que Flask:
-
-```
-Exterior     → puerto 8883 (TLS) → Mosquitto
-Flask interno → puerto 1883 (sin TLS, red Docker interna) → Mosquitto
-```
-
-**Autenticación y ACL:**
-
-```
-# ACL Mosquitto
-user backend
-topic readwrite aquantia/#       ← Flask tiene acceso completo
-
-pattern readwrite aquantia/%u/#  ← cada dispositivo solo accede a su namespace
-                                   (username = finca_id, ej. "aquantia_prototype_1")
-```
-
-El patrón `%u` hace que la ACL sea automáticamente multi-tenant: si añades un dispositivo nuevo con `finca_id = "finca_del_norte"`, le das acceso creando su usuario MQTT y ya puede operar en `aquantia/finca_del_norte/#` sin tocar la configuración del broker.
-
-#### Topics MQTT
-
-| Topic | Dirección | Descripción |
-|-------|-----------|-------------|
-| `aquantia/<finca_id>/telemetry` | ESP → broker → Flask | Datos de sensores, cada 20s |
-| `aquantia/<finca_id>/register` | ESP → broker → Flask | Info del dispositivo al arrancar |
-| `aquantia/<finca_id>/alerts` | ESP → broker → Flask | Alertas del dispositivo |
-| `aquantia/<finca_id>/cmd` | Flask → broker → ESP | Comandos de relay |
-
-#### Certificados TLS
-
-El broker usa el certificado Let's Encrypt de `meteo.aquantialab.com`:
-- `certfile`: `fullchain.pem` (hoja + intermedia R3, concatenados)
-- `keyfile`: `meteo.aquantialab.com.key`
-
-El firmware verifica el certificado del broker usando **ISRG Root X1** (CA raíz de Let's Encrypt), hardcodeada en `mqtt_cert.h` como `const char MQTT_CA_CERT_PEM[] PROGMEM`.
-
-Un cron job en el VPS regenera `fullchain.pem` cada día a las 4:00 AM tras la renovación automática de Let's Encrypt y reinicia Mosquitto:
-
-```bash
-# /etc/cron.d/mosquitto-cert-renewal
-0 4 * * * root \
-  cat /home/.../meteo.aquantialab.com.crt \
-      /home/.../meteo.aquantialab.com.ca \
-      > /home/.../mosquitto/certs/fullchain.pem && \
-  cp  /home/.../meteo.aquantialab.com.key \
-      /home/.../mosquitto/certs/ && \
-  chmod 644 /home/.../mosquitto/certs/* && \
-  docker restart meteostation_mosquitto
-```
+Ver `.env.example` para la lista completa.
 
 ---
 
@@ -188,41 +102,47 @@ Un cron job en el VPS regenera `fullchain.pem` cada día a las 4:00 AM tras la r
 ```
 app_meteo/
 ├── backend/
-│   ├── app.py              # Flask: todos los endpoints REST + arranque MQTT
-│   ├── database.py         # SQLite: creación de tablas + migraciones automáticas
-│   ├── mqtt_client.py      # Cliente paho-mqtt: suscriptor/publicador (hilo daemon)
-│   ├── requirements.txt    # Flask, flask-cors, gunicorn, paho-mqtt, python-dotenv
-│   ├── .env.example        # Variables de entorno (MQTT_HOST, MQTT_PORT, etc.)
-│   ├── simulator.py        # Simulador ESP: genera y envía datos por HTTP
-│   └── templates/index.html  # Dashboard HTML legacy (solo referencia histórica)
+│   ├── app.py               # Flask: todos los endpoints REST
+│   ├── database.py          # PostgreSQL ORM + migraciones
+│   ├── mqtt_client.py       # paho-mqtt: suscriptor/publicador (hilo daemon)
+│   ├── pipeline_sim.py      # Simulador de presión/caudal de tubería
+│   ├── simulator.py         # Simulador ESP32 (envía datos HTTP)
+│   ├── migrate_sqlite_to_pg.py  # Migración inicial desde SQLite legado
+│   ├── create_demo_user.py  # Crea usuario de demostración
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── static/              # Archivos legacy (no usados por el frontend React)
 │
 ├── frontend/
-│   └── src/
-│       ├── App.jsx                  # Layout principal, navegación, polling alertas
-│       ├── hooks/
-│       │   └── useWeatherData.js    # Fetching, estado y auto-refresco
-│       └── components/
-│           ├── Sidebar.jsx          # Navegación + filtros de fecha + selector dispositivo
-│           ├── StatCard.jsx         # Card con valor, min y max
-│           ├── WeatherChart.jsx     # Gráficos ApexCharts (área, línea, scatter)
-│           ├── DeviceStatus.jsx     # Estado ESP32: señal, heap, uptime, info chip
-│           ├── IrrigationView.jsx   # Control relay + estadísticas de riego
-│           ├── AlertsPanel.jsx      # Alertas MQTT: badge, severidad, ack, filtro
-│           ├── PipelineView.jsx     # Presión/caudal + detección de fugas
-│           ├── NodesView.jsx        # Nodos LoRa (pendiente de hardware)
-│           └── SettingsView.jsx     # Configuración general
+│   ├── src/
+│   │   ├── App.jsx                  # Layout, navegación, guard de autenticación
+│   │   ├── AuthContext.jsx          # JWT: login, logout, authFetch
+│   │   ├── hooks/
+│   │   │   └── useWeatherData.js    # Fetching, estado y auto-refresco (60s)
+│   │   └── components/
+│   │       ├── LoginView.jsx        # Pantalla de login
+│   │       ├── Sidebar.jsx          # Navegación + filtros de fecha + selector ECU
+│   │       ├── StatCard.jsx         # Card con valor, mín y máx
+│   │       ├── WeatherChart.jsx     # Gráficos ApexCharts (área, línea, scatter)
+│   │       ├── DeviceStatus.jsx     # Estado ESP32: señal, heap, uptime, info chip
+│   │       ├── DevicesView.jsx      # Lista de dispositivos registrados
+│   │       ├── ClaimDeviceView.jsx  # Vincular dispositivo nuevo por serial/QR
+│   │       ├── IrrigationView.jsx   # Control relays + estadísticas de riego
+│   │       ├── AlertsPanel.jsx      # Alertas: severidad, badge, acknowledge, filtro
+│   │       ├── PipelineView.jsx     # Presión/caudal + detección de fugas
+│   │       ├── NodesView.jsx        # Nodos LoRa (pendiente de hardware)
+│   │       └── SettingsView.jsx     # Configuración de la estación
+│   ├── dist/                # Build compilado — se sube al repo, el servidor lo sirve directamente
+│   ├── package.json
+│   └── vite.config.js
 │
-├── mosquitto/                       # Configuración del broker (en el VPS)
-│   ├── config/
-│   │   ├── mosquitto.conf           # Listeners 1883 y 8883(TLS), ACL, passwd
-│   │   ├── acl                      # Reglas de acceso por usuario
-│   │   └── passwd                   # Fichero de contraseñas (mosquitto_passwd)
-│   └── certs/
-│       ├── fullchain.pem            # Certificado leaf + intermedia (renovación auto)
-│       └── meteo.aquantialab.com.key
+├── mosquitto/
+│   └── config/
+│       └── mosquitto.conf   # Listeners, TLS, ACL, rutas de certs
 │
-├── docker-compose.yml               # Servicios: meteostation (Flask) + mosquitto
-├── Dockerfile
+├── docker-compose.yml
+├── deploy.sh                # Script de deploy (git pull + docker rebuild)
 └── README.md
 ```
 
@@ -230,137 +150,178 @@ app_meteo/
 
 ## Tecnologías
 
-| Capa | Tecnología | Versión |
-|------|-----------|---------|
-| Backend API | Python, Flask, flask-cors, python-dotenv | 3.x |
-| Broker MQTT | Eclipse Mosquitto | 2.1.x |
-| Cliente MQTT Python | paho-mqtt | 1.6.x |
-| Persistencia | SQLite3 | — |
-| Servidor producción | Gunicorn (1 worker — requerido por MQTT) | — |
-| Frontend | React, Vite, Tailwind CSS 3, ApexCharts, Lucide React | 18 / 4 / 3 |
-| Proxy/TLS exterior | Nginx (gestionado por HestiaCP) + Let's Encrypt | — |
-| Contenedores | Docker + Docker Compose | — |
-| Firmware | ESP32 FreeRTOS + Arduino framework | — |
+| Capa | Tecnología |
+|------|-----------|
+| Backend API | Python 3.12, Flask, flask-cors, flask-jwt-extended |
+| Base de datos | TimescaleDB (PostgreSQL 16 + extensión time-series) |
+| Broker MQTT | Mosquitto 2 (iegomez/mosquitto-go-auth) |
+| Cliente MQTT Python | paho-mqtt |
+| Servidor producción | Gunicorn — 1 worker (requerido por MQTT) |
+| Frontend | React 18, Vite, Tailwind CSS, ApexCharts, Lucide React |
+| Contenedores | Docker + Docker Compose |
+| Proxy / TLS | Nginx (HestiaCP) + Let's Encrypt |
 
-> **Por qué solo 1 worker en Gunicorn:** paho-mqtt crea una conexión persistente con un `client_id` fijo. Con 2 workers, ambos intentan conectarse con el mismo ID y Mosquitto los desconecta mutuamente en bucle. Un solo worker es suficiente dado el volumen de datos (una trama cada 20s).
+> **Por qué 1 worker en Gunicorn:** paho-mqtt usa un `client_id` fijo. Con 2 workers, ambos compiten por la misma conexión al broker y se desconectan mutuamente. Un solo worker es suficiente para el volumen de datos actual (una trama cada 20s).
 
 ---
 
 ## Vistas del dashboard
 
-| Vista | Ruta nav | Descripción |
-|-------|----------|-------------|
-| **Meteorología** | dashboard | Gráficos históricos de temperatura, humedad, presión, viento, luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
-| **Riego** | riego | Control de electroválvulas (relay). Temporizador de sesión, estadísticas de consumo mensual y ahorro estimado vs. riego manual. |
-| **Pipeline** | pipeline | Presión de tubería y caudal en tiempo real. Detección de fugas con 3 algoritmos (umbral, dP/dt, EWMA). Selector de escenario de simulación. |
-| **Nodos LoRa** | nodos | Preparada para nodos remotos de riego (pendiente de hardware). |
-| **Alertas** | alerts | Panel de alertas MQTT: badge con contador de no resueltas, severidad (crítico/aviso/info), botón de acknowledge, filtro pendientes/todas. |
-| **ESP32** | device | Estado del dispositivo activo: WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
-| **Configuración** | settings | Caudal nominal, referencia diaria de riego, nombre y ubicación de la estación. |
+| Vista | Descripción |
+|-------|-------------|
+| **Meteorología** | Gráficos históricos de temperatura (MCP9808, HTU2x, DHT11), humedad, presión, viento (velocidad + dirección), luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
+| **Riego** | Control de electroválvulas (relays). Selector de zonas para PROFILE_IRRIGATION. |
+| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario simulado. |
+| **Nodos LoRa** | Preparada para nodos remotos de riego (pendiente de hardware). |
+| **Alertas** | Panel de alertas MQTT: badge con contador de no resueltas, severidad (critical/warning/info), botón acknowledge, filtro pendientes/todas. |
+| **ESP32** | Estado del dispositivo seleccionado: WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
+| **Mis dispositivos** | Lista de ECUs registradas con estado online/offline. Acceso al flujo de vinculación. |
+| **Configuración** | Ajustes de la estación (nombre, ubicación, caudal nominal). |
 
-El selector de dispositivos en el sidebar permite cambiar entre múltiples ECUs registradas. El badge rojo de alertas se actualiza por polling cada 60s.
+El **selector de dispositivos** en el sidebar filtra todos los datos (gráficos, estado, riego) al dispositivo activo. El badge rojo de alertas se actualiza cada 60s.
+
+---
+
+## Autenticación
+
+El dashboard usa **JWT** (JSON Web Tokens). El token se guarda en `localStorage` y se adjunta automáticamente a todas las peticiones via `authFetch`.
+
+| Endpoint | Descripción |
+|----------|-------------|
+| `POST /api/auth/login` | `{username, password}` → `{token, user}` |
+| `POST /api/auth/logout` | Invalida la sesión |
+| `GET /api/auth/me` | Info del usuario autenticado |
+
+Crear usuario administrador:
+
+```bash
+docker compose exec backend python create_demo_user.py
+```
 
 ---
 
 ## Base de datos
 
-SQLite en `backend/home_weather_station.db`. Las migraciones se aplican automáticamente al arrancar (columnas nuevas se añaden si no existen con `ALTER TABLE ... ADD COLUMN`).
+**TimescaleDB** (PostgreSQL 16 con extensión de series temporales). Las migraciones se aplican automáticamente en el arranque del backend.
 
-### Esquema actual
+### Tablas principales
 
 ```sql
--- Lecturas de sensores (HTTP legacy y MQTT telemetry)
-CREATE TABLE home_weather_station (
-    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-    temperature             REAL,                -- MCP9808 (°C)
-    temperature_barometer   REAL,                -- HTU2x (°C)
-    humidity                REAL,                -- HTU2x (%)
-    pressure                REAL,                -- MicroPressure (kPa)
-    windSpeed               REAL,                -- m/s instantáneo
-    windDirection           REAL,                -- ° instantáneo
-    windSpeedFiltered       REAL,                -- m/s media móvil 10
-    windDirectionFiltered   REAL,                -- ° promedio vectorial 20s
-    light                   REAL DEFAULT 0,      -- lux
-    dht_temperature         REAL,                -- DHT11 °C
-    dht_humidity            REAL,                -- DHT11 %
-    rssi                    INTEGER,             -- dBm
-    free_heap               INTEGER,             -- bytes
-    uptime_s                INTEGER,             -- segundos desde boot
-    relay_active            INTEGER DEFAULT 0,   -- bitmask de relays
-    pipeline_pressure       REAL,                -- bar (simulado)
-    pipeline_flow           REAL,                -- L/min (simulado)
-    soil_moisture           REAL,                -- % YL-69
-    device_mac              TEXT,                -- MAC del dispositivo emisor
-    timestamp               DATETIME DEFAULT CURRENT_TIMESTAMP
+-- Lecturas de sensores (MQTT telemetry + HTTP legacy)
+CREATE TABLE readings (
+    id                      BIGSERIAL PRIMARY KEY,
+    device_mac              TEXT,
+    temperature             REAL,         -- MCP9808 exterior (°C)
+    temperature_barometer   REAL,         -- HTU2x (°C)
+    humidity                REAL,         -- HTU2x (%)
+    pressure                REAL,         -- MicroPressure (kPa)
+    windSpeed               REAL,         -- m/s instantáneo
+    windDirection           REAL,         -- ° instantáneo
+    windSpeedFiltered       REAL,         -- m/s media móvil
+    windDirectionFiltered   REAL,         -- ° promedio vectorial
+    light                   REAL,         -- lux
+    dht_temperature         REAL,         -- DHT11 °C
+    dht_humidity            REAL,         -- DHT11 %
+    rssi                    INTEGER,      -- dBm
+    free_heap               INTEGER,      -- bytes
+    uptime_s                INTEGER,      -- segundos desde boot
+    relay_active            INTEGER,      -- bitmask de relays
+    pipeline_pressure       REAL,         -- bar (simulado)
+    pipeline_flow           REAL,         -- L/min (simulado)
+    soil_moisture           REAL,         -- % YL-69
+    timestamp               TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Dispositivos registrados (HTTP POST /api/device_info o MQTT register)
-CREATE TABLE device_info (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    finca_id        TEXT,                        -- namespace MQTT (ej. "aquantia_prototype_1")
+-- Dispositivos registrados (MQTT register + HTTP device_info)
+CREATE TABLE devices (
+    id              SERIAL PRIMARY KEY,
+    mac_address     TEXT UNIQUE,
+    serial_number   TEXT,                 -- AQ-XXXXXXXXXXXX (de NVS)
     chip_model      TEXT,
     chip_revision   INTEGER,
     cpu_freq_mhz    INTEGER,
     flash_size_mb   INTEGER,
     sdk_version     TEXT,
-    mac_address     TEXT UNIQUE,                 -- clave natural para upsert MQTT
     ip_address      TEXT,
     relay_count     INTEGER DEFAULT 1,
-    last_seen       DATETIME DEFAULT CURRENT_TIMESTAMP
+    owner_id        INTEGER REFERENCES users(id),
+    claimed_at      TIMESTAMPTZ,
+    latest_reading  TIMESTAMPTZ,          -- para indicador online/offline
+    created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Alertas recibidas por MQTT (topic aquantia/+/alerts)
+-- Alertas (MQTT topic aquantia/+/alerts)
 CREATE TABLE alerts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    finca_id    TEXT,
+    id          BIGSERIAL PRIMARY KEY,
     device_mac  TEXT,
-    alert_type  TEXT,                            -- identificador de la alerta
-    severity    TEXT DEFAULT 'info',             -- 'critical' | 'warning' | 'info'
+    alert_type  TEXT,
+    severity    TEXT DEFAULT 'info',      -- 'critical' | 'warning' | 'info'
     message     TEXT,
-    acked       INTEGER DEFAULT 0,               -- 0=pendiente, 1=resuelta
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    acked       BOOLEAN DEFAULT FALSE,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_timestamp ON home_weather_station(timestamp);
+-- Usuarios (autenticación JWT)
+CREATE TABLE users (
+    id           SERIAL PRIMARY KEY,
+    username     TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Migración desde SQLite (primer despliegue)
+
+Si vienes de una instalación con base de datos SQLite legada:
+
+```bash
+./deploy.sh --migrate
 ```
 
 ---
 
 ## API endpoints
 
-### Datos meteorológicos
+### Autenticación
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/api/auth/login` | Login → JWT token |
+| `GET` | `/api/auth/me` | Info usuario autenticado |
+
+### Datos de sensores
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `POST` | `/send_message` | Recibe CSV del ESP en modo HTTP legacy |
-| `GET` | `/api/muestras/<N>` | Últimas N muestras en JSON (columnas como arrays) |
-| `POST` | `/api/filtrar` | Filtra por rango de fechas `{start_date, end_date}` |
-| `GET` | `/api/latest` | Último registro en JSON |
+| `GET` | `/api/muestras/<N>?mac=XX` | Últimas N muestras como columnas JSON |
+| `POST` | `/api/filtrar` | Filtra por rango `{start_date, end_date, mac}` |
+| `GET` | `/api/latest?mac=XX` | Última lectura del dispositivo |
 
 ### Dispositivos
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/device_info` | ESP registra info estática (HTTP legacy) |
-| `GET` | `/api/device_info` | Info del dispositivo seleccionado |
-| `GET` | `/api/devices` | Lista todos los dispositivos registrados |
+| `GET` | `/api/devices` | Lista dispositivos vinculados al usuario |
+| `GET` | `/api/device_info?mac=XX` | Info estática del dispositivo |
+| `POST` | `/api/devices/claim` | Vincular dispositivo por serial `{serial}` |
+| `POST` | `/api/device_info` | ESP registra info (HTTP legacy) |
+| `POST` | `/api/devices/register_factory` | Factory provision `{mac, token_hash, serial_number}` |
 
 ### Relays / riego
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/relay/command` | ESP consulta bitmask deseado (HTTP legacy) |
-| `POST` | `/api/relay` | Dashboard envía bitmask → Flask aplica (HTTP) o publica MQTT cmd |
-| `POST` | `/api/relay/ack` | ESP confirma estado real (HTTP legacy) |
+| `POST` | `/api/relay` | Activa/desactiva relay `{state, mac}` — MQTT o HTTP |
+| `GET` | `/api/relay/command` | ESP consulta bitmask (HTTP legacy) |
+| `POST` | `/api/relay/ack` | ESP confirma estado (HTTP legacy) |
 
-Cuando el dispositivo tiene `finca_id` en `device_info` (modo MQTT), `POST /api/relay` publica automáticamente en `aquantia/<finca_id>/cmd` en lugar de escribir en la tabla de polling.
-
-### Alertas MQTT
+### Alertas
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/alerts` | Todas las alertas (JSON array) |
-| `GET` | `/api/alerts?acked=0` | Solo alertas sin resolver |
+| `GET` | `/api/alerts?acked=0` | Alertas (filtrables por estado) |
 | `POST` | `/api/alerts/<id>/ack` | Marcar alerta como resuelta |
 
 ### Pipeline
@@ -369,292 +330,269 @@ Cuando el dispositivo tiene `finca_id` en `device_info` (modo MQTT), `POST /api/
 |--------|------|-------------|
 | `GET` | `/api/pipeline/status` | Última lectura + resultado de detección |
 | `GET` | `/api/pipeline/readings?n=N` | Histórico para gráficos |
-| `GET` | `/api/pipeline/scenario` | Escenario activo (texto plano) |
+| `GET` | `/api/pipeline/scenario` | Escenario activo |
 | `POST` | `/api/pipeline/scenario` | Cambiar escenario (`normal`/`leak`/`burst`) |
 
-### Payload JSON MQTT — telemetría
+---
 
-El topic `aquantia/<finca_id>/telemetry` publica este JSON cada 20s:
+## MQTT — topics y payloads
 
-```json
-{
-  "temperature":           22.5,
-  "pressure":              101.3,
-  "temperature_barometer": 21.8,
-  "humidity":              65.2,
-  "windSpeed":             3.5,
-  "windDirection":         180.0,
-  "windSpeedFiltered":     3.3,
-  "windDirectionFiltered": 178.0,
-  "light":                 350.0,
-  "dht_temperature":       21.6,
-  "dht_humidity":          63.0,
-  "rssi":                  -65,
-  "free_heap":             245000,
-  "uptime_s":              12345,
-  "relay_active":          0,
-  "soil_moisture":         50.0,
-  "mac_address":           "88:13:BF:FD:A2:38"
-}
-```
+### Topics
 
-### Payload JSON MQTT — registro
+| Topic | Dirección | Cuándo |
+|-------|-----------|--------|
+| `aquantia/<mac>/register` | ESP → broker → Flask | Al arrancar el dispositivo |
+| `aquantia/<mac>/telemetry` | ESP → broker → Flask | Cada 20s |
+| `aquantia/<mac>/cmd` | Flask → broker → ESP | Comando de relay desde el dashboard |
 
-El topic `aquantia/<finca_id>/register` publica al arrancar:
+### Payload `telemetry`
 
 ```json
 {
-  "mac_address":   "88:13:BF:FD:A2:38",
-  "ip_address":    "192.168.1.11",
-  "chip_model":    "ESP32-D0WD-V3",
-  "chip_revision": 3,
-  "cpu_freq_mhz":  160,
-  "flash_size_mb": 4,
-  "sdk_version":   "v5.5.2-729-g87912cd291",
-  "relay_count":   4
+  "temperature": 22.5, "pressure": 101.3,
+  "temperature_barometer": 21.8, "humidity": 65.2,
+  "windSpeed": 3.5, "windDirection": 180.0,
+  "windSpeedFiltered": 3.3, "windDirectionFiltered": 178.0,
+  "light": 350.0, "dht_temperature": 21.6, "dht_humidity": 63.0,
+  "rssi": -65, "free_heap": 245000, "uptime_s": 12345,
+  "relay_active": 0, "soil_moisture": 50.0,
+  "mac_address": "FC:B4:67:F3:77:48"
 }
 ```
 
-### Payload JSON MQTT — comando de relay
+### Payload `register`
 
-El topic `aquantia/<finca_id>/cmd` recibe:
+```json
+{
+  "mac_address": "FC:B4:67:F3:77:48", "ip_address": "192.168.1.9",
+  "chip_model": "ESP32-D0WD-V3", "chip_revision": 3,
+  "cpu_freq_mhz": 160, "flash_size_mb": 4,
+  "sdk_version": "v5.5.2-729-g87912cd291", "relay_count": 1
+}
+```
+
+### Payload `cmd`
 
 ```json
 { "relay": 0, "state": true }
 ```
 
-`relay` es el índice (0–3 para PROFILE_IRRIGATION). `state: true` activa el relay (GPIO LOW en relays activo-LOW).
+`relay` es el índice 0–3. `state: true` activa (GPIO LOW en relays activo-LOW).
 
 ---
 
 ## Configuración MQTT
 
-### Variables de entorno (`.env`)
+### `.env` del backend
 
 ```env
-# Servidor MQTT (Flask → Mosquitto, red interna Docker sin TLS)
-MQTT_HOST=mosquitto
-MQTT_PORT=1883
+MQTT_HOST=mosquitto        # nombre servicio Docker (red interna)
+MQTT_PORT=1883             # sin TLS en la red interna
 MQTT_USER=backend
 MQTT_PASSWORD=contraseña_backend
 MQTT_TLS=0
 
-# Si Flask conecta externamente al broker (fuera de Docker):
-# MQTT_HOST=meteo.aquantialab.com
-# MQTT_PORT=8883
-# MQTT_TLS=1
-# MQTT_CA_CERT=/ruta/al/ca.pem
+PG_HOST=timescaledb
+PG_PORT=5432
+PG_DB=aquantia
+PG_USER=aquantia
+PG_PASS=contraseña_postgres
+
+JWT_SECRET_KEY=clave_jwt_larga_y_aleatoria
 ```
 
-### Añadir un dispositivo nuevo al broker
+### ACL Mosquitto
+
+```
+# Cada dispositivo solo accede a su propio namespace (username = MAC address)
+pattern readwrite aquantia/%u/#
+
+# Flask tiene acceso completo
+user backend
+topic readwrite aquantia/#
+```
+
+El patrón `%u` hace el sistema **multi-tenant automático**: cualquier dispositivo nuevo opera en su namespace sin tocar la configuración del broker.
+
+### Añadir un dispositivo al broker
 
 ```bash
-# En el VPS, dentro del directorio de la app:
-docker exec -it meteostation_mosquitto \
-  mosquitto_passwd /mosquitto/config/passwd <finca_id>
-# (introduce la contraseña cuando lo pida)
-
-docker restart meteostation_mosquitto
+docker exec -it app-mosquitto-1 \
+  mosquitto_passwd /mosquitto/config/passwd FC:B4:67:F3:77:48
+docker restart app-mosquitto-1
 ```
-
-Luego en el firmware del nuevo dispositivo, configurar en `secrets.h`:
-```cpp
-#define USE_MQTT
-#define MQTT_SERVER  "meteo.aquantialab.com"
-#define MQTT_PORT    8883
-#define FINCA_ID     "<finca_id>"
-#define MQTT_USER    "<finca_id>"     // username = finca_id (ACL pattern)
-#define MQTT_PASS    "<contraseña>"
-```
-
-El broker acepta automáticamente el nuevo dispositivo gracias al ACL `pattern readwrite aquantia/%u/#`. No hay que tocar ningún archivo de configuración del broker.
 
 ---
 
-## Instalación y desarrollo local
+## Dispositivos y provisioning
+
+### Flujo de fábrica (Flash Tool → `flasher_gui.py`)
+
+1. **Flashear firmware** con `DEVICE_PROFILE` correcto (METEO o IRRIGATION)
+2. **Factory Provision** en la Flash Tool:
+   - Lee la MAC del chip via `esptool`
+   - Genera un token aleatorio + hash bcrypt
+   - Registra en el backend (`POST /api/devices/register_factory`)
+   - Escribe token + serial en la partición NVS del chip (`esptool write_flash 0x9000`)
+   - Genera QR con la URL de claim y guarda en `devices_registry.csv`
+
+### Flujo del usuario final (claim)
+
+1. El usuario escanea el QR de la etiqueta del dispositivo o accede a `https://meteo.aquantialab.com/claim?serial=AQ-XXXXXX`
+2. La app muestra `ClaimDeviceView` → `POST /api/devices/claim` con el serial
+3. Flask verifica el token NVS vs. hash almacenado → vincula el dispositivo al usuario autenticado
+4. El dispositivo aparece en el selector del sidebar
+
+### Provisioning WiFi (SoftAP)
+
+En el primer arranque (sin credenciales WiFi en NVS), el ESP32 levanta un punto de acceso `Aquantia-XXXXXX`. El usuario conecta su móvil, abre `http://192.168.4.1` y configura el WiFi. Las credenciales se guardan en NVS y el dispositivo no vuelve a solicitar configuración.
+
+---
+
+## Desarrollo local
 
 ### Requisitos
 
-- Python 3.9+
+- Python 3.12+
 - Node.js 18+
-- (Opcional) Docker para correr Mosquitto localmente
+- Docker + Docker Compose
 
-### Backend
+### Arrancar todos los servicios
 
 ```bash
-cd app_meteo
+# Copiar variables de entorno
 cp backend/.env.example backend/.env
-pip install -r backend/requirements.txt
+# Editar backend/.env con las contraseñas
+
+# Arrancar TimescaleDB + Mosquitto + Backend + Adminer
+docker compose up -d
+
+# Acceder a Adminer (interfaz PostgreSQL)
+# http://localhost:8888  — servidor: timescaledb, usuario: aquantia
 ```
 
-Si no tienes broker MQTT en desarrollo, Flask arranca igualmente sin MQTT (falla silenciosamente). Para tener un broker local:
-
-```bash
-docker run -d --name mosquitto-dev \
-  -p 1883:1883 \
-  eclipse-mosquitto:2 \
-  sh -c "echo 'listener 1883\nallow_anonymous true' > /tmp/m.conf && mosquitto -c /tmp/m.conf"
-```
-
-### Frontend
+### Frontend en modo desarrollo
 
 ```bash
 cd frontend
 npm install
-```
-
-### Arrancar en desarrollo
-
-**Terminal 1 — Backend Flask:**
-```bash
-cd backend
-python app.py
-# Flask en http://0.0.0.0:7000
-# Si MQTT_HOST es alcanzable, el cliente MQTT se conecta automáticamente
-```
-
-**Terminal 2 — Frontend React:**
-```bash
-cd frontend
 npm run dev
-# Vite en http://localhost:5173
-# /api/* redirigido automáticamente a Flask :7000
+# Vite en http://localhost:5173 — /api/* proxied a Flask :7000
 ```
 
-### Scripts de arranque rápido
+### Crear usuario administrador
 
 ```bash
-# Linux / macOS
-./start.sh
-
-# Windows
-start.bat
+docker compose exec backend python create_demo_user.py
 ```
 
 ---
 
 ## Despliegue en producción
 
-### Arquitectura VPS
+El `dist/` del frontend se compila **localmente** y se sube al repositorio. El servidor solo necesita `git pull` — no requiere Node.js.
 
-```
-VPS Hetzner (Ubuntu 24.04)
-├── HestiaCP
-│   ├── Nginx — meteo.aquantialab.com
-│   │   ├── / → /home/alejandro/web/.../public_html/  (frontend/dist/)
-│   │   └── /api/* → proxy http://127.0.0.1:5000
-│   └── Let's Encrypt (renovación automática)
-│
-└── Docker Compose
-    ├── meteostation_app    (Flask + Gunicorn, puerto interno 5000)
-    │   └── --workers 1     ← obligatorio para MQTT (un solo client_id)
-    └── meteostation_mosquitto  (Mosquitto, puerto externo 8883 TLS)
-```
+### 1. Build del frontend (local)
 
-### `docker-compose.yml` (simplificado)
-
-```yaml
-services:
-  meteostation:
-    build: .
-    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "30", "app:app"]
-    environment:
-      - MQTT_HOST=mosquitto        # nombre del servicio Docker (red interna)
-      - MQTT_PORT=1883             # sin TLS en la red interna
-      - MQTT_USER=backend
-      - MQTT_PASSWORD=${MQTT_BACKEND_PASSWORD}
-      - MQTT_TLS=0
-    depends_on:
-      - mosquitto
-
-  mosquitto:
-    image: eclipse-mosquitto:2
-    ports:
-      - "0.0.0.0:8883:8883"       # TLS para dispositivos externos
-    volumes:
-      - ./mosquitto/config:/mosquitto/config:ro
-      - ./mosquitto/certs:/mosquitto/certs:ro
-      - mosquitto_data:/mosquitto/data
-```
-
-### Flujo de deploy (actualizar producción)
-
-**1. En local:**
 ```bash
 cd frontend
 npm run build
-
-cd ..
-git add frontend/dist frontend/src backend/
-git commit -m "feat: descripción del cambio"
+git add dist/
+git commit -m "build: actualizar frontend"
 git push
 ```
 
-**2. En el servidor:**
+### 2. Deploy en el servidor
+
 ```bash
 cd ~/web/meteo.aquantialab.com/app
-./deploy.sh           # git pull + docker compose up -d --build
 
-# Si solo cambió el frontend:
+# Actualización normal (backend + frontend)
+./deploy.sh
+
+# Solo frontend (sin rebuild Docker)
 ./deploy.sh --no-docker
+
+# Primer despliegue (migra datos SQLite legado si existen)
+./deploy.sh --migrate
 ```
 
-### Gestión Docker
+El script hace:
+1. `git pull` — descarga código y el `dist/` nuevo
+2. `docker compose up -d --build` — rebuild del backend y reinicio
+3. (con `--migrate`) Migra datos desde SQLite legado a PostgreSQL
+
+### Comandos Docker útiles
 
 ```bash
-docker compose ps                    # estado de los dos servicios
-docker compose logs -f               # logs Flask + Mosquitto en tiempo real
-docker compose logs meteostation -f  # solo Flask
-docker compose logs mosquitto -f     # solo Mosquitto
-docker compose restart meteostation  # reiniciar Flask (recarga MQTT)
-docker compose restart mosquitto     # reiniciar broker
-docker compose up -d --build         # rebuild completo
+docker compose ps                          # estado de servicios
+docker compose logs backend --tail 30      # logs del backend
+docker compose logs mosquitto --tail 30    # logs del broker
+docker compose exec backend bash           # shell en el backend
+docker compose restart backend             # reiniciar backend (recarga MQTT)
 ```
 
-### Acceso a la base de datos en producción
+### Acceso a la base de datos
 
 ```bash
-docker compose exec meteostation bash
-sqlite3 /app/data/home_weather_station.db
+# Via Adminer web: http://servidor:8888
+# Servidor: timescaledb | Usuario: aquantia | Base de datos: aquantia
 
--- Últimas telemetrías MQTT
-SELECT timestamp, temperature, humidity, device_mac FROM home_weather_station ORDER BY timestamp DESC LIMIT 10;
+# Via psql directo:
+docker compose exec timescaledb psql -U aquantia -d aquantia
 
--- Dispositivos registrados con finca_id
-SELECT finca_id, mac_address, chip_model, ip_address, last_seen FROM device_info;
+-- Últimas telemetrías
+SELECT timestamp, device_mac, temperature, humidity FROM readings
+ORDER BY timestamp DESC LIMIT 10;
+
+-- Dispositivos registrados
+SELECT serial_number, mac_address, chip_model, relay_count, latest_reading FROM devices;
 
 -- Alertas pendientes
-SELECT created_at, finca_id, alert_type, severity, message FROM alerts WHERE acked=0;
+SELECT created_at, device_mac, alert_type, severity, message FROM alerts
+WHERE acked = FALSE ORDER BY created_at DESC;
 ```
 
 ---
 
-## Simulador (sin hardware)
+## Simulador
 
-Genera datos meteorológicos realistas y los envía al servidor Flask por HTTP (modo legacy).
-
-```bash
-python backend/simulator.py [--host HOST] [--port PORT] [--interval SEG] [--count N]
-```
+Genera datos meteorológicos realistas y los envía al servidor Flask por HTTP (modo legacy). Útil para poblar la base de datos sin hardware.
 
 ```bash
-# Poblar 500 muestras rápido
-python backend/simulator.py --interval 0.05 --count 500
+docker compose exec backend python simulator.py
+# o con opciones:
+python backend/simulator.py --host localhost --port 7000 --interval 0.1 --count 500
 ```
 
 ---
 
 ## Pipeline y detección de fugas
 
-La vista **Pipeline** monitoriza la presión de tubería y el caudal para detectar fugas y roturas.
+La vista **Pipeline** monitoriza presión de tubería y caudal para detectar anomalías.
 
 ### Algoritmos de detección
 
 | Método | Disparador | Status |
-|--------|-----------|--------|
-| **Umbral absoluto** | Caudal > 0.10 L/min con válvula cerrada | `LEAK` |
-| **dP/dt** | Presión < 30% del valor esperado | `BURST` |
-| **dP/dt consecutivo** | Caída > 20% entre dos muestras (válvula abierta) | `BURST` |
-| **EWMA** (λ=0.15) | Deriva estadística > 2.5σ en presión o caudal | `LEAK_SUSPECTED` |
+|--------|-----------|:------:|
+| Umbral absoluto | Caudal > 0.10 L/min con válvula cerrada | `LEAK` |
+| dP/dt absoluto | Presión < 30% del valor esperado | `BURST` |
+| dP/dt consecutivo | Caída > 20% entre dos muestras con válvula abierta | `BURST` |
+| EWMA (λ=0.15) | Deriva estadística > 2.5σ en presión o caudal | `LEAK_SUSPECTED` |
 
-Los datos de presión y caudal los genera actualmente el simulador integrado en el ESP32 (ruido determinista con ondas sinusoidales). Cuando se instalen los sensores físicos, solo hay que sustituir `sim_pipeline_pressure` y `sim_pipeline_flow` por las lecturas reales; el resto del sistema no requiere cambios.
+Los datos actuales los genera el simulador integrado en el ESP32 (ruido determinista). Cuando se instalen sensores físicos de presión y caudal, solo hay que sustituir las lecturas simuladas; el sistema de detección no requiere cambios.
+
+### Escenarios de simulación
+
+| Escenario | Descripción |
+|-----------|-------------|
+| `normal` | Presión y caudal en rango nominal |
+| `leak` | Fuga pequeña — caudal residual con válvula cerrada |
+| `burst` | Rotura — caída brusca de presión |
+
+```bash
+# Cambiar escenario via API
+curl -X POST https://meteo.aquantialab.com/api/pipeline/scenario \
+  -H "Content-Type: application/json" \
+  -d '{"scenario": "leak"}'
+```
