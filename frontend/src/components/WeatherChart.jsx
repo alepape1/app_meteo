@@ -61,6 +61,14 @@ export default function WeatherChart({
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
+        // Formatter explícito para evitar el crash interno de ApexCharts (ki/formatDate)
+        // cuando recibe un número en vez de un string durante updateOptions.
+        formatter: (val) => {
+          if (val == null) return ''
+          const d = new Date(typeof val === 'number' ? val : String(val).replace(' ', 'T'))
+          if (isNaN(d.getTime())) return ''
+          return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        },
       },
       axisBorder: { show: false },
       axisTicks:  { show: false },
