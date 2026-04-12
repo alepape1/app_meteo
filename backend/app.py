@@ -1050,9 +1050,10 @@ def mqtt_auth():
     - Usuario 'backend': contraseña comparada con env MQTT_BACKEND_PASSWORD
     - Dispositivos (MAC): token comparado con bcrypt hash en device_credentials
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True, force=True) or {}
     username = data.get("username", "")
     password = data.get("password", "")
+    app.logger.info(f"[mqtt/auth] user={username!r} ok={bool(username and password)}")
     if not username or not password:
         return jsonify({"error": "missing"}), 401
 
