@@ -2,15 +2,21 @@ import ReactApexChart from 'react-apexcharts'
 
 function toMs(t) {
   if (t == null) return null
-  if (typeof t === 'number') return t
-  return new Date(String(t).replace(' ', 'T')).getTime()
+  if (typeof t === 'number') return isNaN(t) ? null : t
+  const ms = new Date(String(t).replace(' ', 'T')).getTime()
+  return isNaN(ms) ? null : ms
 }
 
 function buildSeries(series, timestamps) {
   const msTs = timestamps.map(toMs)
   return series.map(s => ({
     name: s.name,
-    data: (s.data ?? []).map((y, i) => ({ x: msTs[i], y: y != null ? Number(y.toFixed(2)) : null })),
+    data: (s.data ?? [])
+      .map((y, i) => ({
+        x: msTs[i],
+        y: (y != null && typeof y === 'number') ? Number(y.toFixed(2)) : null,
+      }))
+      .filter(pt => pt.x != null),
   }))
 }
 
