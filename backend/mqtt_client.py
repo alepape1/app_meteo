@@ -121,7 +121,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 )
 
         db.commit()
-        logger.debug("Telemetría MQTT insertada: finca_id=%s", finca_id)
+        logger.info("Telemetría insertada: finca_id=%s mac=%s", finca_id, device_mac)
     finally:
         db.close()
 
