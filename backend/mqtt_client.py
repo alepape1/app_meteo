@@ -154,18 +154,19 @@ def _handle_register(finca_id: str, payload: dict):
         db.execute("""
             INSERT INTO device_info(
                 finca_id, chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
-                sdk_version, mac_address, ip_address, relay_count, last_seen
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                sdk_version, mac_address, ip_address, relay_count, firmware_version, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mac_address) DO UPDATE SET
-                finca_id      = excluded.finca_id,
-                chip_model    = excluded.chip_model,
-                chip_revision = excluded.chip_revision,
-                cpu_freq_mhz  = excluded.cpu_freq_mhz,
-                flash_size_mb = excluded.flash_size_mb,
-                sdk_version   = excluded.sdk_version,
-                ip_address    = excluded.ip_address,
-                relay_count   = excluded.relay_count,
-                last_seen     = CURRENT_TIMESTAMP
+                finca_id         = excluded.finca_id,
+                chip_model       = excluded.chip_model,
+                chip_revision    = excluded.chip_revision,
+                cpu_freq_mhz     = excluded.cpu_freq_mhz,
+                flash_size_mb    = excluded.flash_size_mb,
+                sdk_version      = excluded.sdk_version,
+                ip_address       = excluded.ip_address,
+                relay_count      = excluded.relay_count,
+                firmware_version = excluded.firmware_version,
+                last_seen        = CURRENT_TIMESTAMP
         """, (
             finca_id,
             payload.get("chip_model"),
@@ -176,6 +177,7 @@ def _handle_register(finca_id: str, payload: dict):
             payload.get("mac_address"),
             payload.get("ip_address"),
             int(payload.get("relay_count", 1)),
+            payload.get("firmware_version"),
         ))
         db.commit()
         logger.info("Dispositivo MQTT registrado: finca_id=%s mac=%s",

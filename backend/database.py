@@ -295,10 +295,11 @@ def create_tables(conn: _CompatConn):
         sdk_version    TEXT,
         mac_address    TEXT UNIQUE,
         ip_address     TEXT,
-        relay_count    INTEGER DEFAULT 1,
-        serial_number  TEXT    DEFAULT NULL,
-        claimed_at     TIMESTAMPTZ DEFAULT NULL,
-        last_seen      TIMESTAMPTZ DEFAULT NOW()
+        relay_count       INTEGER DEFAULT 1,
+        serial_number     TEXT    DEFAULT NULL,
+        firmware_version  TEXT    DEFAULT NULL,
+        claimed_at        TIMESTAMPTZ DEFAULT NULL,
+        last_seen         TIMESTAMPTZ DEFAULT NOW()
     );
     """)
     cur.execute("""
@@ -317,11 +318,12 @@ def create_tables(conn: _CompatConn):
     );
     """)
     for key, value in [
-        ('flow_lpm',          '5.0'),
-        ('baseline_daily_l',  '15.0'),
-        ('station_name',      'Aquantia'),
-        ('station_location',  'Lanzarote'),
-        ('pipeline_scenario', 'normal'),
+        ('flow_lpm',              '5.0'),
+        ('baseline_daily_l',      '15.0'),
+        ('station_name',          'Aquantia'),
+        ('station_location',      'Lanzarote'),
+        ('pipeline_scenario',     'normal'),
+        ('min_firmware_version',  '0.1.0-beta.1'),
     ]:
         cur.execute(
             "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
@@ -409,6 +411,19 @@ def create_tables(conn: _CompatConn):
     CREATE INDEX IF NOT EXISTS idx_user_devices_user
         ON user_devices(user_id);
     """)
+
+    # ── Migraciones sobre tablas existentes ──────────────────────────────────
+    # ALTER TABLE IF NOT EXISTS COLUMN es idempotente en PostgreSQL.
+    migrations = [
+        "ALTER TABLE device_info ADD COLUMN IF NOT EXISTS firmware_version TEXT DEFAULT NULL",
+    ]
+    for sql in migrations:
+        try:
+            cur.execute(sql)
+        except Exception as e:
+            logger.warning("Migración ignorada (%s): %s", sql[:60], e)
+            raw.rollback()
+            cur = raw.cursor()
 
     raw.commit()
     cur.close()
