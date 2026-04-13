@@ -476,8 +476,8 @@ def post_device_info():
     cursor.execute("""
         INSERT INTO device_info(
             chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
-            sdk_version, mac_address, ip_address, relay_count, last_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            sdk_version, mac_address, ip_address, relay_count, firmware_version, last_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(mac_address) DO UPDATE SET
             chip_model=excluded.chip_model,
             chip_revision=excluded.chip_revision,
@@ -486,6 +486,7 @@ def post_device_info():
             sdk_version=excluded.sdk_version,
             ip_address=excluded.ip_address,
             relay_count=excluded.relay_count,
+            firmware_version=excluded.firmware_version,
             last_seen=CURRENT_TIMESTAMP
     """, (
         payload.get("chip_model"),
@@ -496,6 +497,7 @@ def post_device_info():
         payload.get("mac_address"),
         payload.get("ip_address"),
         int(payload.get("relay_count", 1)),
+        payload.get("firmware_version"),
     ))
     db.commit()
     cursor.close()
