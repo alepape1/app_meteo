@@ -23,6 +23,7 @@ Repositorio del firmware ESP32: [alepape1/weather-station-ESP](https://github.co
 - [Dispositivos y provisioning](#dispositivos-y-provisioning)
 - [Desarrollo local](#desarrollo-local)
 - [Despliegue en producción](#despliegue-en-producción)
+- [Monitor en tiempo real](#monitor-en-tiempo-real)
 - [Simulador](#simulador)
 - [Pipeline y detección de fugas](#pipeline-y-detección-de-fugas)
 
@@ -141,6 +142,8 @@ app_meteo/
 │   └── config/
 │       └── mosquitto.conf   # Listeners, TLS, ACL, rutas de certs
 │
+├── tools/
+│   └── monitor.sh           # Sesión tmux: MQTT live + backend logs + DB watch
 ├── docker-compose.yml
 ├── deploy.sh                # Script de deploy (git pull + docker rebuild)
 └── README.md
@@ -184,7 +187,7 @@ El **selector de dispositivos** en el sidebar filtra todos los datos (gráficos,
 
 ## Autenticación
 
-El dashboard usa **JWT** (JSON Web Tokens). El token se guarda en `localStorage` y se adjunta automáticamente a todas las peticiones via `authFetch`.
+El dashboard usa **JWT** (JSON Web Tokens). El token se guarda en `localStorage` (`aq_token`, `aq_user`) y se adjunta automáticamente a todas las peticiones via `authFetch`.
 
 | Endpoint | Descripción |
 |----------|-------------|
@@ -207,67 +210,88 @@ docker compose exec backend python create_demo_user.py
 ### Tablas principales
 
 ```sql
--- Lecturas de sensores (MQTT telemetry + HTTP legacy)
-CREATE TABLE readings (
-    id                      BIGSERIAL PRIMARY KEY,
-    device_mac              TEXT,
-    temperature             REAL,         -- MCP9808 exterior (°C)
-    temperature_barometer   REAL,         -- HTU2x (°C)
-    humidity                REAL,         -- HTU2x (%)
-    pressure                REAL,         -- MicroPressure (kPa)
-    windSpeed               REAL,         -- m/s instantáneo
-    windDirection           REAL,         -- ° instantáneo
-    windSpeedFiltered       REAL,         -- m/s media móvil
-    windDirectionFiltered   REAL,         -- ° promedio vectorial
-    light                   REAL,         -- lux
-    dht_temperature         REAL,         -- DHT11 °C
-    dht_humidity            REAL,         -- DHT11 %
-    rssi                    INTEGER,      -- dBm
-    free_heap               INTEGER,      -- bytes
-    uptime_s                INTEGER,      -- segundos desde boot
-    relay_active            INTEGER,      -- bitmask de relays
-    pipeline_pressure       REAL,         -- bar (simulado)
-    pipeline_flow           REAL,         -- L/min (simulado)
-    soil_moisture           REAL,         -- % YL-69
-    timestamp               TIMESTAMPTZ DEFAULT NOW()
+-- Lecturas de sensores (hypertable TimescaleDB, particionada por timestamp)
+CREATE TABLE home_weather_station (
+    id                     BIGSERIAL,
+    temperature            REAL,         -- MCP9808 exterior (°C)
+    temperature_barometer  REAL,         -- HTU2x (°C)
+    humidity               REAL,         -- HTU2x (%)
+    pressure               REAL,         -- MicroPressure (kPa)
+    windSpeed              REAL,         -- m/s instantáneo
+    windDirection          REAL,         -- ° instantáneo
+    windSpeedFiltered      REAL,         -- m/s media móvil
+    windDirectionFiltered  REAL,         -- ° promedio vectorial
+    light                  REAL,         -- lux
+    dht_temperature        REAL,         -- DHT11 °C
+    dht_humidity           REAL,         -- DHT11 %
+    rssi                   INTEGER,      -- dBm
+    free_heap              INTEGER,      -- bytes
+    uptime_s               INTEGER,      -- segundos desde boot
+    relay_active           INTEGER,      -- bitmask de relays activos
+    pipeline_pressure      REAL,         -- bar (simulado)
+    pipeline_flow          REAL,         -- L/min (simulado)
+    soil_moisture          REAL,         -- % YL-69
+    device_mac             TEXT,
+    timestamp              TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, timestamp)
 );
 
--- Dispositivos registrados (MQTT register + HTTP device_info)
-CREATE TABLE devices (
-    id              SERIAL PRIMARY KEY,
-    mac_address     TEXT UNIQUE,
-    serial_number   TEXT,                 -- AQ-XXXXXXXXXXXX (de NVS)
-    chip_model      TEXT,
-    chip_revision   INTEGER,
-    cpu_freq_mhz    INTEGER,
-    flash_size_mb   INTEGER,
-    sdk_version     TEXT,
-    ip_address      TEXT,
-    relay_count     INTEGER DEFAULT 1,
-    owner_id        INTEGER REFERENCES users(id),
-    claimed_at      TIMESTAMPTZ,
-    latest_reading  TIMESTAMPTZ,          -- para indicador online/offline
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+-- Dispositivos registrados (MQTT register)
+CREATE TABLE device_info (
+    id             SERIAL PRIMARY KEY,
+    finca_id       TEXT,                  -- identidad MQTT del dispositivo
+    mac_address    TEXT UNIQUE,
+    serial_number  TEXT,                  -- AQ-XXXXXXXXXXXX (de NVS)
+    chip_model     TEXT,
+    chip_revision  INTEGER,
+    cpu_freq_mhz   INTEGER,
+    flash_size_mb  INTEGER,
+    sdk_version    TEXT,
+    ip_address     TEXT,
+    relay_count    INTEGER DEFAULT 1,
+    claimed_at     TIMESTAMPTZ,
+    last_seen      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Credenciales de dispositivos (generadas en fábrica por Flash Tool)
+CREATE TABLE device_credentials (
+    mac                 TEXT PRIMARY KEY,
+    token_hash          TEXT NOT NULL,    -- bcrypt del token pre-flasheado en NVS
+    serial_number       TEXT UNIQUE NOT NULL,
+    claimed_by_finca_id TEXT,
+    claimed_at          TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Estado de relays por dispositivo e índice
+CREATE TABLE relay_state (
+    device_mac  TEXT,
+    relay_index INTEGER,
+    desired     INTEGER NOT NULL DEFAULT 0,  -- estado que quiere el dashboard
+    actual      INTEGER NOT NULL DEFAULT 0,  -- último estado confirmado por ESP32
+    PRIMARY KEY (device_mac, relay_index)
 );
 
 -- Alertas (MQTT topic aquantia/+/alerts)
 CREATE TABLE alerts (
-    id          BIGSERIAL PRIMARY KEY,
-    device_mac  TEXT,
-    alert_type  TEXT,
-    severity    TEXT DEFAULT 'info',      -- 'critical' | 'warning' | 'info'
-    message     TEXT,
-    acked       BOOLEAN DEFAULT FALSE,
-    created_at  TIMESTAMPTZ DEFAULT NOW()
+    id         BIGSERIAL PRIMARY KEY,
+    finca_id   TEXT,
+    device_mac TEXT,
+    alert_type TEXT  NOT NULL DEFAULT 'unknown',
+    severity   TEXT  NOT NULL DEFAULT 'info',  -- 'critical' | 'warning' | 'info'
+    message    TEXT,
+    acked      INTEGER NOT NULL DEFAULT 0,
+    acked_at   TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Usuarios (autenticación JWT)
 CREATE TABLE users (
-    id           SERIAL PRIMARY KEY,
-    username     TEXT UNIQUE NOT NULL,
+    id            SERIAL PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    display_name TEXT,
-    created_at   TIMESTAMPTZ DEFAULT NOW()
+    display_name  TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
@@ -313,7 +337,7 @@ Si vienes de una instalación con base de datos SQLite legada:
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/relay` | Activa/desactiva relay `{state, mac}` — MQTT o HTTP |
+| `POST` | `/api/relay` | Activa/desactiva relay `{mac, index, state}` — MQTT o HTTP |
 | `GET` | `/api/relay/command` | ESP consulta bitmask (HTTP legacy) |
 | `POST` | `/api/relay/ack` | ESP confirma estado (HTTP legacy) |
 
@@ -401,26 +425,48 @@ PG_PASS=contraseña_postgres
 JWT_SECRET_KEY=clave_jwt_larga_y_aleatoria
 ```
 
-### ACL Mosquitto
+### Autenticación MQTT (go-auth webhook)
+
+El broker usa el plugin **mosquitto-go-auth** que delega toda la validación de credenciales a Flask via HTTP. **No hay fichero `passwd` de Mosquitto** — cualquier contraseña almacenada ahí se ignora.
+
+#### Flujo de autenticación
 
 ```
-# Cada dispositivo solo accede a su propio namespace (username = MAC address)
-pattern readwrite aquantia/%u/#
-
-# Flask tiene acceso completo
-user backend
-topic readwrite aquantia/#
+ESP32 ──CONNECT(user, pass)──► Mosquitto (go-auth)
+                                      │
+                         POST /api/mqtt/auth
+                         {"username":"...", "password":"..."}
+                                      │
+                                   Flask
+                                      ├─ user == "backend" → compara con MQTT_PASSWORD del .env
+                                      └─ user == "MAC"     → bcrypt contra token en device_credentials
+                                      │
+                              200 OK / 401 Unauthorized
+                                      │
+                              Mosquitto permite / rechaza
 ```
 
-El patrón `%u` hace el sistema **multi-tenant automático**: cualquier dispositivo nuevo opera en su namespace sin tocar la configuración del broker.
+#### Credenciales por modo de operación
 
-### Añadir un dispositivo al broker
+| Modo | `MQTT_USER` en firmware | `MQTT_PASS` en firmware | Validado contra |
+|------|------------------------|------------------------|-----------------|
+| **DEV** (`#define DEV_MODE`) | `"backend"` (literal en `secrets.h`) | Contraseña del `.env` | `MQTT_PASSWORD` del backend |
+| **PROD** (sin `DEV_MODE`) | MAC del dispositivo (`FC:B4:67:F3:77:48`) | Token pre-flasheado en NVS | bcrypt hash en `device_credentials` |
 
-```bash
-docker exec -it app-mosquitto-1 \
-  mosquitto_passwd /mosquitto/config/passwd FC:B4:67:F3:77:48
-docker restart app-mosquitto-1
-```
+> **Importante:** En DEV_MODE el firmware usa las credenciales literales de `secrets.h`. En PROD, el bloque `#ifndef DEV_MODE` sobreescribe esas variables con la MAC y el token NVS tras conectar al WiFi. Esto se controla con el guard `#ifndef DEV_MODE` en el firmware.
+
+#### ACL
+
+El endpoint `/api/mqtt/acl` devuelve siempre `200 OK` para cualquier usuario autenticado. El aislamiento entre dispositivos se garantiza porque cada uno solo conoce su `finca_id` (su propia MAC sin colones) y por tanto solo publica/suscribe a `aquantia/<su_mac>/#`.
+
+#### Añadir un dispositivo (PROD)
+
+Los dispositivos se registran automáticamente mediante el **Flash Tool** (`flasher_gui.py`):
+1. Genera un token aleatorio + hash bcrypt → `POST /api/devices/register_factory`
+2. Escribe token + serial en la partición NVS del chip
+3. En el primer arranque PROD, el ESP32 usa ese token como contraseña MQTT
+
+No es necesario tocar la configuración de Mosquitto.
 
 ---
 
@@ -542,16 +588,39 @@ docker compose restart backend             # reiniciar backend (recarga MQTT)
 docker compose exec timescaledb psql -U aquantia -d aquantia
 
 -- Últimas telemetrías
-SELECT timestamp, device_mac, temperature, humidity FROM readings
+SELECT timestamp, device_mac, temperature, humidity FROM home_weather_station
 ORDER BY timestamp DESC LIMIT 10;
 
 -- Dispositivos registrados
-SELECT serial_number, mac_address, chip_model, relay_count, latest_reading FROM devices;
+SELECT serial_number, mac_address, chip_model, relay_count, last_seen FROM device_info;
 
 -- Alertas pendientes
 SELECT created_at, device_mac, alert_type, severity, message FROM alerts
-WHERE acked = FALSE ORDER BY created_at DESC;
+WHERE acked = 0 ORDER BY created_at DESC;
 ```
+
+---
+
+## Monitor en tiempo real
+
+`tools/monitor.sh` abre una sesión **tmux** con tres paneles para monitorizar el sistema en vivo:
+
+```
+┌──────────────────────────────────────┐
+│   MQTT LIVE  (aquantia/#)            │  25% altura
+├───────────────────────┬──────────────┤
+│  BACKEND — todos los  │  DB — últimas│  75% altura
+│  logs en tiempo real  │  20 lecturas │
+└───────────────────────┴──────────────┘
+```
+
+```bash
+./tools/monitor.sh
+# Ctrl+B D  — desconectar (sesión sigue en background)
+# Ctrl+B [  — modo scroll en cualquier panel
+```
+
+Lee `MQTT_PASSWORD` automáticamente del `.env`. Requiere `tmux` y acceso a los contenedores Docker.
 
 ---
 
