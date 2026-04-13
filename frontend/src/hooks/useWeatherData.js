@@ -105,11 +105,11 @@ export function useWeatherData() {
   // Fetch de dispositivos una vez al montar
   useEffect(() => { fetchDevices() }, [fetchDevices])
 
-  // Auto-refresco cada 60s
+  // Auto-refresco cada 60s — actualiza gráficos y lista de dispositivos
   useEffect(() => {
-    const id = setInterval(() => { refresh(); fetchDevices() }, 60000)
+    const id = setInterval(() => { fetchSamples(150); fetchDevices() }, 60000)
     return () => clearInterval(id)
-  }, [refresh, fetchDevices])
+  }, [fetchSamples, fetchDevices])
 
   const latest = {
     temperature:     data.temperature.at(-1),
