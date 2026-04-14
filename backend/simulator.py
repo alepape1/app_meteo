@@ -35,6 +35,7 @@ class WeatherSimulator:
         self.temp_bar    = 19.5    # °C (sensor barometrico, ligeramente distinto)
         self.humidity    = 60.0    # %
         self.pressure    = 1013.0  # hPa
+        self.light       = 350.0   # lux
         self.wind_speed  = 3.0     # m/s
         self.wind_dir    = 180.0   # grados (0-360)
 
@@ -63,6 +64,10 @@ class WeatherSimulator:
         self.pressure += random.gauss(0, 0.2)
         self.pressure  = round(max(970.0, min(1040.0, self.pressure)), 2)
 
+        # --- Luz ambiental ---
+        self.light = 350.0 + daily_wave * 25.0 + random.gauss(0, 15.0)
+        self.light = round(max(0.0, min(1200.0, self.light)), 2)
+
         # --- Viento: rafagas con media movil ---
         self.wind_speed += random.gauss(0, 0.8)
         self.wind_speed  = round(max(0.0, min(25.0, self.wind_speed)), 2)
@@ -87,6 +92,7 @@ class WeatherSimulator:
             self.wind_dir,
             ws_filtered,
             wd_filtered,
+            self.light,
         )
 
     def to_csv(self, values):
@@ -97,40 +103,72 @@ class WeatherSimulator:
 # Logica de envio
 # ---------------------------------------------------------------------------
 
-def send(url, csv_data):
-    r = requests.post(url, data=csv_data.encode("utf-8"), timeout=5)
+def send(url, csv_data, mac):
+    headers = {"X-Device-MAC": mac}
+    r = requests.post(
+        url,
+        data=csv_data.encode("utf-8"),
+        headers=headers,
+        timeout=5,
+    )
     return r.status_code
 
 
 def format_row(values, status, count):
-    t, p, tb, h, ws, wd, wsf, wdf = values
+    t, p, tb, h, ws, wd, wsf, wdf, light = values
     ok = "OK " if status == 200 else f"ERR {status}"
     return (
         f"  [{ok}] #{count:>4} | "
         f"Temp:{t:>6.2f}°C  "
         f"Pres:{p:>8.2f}hPa  "
         f"Hum:{h:>5.1f}%  "
+        f"Luz:{light:>6.1f}lx  "
         f"Viento:{ws:>5.2f}m/s {wd:>6.1f}°"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Simulador ESP32 para app_meteo")
-    parser.add_argument("--host",     default="127.0.0.1", help="IP del servidor Flask (default: 127.0.0.1)")
-    parser.add_argument("--port",     default=7000, type=int, help="Puerto Flask (default: 7000)")
-    parser.add_argument("--interval", default=5, type=float, help="Segundos entre envios (default: 5)")
-    parser.add_argument("--count",    default=0, type=int, help="Numero de muestras (0 = infinito)")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="IP del servidor Flask (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        default=7000,
+        type=int,
+        help="Puerto Flask (default: 7000)",
+    )
+    parser.add_argument(
+        "--interval",
+        default=5,
+        type=float,
+        help="Segundos entre envios (default: 5)",
+    )
+    parser.add_argument(
+        "--count",
+        default=0,
+        type=int,
+        help="Numero de muestras (0 = infinito)",
+    )
+    parser.add_argument(
+        "--mac",
+        default="AA:BB:CC:DD:EE:01",
+        help="MAC de prueba para asociar la telemetria",
+    )
     args = parser.parse_args()
 
     url = f"http://{args.host}:{args.port}/send_message"
     sim = WeatherSimulator()
 
-    print(f"\n  Simulador MeteoStation")
+    print("\n  Simulador MeteoStation")
     print(f"  Servidor : {url}")
+    print(f"  MAC      : {args.mac}")
     print(f"  Intervalo: {args.interval}s")
     print(f"  Muestras : {'infinitas' if args.count == 0 else args.count}")
-    print(f"  Ctrl+C para detener\n")
-    print(f"  {'Estado':8} {'#':>5} | {'Temp':>10}  {'Presion':>13}  {'Humedad':>9}  {'Viento':>17}")
+    print("  Ctrl+C para detener\n")
+    print(f"  {'Estado':8} {'#':>5} | {'Temp':>10}  {'Presion':>13}  {'Humedad':>9}  {'Luz':>10}  {'Viento':>17}")
     print("  " + "-" * 75)
 
     count = 0
@@ -143,7 +181,7 @@ def main():
             csv = sim.to_csv(values)
 
             try:
-                status = send(url, csv)
+                status = send(url, csv, args.mac)
                 print(format_row(values, status, count))
                 if status != 200:
                     errors += 1

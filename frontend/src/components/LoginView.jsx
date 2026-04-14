@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../AuthContext'
 import { Loader, LogIn, UserPlus } from 'lucide-react'
+import BrandLogo from './BrandLogo'
 
 export default function LoginView() {
   const { login, register } = useAuth()
@@ -33,15 +34,10 @@ export default function LoginView() {
       <div className="w-full max-w-sm">
 
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="bg-brand-50 p-3 rounded-2xl border border-brand-100 mb-3">
-            <svg width="28" height="28" viewBox="0 0 20 20" fill="none">
-              <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#0c8ecc"/>
-              <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.75"/>
-            </svg>
+        <div className="flex justify-center mb-8">
+          <div className="bg-white/80 px-4 py-3 rounded-2xl border border-brand-100 shadow-sm">
+            <BrandLogo size="lg" stacked />
           </div>
-          <h1 className="text-xl font-bold text-navy-900 font-serif">Aquantia</h1>
-          <p className="text-xs text-navy-400 mt-0.5">Estación meteorológica</p>
         </div>
 
         {/* Card */}
@@ -132,7 +128,7 @@ export default function LoginView() {
         </div>
 
         <p className="text-center text-xs text-navy-400 mt-4">
-          Aquantia · meteo.aquantialab.com
+          aquantIAlab · meteo.aquantialab.com
         </p>
       </div>
     </div>

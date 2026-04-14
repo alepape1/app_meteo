@@ -2,8 +2,10 @@ import { useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server, Bell, Layers, LogOut,
+  Server, Bell, Layers,
 } from 'lucide-react'
+import BrandLogo from './BrandLogo'
+import LogoutIcon from './LogoutIcon'
 
 const fmt = d => {
   const pad = n => String(n).padStart(2, '0')
@@ -74,26 +76,11 @@ export default function Sidebar({
       {/* ── Logo ── */}
       <div className="flex items-center justify-between px-4 py-5 border-b border-navy-800">
         {!collapsed && (
-          <div className="flex items-center gap-2.5">
-            {/* Aquantia droplet mark */}
-            <div className="bg-brand-500/20 p-1.5 rounded-lg shrink-0">
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#5ab4e0"/>
-                <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
-              </svg>
-            </div>
-            <div>
-              <p className="font-serif font-normal text-white text-base leading-none tracking-tight">Aquantia</p>
-              <p className="text-navy-300 text-xs mt-0.5">Estación meteorológica</p>
-            </div>
-          </div>
+          <BrandLogo size="md" dark className="items-center" />
         )}
         {collapsed && (
-          <div className="mx-auto bg-brand-500/20 p-1.5 rounded-lg">
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-              <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#5ab4e0"/>
-              <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
-            </svg>
+          <div className="mx-auto">
+            <BrandLogo size="sm" dark showText={false} />
           </div>
         )}
         {!collapsed && (
@@ -280,18 +267,20 @@ export default function Sidebar({
         {!collapsed ? (
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-navy-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/10 to-rose-500/10 text-red-200 hover:from-red-500/20 hover:to-rose-500/20 hover:text-white transition-all"
           >
-            <LogOut size={14} className="shrink-0" />
-            <span className="truncate">{user?.display_name || 'Cerrar sesión'}</span>
+            <span className="inline-flex items-center justify-center rounded-lg bg-red-500/15 p-1.5">
+              <LogoutIcon size={15} className="shrink-0" />
+            </span>
+            <span className="truncate text-sm font-semibold">Cerrar sesión</span>
           </button>
         ) : (
           <button
             onClick={onLogout}
             title="Cerrar sesión"
-            className="w-full flex items-center justify-center p-2 rounded-lg text-navy-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+            className="w-full flex items-center justify-center p-2 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-white transition-all"
           >
-            <LogOut size={14} />
+            <LogoutIcon size={15} />
           </button>
         )}
       </div>

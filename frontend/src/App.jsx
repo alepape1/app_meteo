@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, LogOut, Menu } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -14,6 +14,8 @@ import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
+import BrandLogo from './components/BrandLogo'
+import LogoutIcon from './components/LogoutIcon'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -122,16 +124,7 @@ function AppInner({ user, logout }) {
             >
               <Menu size={18} />
             </button>
-            <div className="bg-brand-50 p-1.5 rounded-xl border border-brand-100 shrink-0">
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                <path d="M10 2C10 2 3.5 9.5 3.5 13.5a6.5 6.5 0 0013 0C16.5 9.5 10 2 10 2Z" fill="#0c8ecc"/>
-                <path d="M7 15a3.5 3.5 0 003.5-3.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.75"/>
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-sm font-bold text-navy-900 leading-none tracking-tight font-serif">Aquantia</h1>
-              <p className="text-xs text-navy-300 mt-0.5 hidden md:block">Estación meteorológica · Lanzarote</p>
-            </div>
+            <BrandLogo size="sm" />
           </div>
 
           {/* Derecha: estado + acciones */}
@@ -178,14 +171,17 @@ function AppInner({ user, logout }) {
             </button>
 
             {/* Usuario + logout */}
-            <div className="flex items-center gap-1.5 pl-2 border-l border-black/[.08]">
+            <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
               <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
               <button
                 onClick={logout}
                 title="Cerrar sesión"
-                className="p-1.5 rounded-lg text-navy-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-rose-100 px-2.5 py-1.5 text-red-600 shadow-sm hover:from-red-100 hover:to-rose-100 hover:text-red-700 transition-all"
               >
-                <LogOut size={16} />
+                <span className="inline-flex items-center justify-center rounded-md bg-white/80 p-1 shadow-sm">
+                  <LogoutIcon size={15} />
+                </span>
+                <span className="hidden md:inline text-xs font-semibold">Salir</span>
               </button>
             </div>
           </div>
