@@ -1,0 +1,50 @@
+# docker-compose.dev.yml — Infraestructura local para desarrollo
+#
+# Levanta SOLO los servicios de infra (DB + MQTT + Adminer).
+# El backend Flask y el frontend Vite se ejecutan directamente en el host
+# para poder depurarlos desde VS Code.
+#
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down
+
+services:
+
+  # ── TimescaleDB ─────────────────────────────────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       aquantia
+      POSTGRES_USER:     aquantia
+      POSTGRES_PASSWORD: aquantia_dev
+    volumes:
+      - timescaledb_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquantia -d aquantia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Mosquitto (sin TLS, solo red local) ─────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/config/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    ports:
+      - "1883:1883"
+
+  # ── Adminer — UI para PostgreSQL ────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+
+volumes:
+  timescaledb_dev_data:

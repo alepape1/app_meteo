@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB:       aquantia
       POSTGRES_USER:     aquantia
-      POSTGRES_PASSWORD: ${PG_PASS:-cambia_esto}
+      POSTGRES_PASSWORD: aquantia_159
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
     ports:

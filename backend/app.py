@@ -1,4 +1,4 @@
-from flask import Flask, g, render_template, request, jsonify
+from flask import Flask, g, render_template, request, jsonify, redirect
 import bcrypt
 from flask_cors import CORS
 from flask_jwt_extended import (
@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import os
 import logging
 import datetime
+
+load_dotenv()
+
 from database import get_db_connection, create_tables, init_pool
 import mqtt_client
 from pipeline_sim import (
@@ -18,8 +21,6 @@ from pipeline_sim import (
     STATIC_PRESSURE_BAR,
     DYNAMIC_PRESSURE_BAR,
 )
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
@@ -276,18 +277,9 @@ def rows_to_dict(rows):
 
 @app.route("/")
 def fetch_data():
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("""
-        SELECT * FROM home_weather_station
-        ORDER BY timestamp DESC
-        LIMIT 2;
-    """)
-    rows = cursor.fetchall()
-    cursor.close()
-
-    context = {"message": "Últimos datos"} | rows_to_dict(rows)
-    return render_template(TEMPLATE_FILE, **context)
+    # En desarrollo local, el frontend moderno vive en Vite (:5173).
+    # Redirigimos la raíz para evitar abrir por error la plantilla legacy.
+    return redirect("http://localhost:5173", code=302)
 
 
 @app.route("/descargar/<int:cantidad_muestras>")
@@ -1214,4 +1206,5 @@ mqtt_client.start()
 if __name__ == "__main__":
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = int(os.getenv("FLASK_PORT", 7000))
-    app.run(host=host, port=port, debug=False)
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    app.run(host=host, port=port, debug=debug)

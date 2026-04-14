@@ -665,3 +665,86 @@ curl -X POST https://meteo.aquantialab.com/api/pipeline/scenario \
   -H "Content-Type: application/json" \
   -d '{"scenario": "leak"}'
 ```
+
+---
+
+## Versionado y flujo de trabajo
+
+### Estructura de ramas
+
+```
+main              ← producción (solo merges de release/* o hotfix/*)
+develop           ← integración continua
+feature/*         ← nueva funcionalidad (sale de develop, merge a develop)
+release/vX.Y.Z    ← congelado para pruebas (sale de develop)
+hotfix/*          ← parche urgente sobre main
+```
+
+**Regla principal:** nunca se trabaja directamente en `main`. Todo cambio pasa por `develop` y, cuando llega a producción, lo hace a través de una rama `release/`.
+
+### Versionado semántico (SemVer)
+
+El backend sigue `MAJOR.MINOR.PATCH[-prerelease]`:
+
+| Incremento | Cuándo |
+|------------|--------|
+| `PATCH` | Corrección de bug sin cambio de API |
+| `MINOR` | Nuevo endpoint o campo, compatible con firmware anterior |
+| `MAJOR` | Cambio de protocolo MQTT o HTTP incompatible con firmware |
+
+Ejemplos de ciclo: `v0.1.0-beta.1` → `v0.1.0-rc.1` → `v0.1.0` → `v0.1.1` → `v0.2.0`
+
+### Proceso de release
+
+```bash
+# 1. Crear rama de release desde develop
+git checkout develop && git pull
+git checkout -b release/v0.2.0
+
+# 2. Actualizar CHANGELOG.md con los cambios
+
+# 3. Commit de cierre de release
+git add CHANGELOG.md
+git commit -m "chore: bump backend to v0.2.0-rc.1"
+
+# 4. Etiquetar
+git tag -a v0.2.0-rc.1 -m "Release candidate v0.2.0-rc.1"
+git push origin release/v0.2.0 --tags
+
+# 5. Tras validación, merge a main y develop
+git checkout main && git merge --no-ff release/v0.2.0
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin main --tags
+git checkout develop && git merge --no-ff release/v0.2.0
+git push origin develop
+```
+
+### Compatibilidad firmware ↔ backend
+
+Ambos repositorios (`app_meteo` y `weather-station-ESP`) se versionan de forma independiente pero coordinada. El backend almacena en la tabla `app_settings` la clave `min_firmware_version` con la versión mínima de firmware aceptada:
+
+```sql
+SELECT value FROM app_settings WHERE key = 'min_firmware_version';
+-- → '0.1.0-beta.1'
+```
+
+Para actualizar el mínimo aceptado al introducir un cambio incompatible:
+
+```bash
+curl -X POST https://meteo.aquantialab.com/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "min_firmware_version", "value": "0.2.0"}'
+```
+
+| Firmware | Backend app_meteo | Estado |
+|----------|-------------------|--------|
+| `v0.1.x` | `v0.1.x` | Compatible |
+| `v0.2.0` | `v0.1.x` | Puede no funcionar — revisar CHANGELOG |
+
+### Versión del firmware en el dashboard
+
+El firmware envía su versión (`FIRMWARE_VERSION` definido en el `.ino`) al registrarse vía MQTT y HTTP. El backend la almacena en `device_info.firmware_version` y la muestra como badge en la vista **Estado del Dispositivo** del dashboard.
+
+### Historial de cambios
+
+Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo de versiones y [weather-station-ESP/CHANGELOG.md](../../weather-station-ESP/CHANGELOG.md) para el historial del firmware.
