@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu, Power } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -15,7 +15,6 @@ import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
 import BrandLogo from './components/BrandLogo'
-import LogoutIcon from './components/LogoutIcon'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -41,7 +40,7 @@ function AppInner({ user, logout }) {
   const {
     data, latest, loading, lastUpdate, error,
     deviceInfo,
-    devices, selectedMac, setSelectedMac,
+    devices, devicesLoaded, selectedMac, setSelectedMac,
     fetchSamples, fetchFiltered, fetchDeviceInfo,
   } = useWeatherData()
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -97,6 +96,8 @@ function AppInner({ user, logout }) {
     if (view === 'device' || view === 'riego') fetchDeviceInfo()
   }
   const ts = data.timestamp
+  const hasDevices = devices.length > 0
+  const showNoDevicesState = devicesLoaded && !hasDevices && activeView !== 'devices' && activeView !== 'claim'
 
   return (
     <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
@@ -189,7 +190,7 @@ function AppInner({ user, logout }) {
                 className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-rose-100 px-2.5 py-1.5 text-red-600 shadow-sm hover:from-red-100 hover:to-rose-100 hover:text-red-700 transition-all"
               >
                 <span className="inline-flex items-center justify-center rounded-md bg-white/80 p-1 shadow-sm">
-                  <LogoutIcon size={15} />
+                  <Power size={15} />
                 </span>
                 <span className="hidden md:inline text-xs font-semibold">Salir</span>
               </button>
@@ -198,16 +199,36 @@ function AppInner({ user, logout }) {
         </header>
 
         {/* ── Views ── */}
-        {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-        {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
-        {activeView === 'nodos'     && <NodesView />}
-        {activeView === 'pipeline'  && <PipelineView />}
-        {activeView === 'alerts'    && <AlertsPanel />}
-        {activeView === 'settings'  && <SettingsView />}
-        {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}
-        {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
+        {showNoDevicesState ? (
+          <main className="flex-1 overflow-y-auto p-6">
+            <div className="max-w-2xl mx-auto bg-white border border-black/[.08] rounded-2xl shadow-sm p-8 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 border border-brand-100 text-brand-600 text-xl font-bold">
+                +
+              </div>
+              <h2 className="text-xl font-bold text-navy-900">Aún no tienes dispositivos registrados</h2>
+              <p className="text-sm text-navy-400 mt-2">
+                Puedes registrar uno nuevo desde la sección Mis dispositivos para empezar a ver sus datos.
+              </p>
+              <button
+                onClick={() => handleViewChange('devices')}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
+              >
+                Ir a Mis dispositivos
+              </button>
+            </div>
+          </main>
+        ) : (
+          <>
+            {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
+            {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
+            {activeView === 'nodos'     && <NodesView />}
+            {activeView === 'pipeline'  && <PipelineView />}
+            {activeView === 'alerts'    && <AlertsPanel />}
+            {activeView === 'settings'  && <SettingsView />}
+            {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}
+            {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
 
-        <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
+            <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 
           {/* ── Stat cards ── */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -307,7 +328,9 @@ function AppInner({ user, logout }) {
             />
           </div>
 
-        </main>
+            </main>
+          </>
+        )}
       </div>
     </div>
   )

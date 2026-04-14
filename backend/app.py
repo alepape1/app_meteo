@@ -237,6 +237,27 @@ def close_connection(exception):
         db.close()
 
 
+def _user_owns_device(user_id, mac):
+    if not mac:
+        return False
+    row = get_db().execute(
+        "SELECT 1 FROM user_devices WHERE user_id=%s AND mac_address=%s",
+        (user_id, mac)
+    ).fetchone()
+    return bool(row)
+
+
+def _resolve_user_mac(user_id, requested_mac=None):
+    if requested_mac:
+        mac = str(requested_mac).strip().upper()
+        return mac if _user_owns_device(user_id, mac) else None
+    row = get_db().execute(
+        "SELECT mac_address FROM user_devices WHERE user_id=%s ORDER BY claimed_at DESC LIMIT 1",
+        (user_id,)
+    ).fetchone()
+    return row['mac_address'] if row else None
+
+
 def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
@@ -407,21 +428,21 @@ def filtrar_datos_api():
     if not start_date or not end_date:
         return jsonify({"error": "Faltan fechas start_date o end_date"}), 400
 
-    mac = payload.get('mac')
+    user_id = int(get_jwt_identity())
+    requested_mac = payload.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify(rows_to_dict([]))
+
     db = get_db()
     cursor = db.cursor()
-    if mac:
-        cursor.execute("""
-            SELECT * FROM home_weather_station
-            WHERE timestamp BETWEEN ? AND ? AND device_mac=?
-            ORDER BY timestamp ASC
-        """, (start_date, end_date, mac))
-    else:
-        cursor.execute("""
-            SELECT * FROM home_weather_station
-            WHERE timestamp BETWEEN ? AND ?
-            ORDER BY timestamp ASC
-        """, (start_date, end_date))
+    cursor.execute("""
+        SELECT * FROM home_weather_station
+        WHERE timestamp BETWEEN ? AND ? AND device_mac=?
+        ORDER BY timestamp ASC
+    """, (start_date, end_date, mac))
     rows = cursor.fetchall()
     cursor.close()
 
@@ -430,29 +451,27 @@ def filtrar_datos_api():
 
 @app.route("/api/muestras/<int:n>")
 def api_muestras(n):
-    """Devuelve las últimas N muestras como JSON para el dashboard React."""
-    mac = request.args.get('mac')
+    """Devuelve las últimas N muestras del dispositivo del usuario."""
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify(rows_to_dict([]))
+
     db = get_db()
     cursor = db.cursor()
-    if mac:
-        cursor.execute(
-            "SELECT COUNT(*) FROM home_weather_station WHERE device_mac=?",
-            (mac,)
-        )
-    else:
-        cursor.execute("SELECT COUNT(*) FROM home_weather_station;")
+    cursor.execute(
+        "SELECT COUNT(*) FROM home_weather_station WHERE device_mac=?",
+        (mac,)
+    )
     total = cursor.fetchone()[0]
     offset = max(0, total - n)
-    if mac:
-        cursor.execute("""
-            SELECT * FROM home_weather_station WHERE device_mac=?
-            ORDER BY timestamp ASC LIMIT ? OFFSET ?
-        """, (mac, n, offset))
-    else:
-        cursor.execute("""
-            SELECT * FROM home_weather_station
-            ORDER BY timestamp ASC LIMIT ? OFFSET ?
-        """, (n, offset))
+    cursor.execute("""
+        SELECT * FROM home_weather_station WHERE device_mac=?
+        ORDER BY timestamp ASC LIMIT ? OFFSET ?
+    """, (mac, n, offset))
     rows = cursor.fetchall()
     cursor.close()
     return jsonify(rows_to_dict(rows))
@@ -500,82 +519,67 @@ def post_device_info():
 
 @app.route("/api/device_info", methods=["GET"])
 def get_device_info():
-    mac = request.args.get('mac')
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify({})
+
     db = get_db()
     cursor = db.cursor()
-    if mac:
-        cursor.execute("SELECT * FROM device_info WHERE mac_address=?", (mac,))
-        row = cursor.fetchone()
-        cursor.close()
-        return jsonify(dict(row) if row else {})
-    # Sin filtro: devuelve el más reciente (compatibilidad con DeviceStatus)
-    cursor.execute("SELECT * FROM device_info ORDER BY last_seen DESC LIMIT 1")
+    cursor.execute("SELECT * FROM device_info WHERE mac_address=?", (mac,))
     row = cursor.fetchone()
     cursor.close()
     return jsonify(dict(row) if row else {})
 
 
+def _get_user_devices_rows(user_id):
+    """Lista solo los dispositivos vinculados al usuario autenticado."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT
+            COALESCE(di.mac_address, ud.mac_address) AS mac_address,
+            di.chip_model, di.relay_count, di.ip_address, di.last_seen, di.finca_id,
+            ud.nickname, ud.claimed_at,
+            dc.serial_number, dc.claimed_by_finca_id,
+            (SELECT timestamp FROM home_weather_station
+             WHERE device_mac = ud.mac_address
+             ORDER BY timestamp DESC LIMIT 1) AS latest_reading
+        FROM user_devices ud
+        LEFT JOIN device_info di ON di.mac_address = ud.mac_address
+        LEFT JOIN device_credentials dc ON dc.mac = ud.mac_address
+        WHERE ud.user_id = %s
+        ORDER BY ud.claimed_at DESC
+    """, (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.route("/api/devices")
 def api_devices():
-    """Lista todos los dispositivos conocidos con su último timestamp de lectura."""
-    db = get_db()
-    rows = db.execute(
-        "SELECT * FROM device_info ORDER BY last_seen DESC"
-    ).fetchall()
-
-    if rows:
-        result = []
-        for r in rows:
-            d = dict(r)
-            latest = db.execute(
-                "SELECT timestamp FROM home_weather_station"
-                " WHERE device_mac=? ORDER BY timestamp DESC LIMIT 1",
-                (r['mac_address'],)
-            ).fetchone()
-            d['latest_reading'] = latest['timestamp'] if latest else None
-            result.append(d)
-        return jsonify(result)
-
-    # Fallback: device_info vacía (contenedor recién reiniciado, ESP32 aún no reenvió
-    # el DeviceInfo). Inferir dispositivos desde los datos recibidos.
-    mac_rows = db.execute(
-        "SELECT DISTINCT device_mac FROM home_weather_station"
-        " WHERE device_mac IS NOT NULL"
-    ).fetchall()
-    result = []
-    for r in mac_rows:
-        mac = r['device_mac']
-        latest = db.execute(
-            "SELECT timestamp FROM home_weather_station"
-            " WHERE device_mac=? ORDER BY timestamp DESC LIMIT 1",
-            (mac,)
-        ).fetchone()
-        result.append({
-            'id': mac,
-            'chip_model': None,
-            'mac_address': mac,
-            'relay_count': 1,
-            'latest_reading': latest['timestamp'] if latest else None,
-        })
-    return jsonify(result)
+    """Lista los dispositivos vinculados al usuario autenticado."""
+    user_id = int(get_jwt_identity())
+    return jsonify(_get_user_devices_rows(user_id))
 
 
 @app.route("/api/latest")
 def api_latest():
-    """Devuelve el registro más reciente como JSON (útil para auto-refresco)."""
-    mac = request.args.get('mac')
+    """Devuelve el registro más reciente del dispositivo del usuario."""
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify(rows_to_dict([]))
+
     db = get_db()
     cursor = db.cursor()
-    if mac:
-        cursor.execute("""
-            SELECT * FROM home_weather_station WHERE device_mac=?
-            ORDER BY timestamp DESC LIMIT 1
-        """, (mac,))
-    else:
-        cursor.execute("""
-            SELECT * FROM home_weather_station
-            ORDER BY timestamp DESC LIMIT 1
-        """)
+    cursor.execute("""
+        SELECT * FROM home_weather_station WHERE device_mac=?
+        ORDER BY timestamp DESC LIMIT 1
+    """, (mac,))
     rows = cursor.fetchall()
     cursor.close()
 
@@ -596,22 +600,33 @@ def relay_command():
 
 @app.route("/api/relay", methods=["GET"])
 def get_relay():
-    """Dashboard: devuelve lista de estados [{index, desired, actual}] para el dispositivo."""
-    mac = request.args.get('mac')
+    """Dashboard: devuelve estados solo del dispositivo del usuario."""
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify([])
     return jsonify(_relay_get(mac))
 
 
 @app.route("/api/relay", methods=["POST"])
 def set_relay():
-    """Dashboard: cambia el estado deseado de un relay específico."""
+    """Dashboard: cambia el estado deseado de un relay del usuario."""
     payload = request.get_json(silent=True)
     if payload is None or "state" not in payload:
         return jsonify({"error": "Falta campo 'state'"}), 400
-    mac = payload.get('mac')
+    user_id = int(get_jwt_identity())
+    requested_mac = payload.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify({"error": "No hay dispositivo seleccionado"}), 400
     index = int(payload.get('index', 0))
     state = bool(payload['state'])
-    if mac:
-        _relay_ensure(mac)
+    _relay_ensure(mac)
     _relay_set_desired(mac, index, state)
     logger.info("Relay %d deseado → %s (mac=%s)", index, "ON" if state else "OFF", mac)
 
@@ -1079,25 +1094,9 @@ def mqtt_acl():
 
 @app.route("/api/devices/mine")
 def api_devices_mine():
-    """Lista los dispositivos vinculados al usuario autenticado."""
+    """Alias compatible para listar los dispositivos del usuario autenticado."""
     user_id = int(get_jwt_identity())
-    db = get_db()
-    rows = db.execute("""
-        SELECT
-            COALESCE(di.mac_address, ud.mac_address) AS mac_address,
-            di.chip_model, di.relay_count, di.ip_address, di.last_seen, di.finca_id,
-            ud.nickname, ud.claimed_at,
-            dc.serial_number, dc.claimed_by_finca_id,
-            (SELECT timestamp FROM home_weather_station
-             WHERE device_mac = ud.mac_address
-             ORDER BY timestamp DESC LIMIT 1) AS latest_reading
-        FROM user_devices ud
-        LEFT JOIN device_info di ON di.mac_address = ud.mac_address
-        LEFT JOIN device_credentials dc ON dc.mac = ud.mac_address
-        WHERE ud.user_id = %s
-        ORDER BY ud.claimed_at DESC
-    """, (user_id,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(_get_user_devices_rows(user_id))
 
 
 @app.route("/api/devices/<mac>", methods=["DELETE"])

@@ -2,10 +2,9 @@ import { createElement, useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server, Bell, Layers,
+  Server, Bell, Layers, Power,
 } from 'lucide-react'
 import BrandLogo from './BrandLogo'
-import LogoutIcon from './LogoutIcon'
 
 const fmt = d => {
   const pad = n => String(n).padStart(2, '0')
@@ -88,7 +87,7 @@ export default function Sidebar({
         {!collapsed && (
           <button
             onClick={() => setCollapsed(p => !p)}
-            className="text-navy-300 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 ml-2 transition-colors"
+            className="text-slate-200 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 ml-2 transition-colors"
           >
             <ChevronLeft size={15} />
           </button>
@@ -99,7 +98,7 @@ export default function Sidebar({
       {collapsed && (
         <button
           onClick={() => setCollapsed(false)}
-          className="mx-auto mt-2 text-navy-300 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 transition-colors"
+          className="mx-auto mt-2 text-slate-200 hover:text-white p-1.5 rounded-lg hover:bg-navy-800 transition-colors"
         >
           <ChevronRight size={15} />
         </button>
@@ -114,7 +113,7 @@ export default function Sidebar({
             className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors
               ${activeView === item.id
                 ? 'bg-brand-500 text-white'
-                : 'text-navy-300 hover:bg-navy-800 hover:text-white'}`}
+                : 'text-slate-100 hover:bg-navy-800 hover:text-white'}`}
           >
             {createElement(item.icon, { size: 14, className: 'shrink-0' })}
             {!collapsed && item.label}
@@ -151,14 +150,15 @@ export default function Sidebar({
           {/* Selector de dispositivos */}
           {devices.length > 0 && (
             <section>
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-2">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-widest mb-2">
                 <Server size={11} /> Dispositivos
               </p>
               <div className="flex flex-col gap-1">
                 {devices.map(d => {
                   const online = isOnline(d.latest_reading)
                   const mac = d.mac_address
-                  const label = d.chip_model || (mac ? mac.slice(-8) : `ECU ${d.id}`)
+                  const fincaLabel = d.claimed_by_finca_id || d.finca_id || d.nickname
+                  const label = fincaLabel || d.chip_model || (mac ? mac.slice(-8) : `ECU ${d.id}`)
                   const macSuffix = mac ? mac.slice(-5) : ''
                   return (
                     <button
@@ -167,7 +167,7 @@ export default function Sidebar({
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors
                         ${selectedMac === mac
                           ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                          : 'text-navy-300 hover:bg-navy-800 hover:text-white'}`}
+                          : 'text-slate-100 hover:bg-navy-800 hover:text-white'}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-emerald-400 animate-pulse' : 'bg-navy-500'}`} />
                       <span className="truncate">{label}</span>
@@ -186,7 +186,7 @@ export default function Sidebar({
           {/* Filtro y contador — solo en dashboard */}
           {activeView === 'dashboard' && <>
             <section>
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-widest mb-3">
                 <Calendar size={11} /> Rango de datos
               </p>
 
@@ -253,11 +253,11 @@ export default function Sidebar({
             <div className="border-t border-navy-800" />
 
             <section>
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-navy-300 uppercase tracking-widest mb-2">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-widest mb-2">
                 <Zap size={11} /> Datos cargados
               </p>
               <p className="text-2xl font-bold text-white">{sampleCount.toLocaleString()}</p>
-              <p className="text-xs text-navy-300 mt-0.5">registros en vista</p>
+              <p className="text-xs text-slate-200/80 mt-0.5">registros en vista</p>
             </section>
           </>}
 
@@ -269,20 +269,20 @@ export default function Sidebar({
         {!collapsed ? (
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/10 to-rose-500/10 text-red-200 hover:from-red-500/20 hover:to-rose-500/20 hover:text-white transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white hover:bg-navy-800 hover:text-white transition-all"
           >
-            <span className="inline-flex items-center justify-center rounded-lg bg-red-500/15 p-1.5">
-              <LogoutIcon size={15} className="shrink-0" />
+            <span className="inline-flex items-center justify-center text-red-500 drop-shadow-sm">
+              <Power size={20} strokeWidth={2.6} className="shrink-0" />
             </span>
-            <span className="truncate text-sm font-semibold">Cerrar sesión</span>
+            <span className="truncate text-sm font-semibold text-white">Cerrar sesión</span>
           </button>
         ) : (
           <button
             onClick={onLogout}
             title="Cerrar sesión"
-            className="w-full flex items-center justify-center p-2 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:text-white transition-all"
+            className="w-full flex items-center justify-center p-2 rounded-xl text-red-400 hover:bg-navy-800 hover:text-red-300 transition-all"
           >
-            <LogoutIcon size={15} />
+            <Power size={18} strokeWidth={2.6} />
           </button>
         )}
       </div>

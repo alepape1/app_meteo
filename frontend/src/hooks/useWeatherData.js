@@ -18,6 +18,7 @@ export function useWeatherData() {
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
   const [devices, setDevices] = useState([])
+  const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
 
   const applyData = (json) => {
@@ -28,11 +29,13 @@ export function useWeatherData() {
   }
 
   const fetchSamples = useCallback(async (n = 100) => {
+    if (!selectedMac) {
+      setData(EMPTY)
+      return
+    }
     setLoading(true)
     try {
-      const url = selectedMac
-        ? `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
-        : `/api/muestras/${n}`
+      const url = `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
       const res = await authFetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
@@ -44,10 +47,10 @@ export function useWeatherData() {
   }, [authFetch, selectedMac])
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
+    if (!selectedMac) return
     setLoading(true)
     try {
-      const body = { start_date: startDate, end_date: endDate }
-      if (selectedMac) body.mac = selectedMac
+      const body = { start_date: startDate, end_date: endDate, mac: selectedMac }
       const res = await authFetch('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,14 +66,17 @@ export function useWeatherData() {
   }, [authFetch, selectedMac])
 
   const fetchDeviceInfo = useCallback(async () => {
+    if (!selectedMac) {
+      setDeviceInfo(null)
+      return
+    }
     try {
-      const url = selectedMac
-        ? `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
-        : '/api/device_info'
+      const url = `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
       const res = await authFetch(url)
       if (!res.ok) return
       const json = await res.json()
       if (Object.keys(json).length > 0) setDeviceInfo(json)
+      else setDeviceInfo(null)
     } catch {
       // Ignorar errores transitorios de información del dispositivo.
     }
@@ -78,11 +84,19 @@ export function useWeatherData() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await authFetch('/api/devices')
+      const res = await authFetch('/api/devices/mine')
       if (!res.ok) return
-      setDevices(await res.json())
+      const json = await res.json()
+      setDevices(json)
+      setSelectedMac(current => (
+        current && json.some(device => device.mac_address === current)
+          ? current
+          : (json[0]?.mac_address ?? null)
+      ))
     } catch {
       // Ignorar errores transitorios de la lista de dispositivos.
+    } finally {
+      setDevicesLoaded(true)
     }
   }, [authFetch])
 
@@ -112,18 +126,18 @@ export function useWeatherData() {
     soil_moisture:   data.soil_moisture.at(-1),
   }
 
-  const setRelay = useCallback(async (state) => {
+  const setRelay = useCallback(async (state, index = 0) => {
     await authFetch('/api/relay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({ mac: selectedMac, state, index }),
     })
-  }, [authFetch])
+  }, [authFetch, selectedMac])
 
   return {
     data, latest, loading, lastUpdate, error,
     deviceInfo,
-    devices, selectedMac, setSelectedMac,
+    devices, devicesLoaded, selectedMac, setSelectedMac,
     fetchSamples, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
   }
 }
