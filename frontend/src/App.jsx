@@ -127,7 +127,7 @@ function AppInner({ user, logout }) {
         {/* ── Header ── */}
         <header className="bg-white border-b border-black/[.08] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
 
-          {/* Izquierda: hamburguesa + logo */}
+          {/* Izquierda: hamburguesa */}
           <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => setSidebarOpen(o => !o)}
@@ -135,7 +135,6 @@ function AppInner({ user, logout }) {
             >
               <Menu size={18} />
             </button>
-            <BrandLogo size="sm" />
           </div>
 
           {/* Derecha: estado + acciones */}
@@ -154,7 +153,7 @@ function AppInner({ user, logout }) {
                   : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
                 }
                 <span className="hidden sm:inline">
-                  {selectedMac ? `ECU ···${selectedMac.slice(-5)}` : 'ECU'}
+                  {selectedMac ? `Dispositivo ···${selectedMac.slice(-5)}` : 'Dispositivo'}
                   {' '}{isDeviceOnline ? 'online' : 'offline'}
                 </span>
                 <span className="sm:hidden">{isDeviceOnline ? 'Online' : 'Offline'}</span>
@@ -162,38 +161,34 @@ function AppInner({ user, logout }) {
               </span>
             )}
 
-            {/* Refrescar — solo desktop */}
+            {/* Refrescar — solo icono */}
             <button
               onClick={() => fetchSamples(150)}
               disabled={loading}
-              className="hidden md:flex items-center gap-1.5 text-xs font-medium text-navy-500 hover:text-navy-900 bg-white border border-black/[.08] hover:border-brand-300 px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all"
+              title="Refrescar"
+              className="flex items-center justify-center rounded-lg border border-black/[.08] bg-white p-2 text-navy-500 hover:border-brand-300 hover:text-navy-900 disabled:opacity-40 transition-all"
             >
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-              {loading ? 'Cargando…' : 'Refrescar'}
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>
 
-            {/* Refrescar móvil — solo icono */}
-            <button
-              onClick={() => fetchSamples(150)}
-              disabled={loading}
-              className="md:hidden p-1.5 rounded-lg text-navy-400 hover:text-navy-900 hover:bg-navy-50 disabled:opacity-40 transition-colors"
-            >
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </button>
-
-            {/* Usuario + logout */}
+            {/* Logo de salida + usuario */}
             <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
-              <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
               <button
                 onClick={logout}
-                title="Cerrar sesión"
-                className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-rose-100 px-2.5 py-1.5 text-red-600 shadow-sm hover:from-red-100 hover:to-rose-100 hover:text-red-700 transition-all"
+                title="Salir"
+                className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:bg-red-50 active:bg-red-100"
               >
-                <span className="inline-flex items-center justify-center rounded-md bg-white/80 p-1 shadow-sm">
-                  <Power size={15} />
+                <span className="relative inline-flex items-center justify-center">
+                  <BrandLogo size="sm" showText={false} className="justify-start" />
+                  <span className="absolute -right-1 -bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 shadow-sm transition-all group-hover:scale-110 group-hover:bg-red-600 group-hover:text-white group-active:bg-red-600 group-active:text-white">
+                    <Power size={11} />
+                  </span>
                 </span>
-                <span className="hidden md:inline text-xs font-semibold">Salir</span>
+                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold text-red-600 opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100 group-active:max-w-16 group-active:opacity-100">
+                  Salir
+                </span>
               </button>
+              <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
             </div>
           </div>
         </header>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../AuthContext'
 import { Loader, LogIn, UserPlus } from 'lucide-react'
-import BrandLogo from './BrandLogo'
+import aquantiaLogo from '../assets/aquantia_logo.png'
 
 export default function LoginView() {
   const { login, register } = useAuth()
@@ -34,10 +34,12 @@ export default function LoginView() {
       <div className="w-full max-w-sm">
 
         {/* Logo */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-white/80 px-4 py-3 rounded-2xl border border-brand-100 shadow-sm">
-            <BrandLogo size="lg" stacked />
-          </div>
+        <div className="mb-8 flex justify-center">
+          <img
+            src={aquantiaLogo}
+            alt="Aquantia Lab"
+            className="h-auto w-full max-w-[280px] object-contain"
+          />
         </div>
 
         {/* Card */}

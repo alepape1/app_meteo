@@ -77,11 +77,13 @@ export default function Sidebar({
       {/* ── Logo ── */}
       <div className="flex items-center justify-between px-4 py-5 border-b border-navy-800">
         {!collapsed && (
-          <BrandLogo size="md" dark className="items-center" />
+          <div className="min-w-0">
+            <BrandLogo size="md" dark className="justify-start" />
+          </div>
         )}
         {collapsed && (
-          <div className="mx-auto">
-            <BrandLogo size="sm" dark showText={false} />
+          <div className="w-full flex justify-start pl-0.5">
+            <BrandLogo size="sm" dark showText={false} className="justify-start" />
           </div>
         )}
         {!collapsed && (
