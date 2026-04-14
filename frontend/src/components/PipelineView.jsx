@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { createElement, useState, useEffect, useCallback, useRef } from 'react'
 import ReactApexChart from 'react-apexcharts'
 import { useAuth } from '../AuthContext'
 import {
@@ -10,7 +10,12 @@ import {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toMs(t) {
   if (t == null) return null
-  return new Date(String(t).replace(' ', 'T')).getTime()
+  if (typeof t === 'number') return Number.isNaN(t) ? null : t
+  const raw = String(t).trim()
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) return parsed
+  const ms = new Date(raw.includes(',') ? raw : raw.replace(' ', 'T')).getTime()
+  return Number.isNaN(ms) ? null : ms
 }
 
 const pad = n => String(n).padStart(2, '0')
@@ -45,12 +50,12 @@ const SCENARIOS = [
 
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
 
-function ReadingCard({ title, icon: Icon, value, unit, sub }) {
+function ReadingCard({ title, icon, value, unit, sub }) {
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="bg-brand-50 p-1.5 rounded-lg">
-          <Icon size={14} className="text-brand-500" />
+          {icon && createElement(icon, { size: 14, className: 'text-brand-500' })}
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">{title}</p>
       </div>
@@ -327,9 +332,11 @@ export default function PipelineView() {
       setStatus(s)
       setReadings(Array.isArray(r) ? r : [])
       if (s.config?.scenario) setScenario(s.config.scenario)
-    } catch (_) {}
+    } catch {
+      // Ignorar fallos transitorios del pipeline en vivo.
+    }
     finally { setLoading(false) }
-  }, [])
+  }, [authFetch])
 
   // Live auto-refresh
   useEffect(() => {
@@ -359,7 +366,9 @@ export default function PipelineView() {
       const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
-    } catch (_) {}
+    } catch {
+      // Ignorar fallos transitorios al cargar histórico.
+    }
     finally { setHistLoading(false) }
   }
 
@@ -373,7 +382,9 @@ export default function PipelineView() {
       })
       setScenario(sc)
       if (mode === 'live') await fetchLive()
-    } catch (_) {}
+    } catch {
+      // Ignorar fallos transitorios al aplicar un escenario.
+    }
     finally { setApplyBusy(false) }
   }
 

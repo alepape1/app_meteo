@@ -4,7 +4,9 @@ import { useAuth } from '../AuthContext'
 
 function isOnline(ts) {
   if (!ts) return false
-  return (Date.now() - new Date(ts.replace(' ', 'T')).getTime()) < 90000
+  const parsed = Date.parse(String(ts).trim())
+  if (Number.isNaN(parsed)) return false
+  return (Date.now() - parsed) < 90000
 }
 
 export default function DevicesView({ onNavigate }) {

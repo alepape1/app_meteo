@@ -3,21 +3,32 @@ import ReactApexChart from 'react-apexcharts'
 function toMs(t) {
   if (t == null) return null
   if (typeof t === 'number') return isNaN(t) ? null : t
-  const ms = new Date(String(t).replace(' ', 'T')).getTime()
-  return isNaN(ms) ? null : ms
+  const raw = String(t).trim()
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) return parsed
+  const ms = new Date(raw.includes(',') ? raw : raw.replace(' ', 'T')).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
+function toNum(v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? Number(n.toFixed(2)) : null
 }
 
 function buildSeries(series, timestamps) {
-  const msTs = timestamps.map(toMs)
-  return series.map(s => ({
-    name: s.name,
-    data: (s.data ?? [])
-      .map((y, i) => ({
-        x: msTs[i],
-        y: (y != null && typeof y === 'number') ? Number(y.toFixed(2)) : null,
-      }))
-      .filter(pt => pt.x != null),
-  }))
+  const msTs = (timestamps ?? []).map(toMs)
+  return (series ?? [])
+    .map(s => ({
+      name: s.name,
+      data: (s.data ?? [])
+        .map((y, i) => ({
+          x: msTs[i],
+          y: toNum(y),
+        }))
+        .filter(pt => pt.x != null && pt.y != null),
+    }))
+    .filter(s => s.data.length > 0)
 }
 
 export default function WeatherChart({
@@ -25,7 +36,8 @@ export default function WeatherChart({
   type = 'area', yUnit = '', yMin, yMax, height = 230,
 }) {
   const builtSeries = buildSeries(series, timestamps)
-  const hasData = timestamps.length > 0
+  const hasData = builtSeries.some(s => s.data.length > 0)
+  const chartKey = `${title}-${type}-${timestamps?.length ?? 0}-${timestamps?.at?.(-1) ?? 'empty'}`
 
   const options = {
     chart: {
@@ -65,7 +77,9 @@ export default function WeatherChart({
         // cuando recibe un número en vez de un string durante updateOptions.
         formatter: (val) => {
           if (val == null) return ''
-          const d = new Date(typeof val === 'number' ? val : String(val).replace(' ', 'T'))
+          const ms = typeof val === 'number' ? val : toMs(val)
+          if (ms == null) return ''
+          const d = new Date(ms)
           if (isNaN(d.getTime())) return ''
           return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
         },
@@ -78,7 +92,10 @@ export default function WeatherChart({
       max: yMax,
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
-        formatter: v => v != null ? `${v.toFixed(1)}${yUnit}` : '',
+        formatter: v => {
+          const n = Number(v)
+          return Number.isFinite(n) ? `${n.toFixed(1)}${yUnit}` : ''
+        },
       },
     },
     grid: {
@@ -102,7 +119,12 @@ export default function WeatherChart({
       shared: true,
       intersect: false,
       x: { format: 'dd MMM HH:mm' },
-      y: { formatter: v => v != null ? `${v.toFixed(2)} ${yUnit}` : '—' },
+      y: {
+        formatter: v => {
+          const n = Number(v)
+          return Number.isFinite(n) ? `${n.toFixed(2)} ${yUnit}` : '—'
+        },
+      },
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
     dataLabels: { enabled: false },
@@ -116,7 +138,7 @@ export default function WeatherChart({
         <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
       </div>
       {hasData ? (
-        <ReactApexChart options={options} series={builtSeries} type={type} height={height} />
+        <ReactApexChart key={chartKey} options={options} series={builtSeries} type={type} height={height} />
       ) : (
         <div className="flex items-center justify-center text-slate-300 text-sm" style={{ height }}>
           Sin datos — usa el simulador o conecta el ESP32

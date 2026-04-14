@@ -40,10 +40,11 @@ function AppInner({ user, logout }) {
   const { authFetch } = useAuth()
   const {
     data, latest, loading, lastUpdate, error,
-    deviceInfo, deviceLastSeen,
+    deviceInfo,
     devices, selectedMac, setSelectedMac,
     fetchSamples, fetchFiltered, fetchDeviceInfo,
   } = useWeatherData()
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Auto-seleccionar el primer dispositivo cuando cargue la lista
   const autoSelected = useRef(false)
@@ -54,14 +55,22 @@ function AppInner({ user, logout }) {
     }
   }, [devices, setSelectedMac])
 
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30000)
+    return () => clearInterval(id)
+  }, [])
+
   const selectedDevice = devices.find(d => d.mac_address === selectedMac)
   const isDeviceOnline = selectedDevice?.latest_reading
-    ? (Date.now() - new Date(selectedDevice.latest_reading.replace(' ', 'T')).getTime()) < 90000
+    ? (() => {
+        const parsed = Date.parse(String(selectedDevice.latest_reading).trim())
+        return !Number.isNaN(parsed) && (nowMs - parsed) < 90000
+      })()
     : false
   // Detectar ?serial= en la URL (QR de etiqueta del dispositivo)
   const serialFromUrl = new URLSearchParams(window.location.search).get('serial')
   const [activeView, setActiveView] = useState(serialFromUrl ? 'claim' : 'dashboard')
-  const [claimSerial, setClaimSerial] = useState(serialFromUrl || '')
+  const [claimSerial] = useState(serialFromUrl || '')
   const [unackedAlerts, setUnackedAlerts] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -73,12 +82,14 @@ function AppInner({ user, logout }) {
         if (!res.ok) return
         const data = await res.json()
         setUnackedAlerts(data.length)
-      } catch (_) {}
+      } catch {
+        // Ignorar errores transitorios del contador de alertas.
+      }
     }
     fetchCount()
     const id = setInterval(fetchCount, 60000)
     return () => clearInterval(id)
-  }, [])
+  }, [authFetch])
 
   const handleViewChange = (view) => {
     setActiveView(view)
@@ -107,7 +118,6 @@ function AppInner({ user, logout }) {
         onSelectDevice={setSelectedMac}
         unackedAlerts={unackedAlerts}
         mobileOpen={sidebarOpen}
-        user={user}
         onLogout={logout}
       />
 

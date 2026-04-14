@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { createElement, useState } from 'react'
 import {
   Search, ChevronLeft, ChevronRight,
   Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
@@ -36,13 +36,15 @@ const NAV_ITEMS = [
 
 function isOnline(ts) {
   if (!ts) return false
-  return (Date.now() - new Date(ts.replace(' ', 'T')).getTime()) < 90000
+  const parsed = Date.parse(String(ts).trim())
+  if (Number.isNaN(parsed)) return false
+  return (Date.now() - parsed) < 90000
 }
 
 export default function Sidebar({
   onFetchFiltered, loading, sampleCount, activeView, onViewChange,
   devices, selectedMac, onSelectDevice, unackedAlerts, mobileOpen,
-  user, onLogout,
+  onLogout,
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [activePreset, setActivePreset] = useState(null)
@@ -105,18 +107,18 @@ export default function Sidebar({
 
       {/* ── Nav ── */}
       <div className={`px-3 py-3 border-b border-navy-800 flex flex-col gap-1`}>
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+        {NAV_ITEMS.map((item) => (
           <button
-            key={id}
-            onClick={() => onViewChange(id)}
+            key={item.id}
+            onClick={() => onViewChange(item.id)}
             className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors
-              ${activeView === id
+              ${activeView === item.id
                 ? 'bg-brand-500 text-white'
                 : 'text-navy-300 hover:bg-navy-800 hover:text-white'}`}
           >
-            <Icon size={14} className="shrink-0" />
-            {!collapsed && label}
-            {id === 'alerts' && unackedAlerts > 0 && (
+            {createElement(item.icon, { size: 14, className: 'shrink-0' })}
+            {!collapsed && item.label}
+            {item.id === 'alerts' && unackedAlerts > 0 && (
               <span className="ml-auto bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
                 {unackedAlerts}
               </span>
