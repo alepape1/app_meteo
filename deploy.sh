@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # deploy.sh — Actualiza la app Aquantia en producción
-# El dist/ viene precompilado en el repo (no requiere npm en el servidor)
+#
+# Si Node.js y npm están instalados en el servidor, compila el frontend
+# automáticamente tras el git pull. Si no lo están, continúa usando el dist/
+# presente en el repositorio como fallback.
 #
 # Uso:
-#   ./deploy.sh              — actualización normal
-#   ./deploy.sh --migrate    — primer despliegue: migra SQLite → PostgreSQL
-#   ./deploy.sh --no-docker  — solo actualiza el frontend (sin rebuild Docker)
+#   ./deploy.sh                     — actualización normal
+#   ./deploy.sh --migrate           — primer despliegue: migra SQLite → PostgreSQL
+#   ./deploy.sh --no-docker         — omite rebuild Docker
+#   ./deploy.sh --no-frontend-build — omite compilación frontend
 
 set -e
 
@@ -14,11 +18,13 @@ cd "$SCRIPT_DIR"
 
 REBUILD_DOCKER=true
 MIGRATE=false
+BUILD_FRONTEND=true
 
 for arg in "$@"; do
     case $arg in
-        --no-docker) REBUILD_DOCKER=false ;;
-        --migrate)   MIGRATE=true ;;
+        --no-docker)         REBUILD_DOCKER=false ;;
+        --migrate)           MIGRATE=true ;;
+        --no-frontend-build) BUILD_FRONTEND=false ;;
     esac
 done
 
@@ -33,26 +39,39 @@ git pull
 echo " OK"
 echo ""
 
-# ── 2. Docker ─────────────────────────────────────────────────────────────────
-if [ "$REBUILD_DOCKER" = true ]; then
-    echo " [2/3] Rebuilding y reiniciando contenedores..."
-    docker compose up -d --build
-    echo " OK — contenedores activos"
+# ── 2. Frontend ───────────────────────────────────────────────────────────────
+if [ "$BUILD_FRONTEND" = true ]; then
+    if command -v npm >/dev/null 2>&1; then
+        echo " [2/4] Compilando frontend..."
+        (cd frontend && npm ci && npm run build)
+        echo " OK — frontend compilado"
+    else
+        echo " [2/4] npm no está instalado; se mantiene el dist/ del repo"
+    fi
 else
-    echo " [2/3] Docker omitido (--no-docker)"
+    echo " [2/4] Build frontend omitido (--no-frontend-build)"
 fi
 
-# ── 3. Migración SQLite → PostgreSQL (solo primer despliegue) ──────────────────
+# ── 3. Docker ─────────────────────────────────────────────────────────────────
+if [ "$REBUILD_DOCKER" = true ]; then
+    echo " [3/4] Rebuilding y reiniciando contenedores..."
+    docker compose up -d --build --remove-orphans
+    echo " OK — contenedores activos"
+else
+    echo " [3/4] Docker omitido (--no-docker)"
+fi
+
+# ── 4. Migración SQLite → PostgreSQL (solo primer despliegue) ──────────────────
 if [ "$MIGRATE" = true ]; then
     echo ""
-    echo " [3/3] Migrando datos SQLite → PostgreSQL..."
+    echo " [4/4] Migrando datos SQLite → PostgreSQL..."
     # Esperar a que TimescaleDB esté listo
     echo "       Esperando TimescaleDB..."
     sleep 5
     docker compose exec backend python /app/migrate_sqlite_to_pg.py
     echo " OK — migración completada"
 else
-    echo " [3/3] Migración omitida (usa --migrate en el primer despliegue)"
+    echo " [4/4] Migración omitida (usa --migrate en el primer despliegue)"
 fi
 
 echo ""
