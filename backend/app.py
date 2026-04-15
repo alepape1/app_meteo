@@ -1,34 +1,45 @@
-from flask import Flask, g, render_template, request, jsonify, redirect
+# flake8: noqa: E501
+
+import datetime
+import logging
+import os
+
 import bcrypt
+from dotenv import load_dotenv
+from flask import Flask, g, jsonify, redirect, render_template, request
 from flask_cors import CORS
 from flask_jwt_extended import (
-    JWTManager, create_access_token,
-    jwt_required, get_jwt_identity,
+    JWTManager,
+    create_access_token,
+    get_jwt_identity,
+    jwt_required,
 )
-from dotenv import load_dotenv
-import os
-import logging
-import datetime
+
+import mqtt_client
+from database import create_tables, get_db_connection, init_pool
+from pipeline_sim import (
+    DYNAMIC_PRESSURE_BAR,
+    STATIC_PRESSURE_BAR,
+    build_synthetic_history,
+    detect_leaks,
+    simulate_reading,
+)
 
 load_dotenv()
 
-from database import get_db_connection, create_tables, init_pool
-import mqtt_client
-from pipeline_sim import (
-    simulate_reading,
-    build_synthetic_history,
-    detect_leaks,
-    STATIC_PRESSURE_BAR,
-    DYNAMIC_PRESSURE_BAR,
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
 )
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "cambia_esto_en_produccion")
+app.config["JWT_SECRET_KEY"] = os.environ.get(
+    "JWT_SECRET_KEY",
+    "cambia_esto_en_produccion",
+)
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(days=30)
 jwt = JWTManager(app)
 
@@ -59,9 +70,7 @@ def _relay_ensure(mac):
     for i in range(count):
         db.execute(
             "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
-            " VALUES (?, ?, 0, 0)",
-            (mac, i)
-        )
+            " VALUES (?, ?, 0, 0)", (mac, i))
     db.commit()
 
 
@@ -94,7 +103,8 @@ def _relay_set_desired(mac, index, state):
             (1 if state else 0, mac, index)
         )
     else:
-        db.execute("UPDATE relay_state SET desired=? WHERE id=1", (1 if state else 0,))
+        db.execute("UPDATE relay_state SET desired=? WHERE id=1",
+                   (1 if state else 0,))
     db.commit()
 
 
@@ -106,7 +116,8 @@ def _relay_set_actual(mac, index, state):
             (1 if state else 0, mac, index)
         )
     else:
-        db.execute("UPDATE relay_state SET actual=? WHERE id=1", (1 if state else 0,))
+        db.execute("UPDATE relay_state SET actual=? WHERE id=1",
+                   (1 if state else 0,))
     db.commit()
 
 
@@ -115,13 +126,14 @@ def _relay_set_actual(mac, index, state):
 @app.route("/api/auth/register", methods=["POST"])
 def auth_register():
     data = request.get_json(silent=True) or {}
-    email    = (data.get("email") or "").strip().lower()
+    email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
-    name     = (data.get("display_name") or "").strip()
+    name = (data.get("display_name") or "").strip()
     if not email or not password:
         return jsonify({"error": "Faltan email o contraseña"}), 400
     if len(password) < 8:
-        return jsonify({"error": "La contraseña debe tener al menos 8 caracteres"}), 400
+        return jsonify(
+            {"error": "La contraseña debe tener al menos 8 caracteres"}), 400
     db = get_db()
     if db.execute("SELECT id FROM users WHERE email=%s", (email,)).fetchone():
         return jsonify({"error": "Email ya registrado"}), 409
@@ -131,16 +143,26 @@ def auth_register():
         (email, pw_hash, name or email.split("@")[0])
     )
     db.commit()
-    user = db.execute("SELECT id, email, display_name, role FROM users WHERE email=%s", (email,)).fetchone()
+    user = db.execute(
+        "SELECT id, email, display_name, role FROM users WHERE email=%s",
+        (email,),
+    ).fetchone()
     token = create_access_token(identity=str(user["id"]))
-    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"],
-                                              "display_name": user["display_name"], "role": user["role"]}}), 201
+    return jsonify({
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "display_name": user["display_name"],
+            "role": user["role"],
+        },
+    }), 201
 
 
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
     data = request.get_json(silent=True) or {}
-    email    = (data.get("email") or "").strip().lower()
+    email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     if not email or not password:
         return jsonify({"error": "Faltan email o contraseña"}), 400
@@ -149,13 +171,22 @@ def auth_login():
         "SELECT id, email, display_name, role, password_hash, is_active FROM users WHERE email=%s",
         (email,)
     ).fetchone()
-    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+    if not user or not bcrypt.checkpw(
+            password.encode(),
+            user["password_hash"].encode()):
         return jsonify({"error": "Credenciales incorrectas"}), 401
     if not user["is_active"]:
         return jsonify({"error": "Cuenta desactivada"}), 403
     token = create_access_token(identity=str(user["id"]))
-    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"],
-                                              "display_name": user["display_name"], "role": user["role"]}})
+    return jsonify({
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "display_name": user["display_name"],
+            "role": user["role"],
+        },
+    })
 
 
 @app.route("/api/auth/me")
@@ -163,15 +194,18 @@ def auth_login():
 def auth_me():
     user_id = int(get_jwt_identity())
     user = get_db().execute(
-        "SELECT id, email, display_name, role FROM users WHERE id=%s", (user_id,)
+        "SELECT id, email, display_name, role FROM users WHERE id=%s",
+        (user_id,),
     ).fetchone()
     if not user:
         return jsonify({"error": "Usuario no encontrado"}), 404
-    return jsonify({"id": user["id"], "email": user["email"],
-                    "display_name": user["display_name"], "role": user["role"]})
+    return jsonify({"id": user["id"],
+                    "email": user["email"],
+                    "display_name": user["display_name"],
+                    "role": user["role"]})
 
 
-# ── Guard JWT para rutas /api/ ────────────────────────────────────────────────
+# ── Guard JWT para rutas /api/ ──────────────────────────────────────────
 # Rutas públicas: llamadas por ESP32, mosquitto o el propio sistema de auth.
 _JWT_PUBLIC = {
     "/api/auth/register",
@@ -180,6 +214,7 @@ _JWT_PUBLIC = {
     "/api/mqtt/acl",
     "/api/devices/register_factory",
 }
+
 
 @app.before_request
 def _require_jwt():
@@ -193,7 +228,8 @@ def _require_jwt():
         and request.method == "GET"
     ):
         return
-    # POST /api/device_info y GET+POST /api/relay/command y /api/relay/ack → ESP32
+    # POST /api/device_info y GET+POST /api/relay/command y /api/relay/ack →
+    # ESP32
     if request.path == "/api/device_info" and request.method == "POST":
         return
     if request.path in ("/api/relay/command", "/api/relay/ack"):
@@ -203,7 +239,8 @@ def _require_jwt():
         verify_jwt_in_request()
         g.user_id = int(get_jwt_identity())
     except Exception:
-        return jsonify({"error": "Autenticación requerida", "code": "missing_token"}), 401
+        return jsonify({"error": "Autenticación requerida",
+                       "code": "missing_token"}), 401
 
 
 # ── Configuración de la aplicación ───────────────────────────────────────────
@@ -305,25 +342,25 @@ def parse_message_data(message):
 def rows_to_dict(rows):
     """Convierte filas de DB al formato esperado por los gráficos."""
     return {
-        "timestamp":             [r["timestamp"]             for r in rows],
-        "temperature":           [r["temperature"]           for r in rows],
-        "temperature_bar":       [r["temperature_barometer"] for r in rows],
-        "humidity":              [r["humidity"]              for r in rows],
-        "pressure":              [r["pressure"]              for r in rows],
-        "windSpeed":             [r["windSpeed"]             for r in rows],
-        "windDirection":         [r["windDirection"]         for r in rows],
-        "windSpeedFiltered":     [r["windSpeedFiltered"]     for r in rows],
+        "timestamp": [r["timestamp"] for r in rows],
+        "temperature": [r["temperature"] for r in rows],
+        "temperature_bar": [r["temperature_barometer"] for r in rows],
+        "humidity": [r["humidity"] for r in rows],
+        "pressure": [r["pressure"] for r in rows],
+        "windSpeed": [r["windSpeed"] for r in rows],
+        "windDirection": [r["windDirection"] for r in rows],
+        "windSpeedFiltered": [r["windSpeedFiltered"] for r in rows],
         "windDirectionFiltered": [r["windDirectionFiltered"] for r in rows],
-        "light":                 [r["light"]                 for r in rows],
-        "dht_temperature":       [r["dht_temperature"]       for r in rows],
-        "dht_humidity":          [r["dht_humidity"]          for r in rows],
-        "rssi":                  [r["rssi"]                  for r in rows],
-        "free_heap":             [r["free_heap"]             for r in rows],
-        "uptime_s":              [r["uptime_s"]              for r in rows],
-        "relay_active":          [r["relay_active"]          for r in rows],
-        "pipeline_pressure":     [r["pipeline_pressure"]     for r in rows],
-        "pipeline_flow":         [r["pipeline_flow"]         for r in rows],
-        "soil_moisture":         [r["soil_moisture"]         for r in rows],
+        "light": [r["light"] for r in rows],
+        "dht_temperature": [r["dht_temperature"] for r in rows],
+        "dht_humidity": [r["dht_humidity"] for r in rows],
+        "rssi": [r["rssi"] for r in rows],
+        "free_heap": [r["free_heap"] for r in rows],
+        "uptime_s": [r["uptime_s"] for r in rows],
+        "relay_active": [r["relay_active"] for r in rows],
+        "pipeline_pressure": [r["pipeline_pressure"] for r in rows],
+        "pipeline_flow": [r["pipeline_flow"] for r in rows],
+        "soil_moisture": [r["soil_moisture"] for r in rows],
     }
 
 
@@ -367,15 +404,16 @@ def send_message():
         logger.warning("Mensaje inválido descartado: %s", message)
         return "Error: se esperan 9, 11, 14, 15, 16, 17 o 18 valores separados por coma", 400
 
-    dht_temp          = data[9]  if len(data) >= 11 else None
-    dht_hum           = data[10] if len(data) >= 11 else None
-    rssi              = int(data[11]) if len(data) >= 14 else None
-    free_heap         = int(data[12]) if len(data) >= 14 else None
-    uptime_s          = int(data[13]) if len(data) >= 14 else None
-    relay_active      = int(data[14]) if len(data) >= 15 else 0
-    soil_moisture     = data[15] if len(data) == 16 else (data[17] if len(data) >= 18 else None)
+    dht_temp = data[9] if len(data) >= 11 else None
+    dht_hum = data[10] if len(data) >= 11 else None
+    rssi = int(data[11]) if len(data) >= 14 else None
+    free_heap = int(data[12]) if len(data) >= 14 else None
+    uptime_s = int(data[13]) if len(data) >= 14 else None
+    relay_active = int(data[14]) if len(data) >= 15 else 0
+    soil_moisture = data[15] if len(data) == 16 else (
+        data[17] if len(data) >= 18 else None)
     pipeline_pressure = data[15] if len(data) >= 17 else None
-    pipeline_flow     = data[16] if len(data) >= 17 else None
+    pipeline_flow = data[16] if len(data) >= 17 else None
 
     # Identificar dispositivo: primero por header X-Device-MAC, luego por IP
     device_mac = request.headers.get('X-Device-MAC')
@@ -429,21 +467,29 @@ def fetch_data_average(cantidad_muestras):
     cursor.close()
 
     if not row or row[0] is None:
-        return render_template(TEMPLATE_FILE, message="Sin datos suficientes",
-                               timestamp=[], temperature=[], temperature_bar=[],
-                               humidity=[], pressure=[], windSpeed=[],
-                               windDirection=[], windSpeedFiltered=[], windDirectionFiltered=[])
+        return render_template(
+            TEMPLATE_FILE,
+            message="Sin datos suficientes",
+            timestamp=[],
+            temperature=[],
+            temperature_bar=[],
+            humidity=[],
+            pressure=[],
+            windSpeed=[],
+            windDirection=[],
+            windSpeedFiltered=[],
+            windDirectionFiltered=[])
 
     context = {
         "message": f"Promedio de {cantidad_muestras} muestras",
-        "timestamp":             [],
-        "temperature":           [row[0]],
-        "temperature_bar":       [row[1]],
-        "humidity":              [row[2]],
-        "pressure":              [row[3]],
-        "windSpeed":             [row[4]],
-        "windDirection":         [row[5]],
-        "windSpeedFiltered":     [row[6]],
+        "timestamp": [],
+        "temperature": [row[0]],
+        "temperature_bar": [row[1]],
+        "humidity": [row[2]],
+        "pressure": [row[3]],
+        "windSpeed": [row[4]],
+        "windDirection": [row[5]],
+        "windSpeedFiltered": [row[6]],
         "windDirectionFiltered": [row[7]],
     }
     return render_template(TEMPLATE_FILE, **context)
@@ -662,7 +708,8 @@ def set_relay():
     state = bool(payload['state'])
     _relay_ensure(mac)
     _relay_set_desired(mac, index, state)
-    logger.info("Relay %d deseado → %s (mac=%s)", index, "ON" if state else "OFF", mac)
+    logger.info("Relay %d deseado → %s (mac=%s)",
+                index, "ON" if state else "OFF", mac)
 
     # Si el dispositivo tiene finca_id, envía el comando también por MQTT
     if mac:
@@ -676,7 +723,8 @@ def set_relay():
                 "state": state,
             })
             # Actualizar actual de forma optimista — QoS 1 garantiza entrega.
-            # La telemetría corregirá cualquier discrepancia en el siguiente ciclo.
+            # La telemetría corregirá cualquier discrepancia en el siguiente
+            # ciclo.
             _relay_set_actual(mac, index, state)
 
     return jsonify({"index": index, "state": state})
@@ -695,7 +743,8 @@ def relay_ack():
         _relay_ensure(mac)
         states = _relay_get(mac)
         for s in states:
-            _relay_set_actual(mac, s['index'], bool((bitmask >> s['index']) & 1))
+            _relay_set_actual(mac, s['index'], bool(
+                (bitmask >> s['index']) & 1))
         logger.info("Relay ACK (mac=%s) bitmask=%d", mac, bitmask)
         return jsonify({"mac": mac, "bitmask": bitmask})
     # Legacy sin mac
@@ -912,11 +961,11 @@ def _db_rows_to_pipeline(rows, scenario):
     """Convierte filas de DB con pipeline_pressure/flow a dicts para detect_leaks."""
     return [
         {
-            "timestamp":    row["timestamp"],
-            "valve_open":   bool(row["relay_active"]),
-            "scenario":     scenario,
+            "timestamp": row["timestamp"],
+            "valve_open": bool(row["relay_active"]),
+            "scenario": scenario,
             "pressure_bar": row["pipeline_pressure"],
-            "flow_lpm":     row["pipeline_flow"],
+            "flow_lpm": row["pipeline_flow"],
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -996,18 +1045,19 @@ def pipeline_status():
     detection = detect_leaks(history)
 
     mode = cfg.get('pipeline_mode', 'sim')
-    source = "db" if using_db else ("sim-fallback" if mode == 'real' else "sim")
+    source = "db" if using_db else (
+        "sim-fallback" if mode == 'real' else "sim")
 
     return jsonify({
-        "current":   current,
+        "current": current,
         "detection": detection,
         "config": {
-            "scenario":             scenario,
-            "mode":                 mode,
-            "nominal_flow_lpm":     nominal_flow,
-            "static_pressure_bar":  STATIC_PRESSURE_BAR,
+            "scenario": scenario,
+            "mode": mode,
+            "nominal_flow_lpm": nominal_flow,
+            "static_pressure_bar": STATIC_PRESSURE_BAR,
             "dynamic_pressure_bar": DYNAMIC_PRESSURE_BAR,
-            "source":               source,
+            "source": source,
         },
     })
 
@@ -1033,7 +1083,7 @@ def pipeline_readings():
         return jsonify({"error": "Dispositivo no autorizado"}), 403
 
     from_dt = request.args.get('from')
-    to_dt   = request.args.get('to')
+    to_dt = request.args.get('to')
 
     if from_dt and to_dt:
         rows = _fetch_pipeline_rows(mac, from_dt=from_dt, to_dt=to_dt)
@@ -1084,7 +1134,8 @@ def set_pipeline_config():
     mode = payload.get('mode')
 
     if scenario is not None and scenario not in ('normal', 'leak', 'burst'):
-        return jsonify({"error": "Escenario inválido. Use: normal, leak, burst"}), 400
+        return jsonify(
+            {"error": "Escenario inválido. Use: normal, leak, burst"}), 400
     if mode is not None and mode not in ('sim', 'real'):
         return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
     if scenario is None and mode is None:
@@ -1100,9 +1151,7 @@ def set_pipeline_config():
     if scenario is not None:
         db.execute(
             "INSERT INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)"
-            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            (scenario,)
-        )
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (scenario,))
     if mode is not None:
         db.execute(
             "INSERT INTO app_settings(key, value) VALUES ('pipeline_mode', ?)"
@@ -1111,7 +1160,8 @@ def set_pipeline_config():
         )
     db.commit()
 
-    dispatched = _publish_pipeline_config(mac, scenario=scenario, mode=mode) if mac else False
+    dispatched = _publish_pipeline_config(
+        mac, scenario=scenario, mode=mode) if mac else False
     cfg = _get_settings()
     logger.info(
         "Pipeline config → scenario=%s mode=%s mac=%s mqtt=%s",
@@ -1140,9 +1190,10 @@ def set_pipeline_scenario():
 @app.route("/api/alerts")
 def api_alerts():
     """Lista alertas recientes (últimas 100). Filtros opcionales: mac, finca_id, acked."""
-    mac      = request.args.get('mac')
+    mac = request.args.get('mac')
     finca_id = request.args.get('finca_id')
-    acked    = request.args.get('acked')  # "0" solo no acks, "1" solo acks, None = todas
+    # "0" solo no acks, "1" solo acks, None = todas
+    acked = request.args.get('acked')
 
     query = "SELECT * FROM alerts WHERE 1=1"
     params = []
@@ -1185,7 +1236,8 @@ def mqtt_auth():
     data = request.get_json(silent=True, force=True) or {}
     username = data.get("username", "")
     password = data.get("password", "")
-    app.logger.info(f"[mqtt/auth] user={username!r} ok={bool(username and password)}")
+    app.logger.info(
+        f"[mqtt/auth] user={username!r} ok={bool(username and password)}")
     if not username or not password:
         return jsonify({"error": "missing"}), 401
 
@@ -1249,7 +1301,7 @@ def claim_device():
     data = request.get_json(silent=True) or {}
     serial_number = (data.get("serial_number") or "").strip().upper()
     finca_id = data.get("finca_id", "").strip()
-    nickname  = data.get("nickname", "").strip()
+    nickname = data.get("nickname", "").strip()
     if not serial_number:
         return jsonify({"error": "Falta serial_number"}), 400
     db = get_db()
@@ -1264,7 +1316,8 @@ def claim_device():
         "SELECT user_id FROM user_devices WHERE mac_address=?", (row["mac"],)
     ).fetchone()
     if existing and existing["user_id"] != user_id:
-        return jsonify({"error": "Dispositivo ya reclamado por otro usuario"}), 409
+        return jsonify(
+            {"error": "Dispositivo ya reclamado por otro usuario"}), 409
     db.execute(
         "UPDATE device_credentials SET claimed_by_finca_id=?, claimed_at=CURRENT_TIMESTAMP WHERE serial_number=?",
         (finca_id or serial_number, serial_number)
@@ -1293,9 +1346,11 @@ def register_factory():
     """Llamado por el script de fábrica para registrar un dispositivo nuevo."""
     allowed = ("127.0.0.1", "::1")
     addr = request.remote_addr or ""
-    # Permitir también redes internas Docker (172.16-31.x.x, 10.x.x.x, 192.168.x.x)
+    # Permitir también redes internas Docker (172.16-31.x.x, 10.x.x.x,
+    # 192.168.x.x)
     if addr not in allowed and not (
-        addr.startswith("172.") or addr.startswith("10.") or addr.startswith("192.168.")
+        addr.startswith("172.") or addr.startswith(
+            "10.") or addr.startswith("192.168.")
     ):
         return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
@@ -1303,16 +1358,16 @@ def register_factory():
     token_hash = data.get("token_hash", "")
     serial_number = (data.get("serial_number") or "").upper()
     if not mac or not token_hash or not serial_number:
-        return jsonify({"error": "Faltan campos: mac, token_hash, serial_number"}), 400
+        return jsonify(
+            {"error": "Faltan campos: mac, token_hash, serial_number"}), 400
     db = get_db()
     db.execute(
         "INSERT INTO device_credentials(mac, token_hash, serial_number) VALUES (%s, %s, %s)"
         " ON CONFLICT (mac) DO UPDATE SET token_hash = EXCLUDED.token_hash,"
-        " serial_number = EXCLUDED.serial_number",
-        (mac, token_hash, serial_number)
-    )
+        " serial_number = EXCLUDED.serial_number", (mac, token_hash, serial_number))
     db.commit()
-    logger.info("Dispositivo registrado en fábrica: mac=%s sn=%s", mac, serial_number)
+    logger.info("Dispositivo registrado en fábrica: mac=%s sn=%s",
+                mac, serial_number)
     return jsonify({"ok": True, "mac": mac, "serial_number": serial_number})
 
 
