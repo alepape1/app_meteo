@@ -192,9 +192,10 @@ def _require_jwt():
         return
     if request.path in ("/api/relay/command", "/api/relay/ack"):
         return
-    from flask_jwt_extended import verify_jwt_in_request
+    from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
     try:
         verify_jwt_in_request()
+        g.user_id = int(get_jwt_identity())
     except Exception:
         return jsonify({"error": "Autenticación requerida", "code": "missing_token"}), 401
 
@@ -262,7 +263,7 @@ def parse_message_data(message):
     """Parsea el mensaje CSV recibido del ESP32."""
     try:
         parts = message.strip().split(",")
-        if len(parts) not in (9, 11, 14, 15, 16, 17):
+        if len(parts) not in (9, 11, 14, 15, 16, 17, 18):
             return None
         return [float(v) for v in parts]
     except ValueError:
@@ -332,7 +333,7 @@ def send_message():
     data = parse_message_data(message)
     if data is None:
         logger.warning("Mensaje inválido descartado: %s", message)
-        return "Error: se esperan 9, 11 u 14 valores separados por coma", 400
+        return "Error: se esperan 9, 11, 14, 15, 16, 17 o 18 valores separados por coma", 400
 
     dht_temp          = data[9]  if len(data) >= 11 else None
     dht_hum           = data[10] if len(data) >= 11 else None
@@ -340,7 +341,7 @@ def send_message():
     free_heap         = int(data[12]) if len(data) >= 14 else None
     uptime_s          = int(data[13]) if len(data) >= 14 else None
     relay_active      = int(data[14]) if len(data) >= 15 else 0
-    soil_moisture     = data[15] if len(data) == 16 else None
+    soil_moisture     = data[15] if len(data) == 16 else (data[17] if len(data) >= 18 else None)
     pipeline_pressure = data[15] if len(data) >= 17 else None
     pipeline_flow     = data[16] if len(data) >= 17 else None
 
@@ -608,6 +609,7 @@ def get_relay():
         return jsonify({"error": "Acceso denegado al dispositivo"}), 403
     if not mac:
         return jsonify([])
+    _relay_ensure(mac)
     return jsonify(_relay_get(mac))
 
 
@@ -658,6 +660,7 @@ def relay_ack():
     except ValueError:
         bitmask = 0
     if mac:
+        _relay_ensure(mac)
         states = _relay_get(mac)
         for s in states:
             _relay_set_actual(mac, s['index'], bool((bitmask >> s['index']) & 1))
@@ -888,6 +891,42 @@ def _db_rows_to_pipeline(rows, scenario):
     ]
 
 
+def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
+    """Devuelve lecturas de pipeline deduplicadas por timestamp para una MAC."""
+    if not mac:
+        return []
+
+    where = [
+        "device_mac=?",
+        "pipeline_pressure IS NOT NULL",
+        "pipeline_flow IS NOT NULL",
+    ]
+    params = [mac]
+
+    if from_dt and to_dt:
+        where.append("timestamp BETWEEN ? AND ?")
+        params.extend([from_dt, to_dt])
+
+    order = "ASC" if (from_dt and to_dt) else "DESC"
+    query = f"""
+        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
+        FROM (
+            SELECT DISTINCT ON (timestamp)
+                   id, timestamp, relay_active, pipeline_pressure, pipeline_flow
+            FROM home_weather_station
+            WHERE {' AND '.join(where)}
+            ORDER BY timestamp, id DESC
+        ) dedup
+        ORDER BY timestamp {order}
+    """
+
+    if limit is not None:
+        query += "\nLIMIT ?"
+        params.append(limit)
+
+    return get_db().execute(query, tuple(params)).fetchall()
+
+
 @app.route("/api/pipeline/status")
 def pipeline_status():
     """Estado actual del pipeline + análisis de detección de fugas.
@@ -899,15 +938,16 @@ def pipeline_status():
     cfg = _get_settings()
     scenario = cfg.get('pipeline_scenario', 'normal')
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
-    states = _relay_get()
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac) if user_id else None
+    if requested_mac and not mac:
+        return jsonify({"error": "Dispositivo no autorizado"}), 403
+
+    states = _relay_get(mac)
     actual = states[0]['actual'] if states else False
 
-    rows = get_db().execute("""
-        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
-        FROM home_weather_station
-        ORDER BY timestamp DESC
-        LIMIT 90
-    """).fetchall()
+    rows = _fetch_pipeline_rows(mac, limit=90)
 
     real_history = _db_rows_to_pipeline(list(reversed(rows)), scenario)
     using_db = bool(real_history)
@@ -950,32 +990,27 @@ def pipeline_readings():
     cfg = _get_settings()
     scenario = cfg.get('pipeline_scenario', 'normal')
     nominal_flow = float(cfg.get('flow_lpm', '5.0'))
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac) if user_id else None
+    if requested_mac and not mac:
+        return jsonify({"error": "Dispositivo no autorizado"}), 403
 
     from_dt = request.args.get('from')
     to_dt   = request.args.get('to')
 
     if from_dt and to_dt:
-        rows = get_db().execute("""
-            SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
-            FROM home_weather_station
-            WHERE timestamp BETWEEN ? AND ?
-            ORDER BY timestamp ASC
-        """, (from_dt, to_dt)).fetchall()
+        rows = _fetch_pipeline_rows(mac, from_dt=from_dt, to_dt=to_dt)
         readings = _db_rows_to_pipeline(list(rows), scenario)
         return jsonify(readings)
 
     n = min(int(request.args.get('n', 90)), 500)
-    rows = get_db().execute("""
-        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
-        FROM home_weather_station
-        ORDER BY timestamp DESC
-        LIMIT ?
-    """, (n,)).fetchall()
+    rows = _fetch_pipeline_rows(mac, limit=n)
 
     readings = _db_rows_to_pipeline(list(reversed(rows)), scenario)
 
     if not readings:
-        states = _relay_get()
+        states = _relay_get(mac)
         actual = states[0]['actual'] if states else False
         readings = build_synthetic_history(n, actual, scenario, nominal_flow)
 
@@ -1199,11 +1234,14 @@ with app.app_context():
     create_tables(conn)
     conn.close()
 
-# Iniciar cliente MQTT (hilo daemon, no bloquea aunque el broker no esté disponible)
-mqtt_client.start()
-
 if __name__ == "__main__":
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = int(os.getenv("FLASK_PORT", 7000))
     debug = os.getenv("FLASK_DEBUG", "0") == "1"
+
+    # Iniciar MQTT solo en el proceso servidor real para evitar duplicados
+    # cuando Flask usa autoreload en desarrollo.
+    if (not debug) or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        mqtt_client.start()
+
     app.run(host=host, port=port, debug=debug)

@@ -217,7 +217,7 @@ function AppInner({ user, logout }) {
             {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
             {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
             {activeView === 'nodos'     && <NodesView />}
-            {activeView === 'pipeline'  && <PipelineView />}
+            {activeView === 'pipeline'  && <PipelineView selectedMac={selectedMac} />}
             {activeView === 'alerts'    && <AlertsPanel />}
             {activeView === 'settings'  && <SettingsView />}
             {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}

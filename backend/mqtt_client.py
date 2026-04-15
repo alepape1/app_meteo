@@ -101,13 +101,38 @@ def _handle_telemetry(finca_id: str, payload: dict):
             device_mac,
             ts_dt,
         ))
-        # Actualizar relay_state.actual desde el bitmask relay_active
+        # Actualizar device_info y relay_state desde la telemetría MQTT.
         if device_mac:
             relay_mask = int(payload.get("relay_active", 0))
+            try:
+                payload_relay_count = max(1, int(payload.get("relay_count", 1) or 1))
+            except (TypeError, ValueError):
+                payload_relay_count = 1
+
             row = db.execute(
                 "SELECT relay_count FROM device_info WHERE mac_address=?", (device_mac,)
             ).fetchone()
-            relay_count = row["relay_count"] if row else 1
+            existing_relay_count = int(row["relay_count"]) if row and row["relay_count"] else 1
+            relay_count = max(existing_relay_count, payload_relay_count)
+
+            db.execute("""
+                INSERT INTO device_info(
+                    finca_id, mac_address, ip_address, relay_count, firmware_version, last_seen
+                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(mac_address) DO UPDATE SET
+                    finca_id         = excluded.finca_id,
+                    ip_address       = COALESCE(excluded.ip_address, device_info.ip_address),
+                    relay_count      = GREATEST(COALESCE(device_info.relay_count, 1), excluded.relay_count),
+                    firmware_version = COALESCE(excluded.firmware_version, device_info.firmware_version),
+                    last_seen        = CURRENT_TIMESTAMP
+            """, (
+                finca_id,
+                device_mac,
+                payload.get("ip_address"),
+                relay_count,
+                payload.get("firmware_version"),
+            ))
+
             for i in range(relay_count):
                 actual = 1 if (relay_mask & (1 << i)) else 0
                 db.execute(

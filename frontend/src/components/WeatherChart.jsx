@@ -51,22 +51,27 @@ export default function WeatherChart({
     colors,
     stroke: {
       curve: 'smooth',
-      width: type === 'scatter' ? 0 : series.map((_, i) => i === 0 ? 2.5 : 2),
+      lineCap: 'round',
+      width: type === 'scatter' ? 0 : series.map((_, i) => i === 0 ? 3 : 2),
       dashArray: series.map((_, i) => i > 0 ? 4 : 0),
     },
     fill: {
       type: type === 'area' ? 'gradient' : 'solid',
       gradient: {
-        shadeIntensity: 1,
-        opacityFrom: 0.2,
-        opacityTo: 0.01,
+        shadeIntensity: 0,
+        opacityFrom: 0.08,
+        opacityTo: 0,
         stops: [0, 100],
       },
     },
     markers: {
       size: type === 'scatter' ? 3 : 0,
-      hover: { size: 5 },
+      hover: { size: 4 },
       strokeWidth: 0,
+    },
+    states: {
+      hover: { filter: { type: 'none' } },
+      active: { filter: { type: 'none' } },
     },
     xaxis: {
       type: 'datetime',

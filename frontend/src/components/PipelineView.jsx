@@ -199,28 +199,85 @@ function DetectionStats({ detection }) {
 }
 
 function PipelineChart({ readings, mode, histLoading }) {
-  const ts       = readings.map(r => toMs(r.timestamp))
-  const pressure = readings.map((r, i) => ({ x: ts[i], y: r.pressure_bar }))
-  const flow     = readings.map((r, i) => ({ x: ts[i], y: r.flow_lpm }))
+  const deduped = new Map()
+  readings.forEach((r) => {
+    const x = toMs(r.timestamp)
+    if (!Number.isFinite(x)) return
+
+    const current = deduped.get(x) || { x, pressure: null, flow: null }
+    const pressure = Number(r.pressure_bar)
+    const flow = Number(r.flow_lpm)
+
+    if (Number.isFinite(pressure)) current.pressure = pressure
+    if (Number.isFinite(flow)) current.flow = flow
+
+    deduped.set(x, current)
+  })
+
+  const samples = Array.from(deduped.values())
+    .filter(p => Number.isFinite(p.x) && (Number.isFinite(p.pressure) || Number.isFinite(p.flow)))
+    .sort((a, b) => a.x - b.x)
+
+  const pressure = samples
+    .filter(p => Number.isFinite(p.pressure))
+    .map(p => ({ x: p.x, y: p.pressure }))
+
+  const flow = samples
+    .filter(p => Number.isFinite(p.flow))
+    .map(p => ({ x: p.x, y: p.flow }))
+
+  const pressureValues = pressure.map(p => p.y)
+  const flowValues = flow.map(p => p.y)
+
+  const buildAxisRange = (values, fallbackMax) => {
+    if (!values.length) return { min: 0, max: fallbackMax }
+    const minVal = Math.min(...values)
+    const maxVal = Math.max(...values)
+    const span = Math.max(maxVal - minVal, fallbackMax * 0.08, 0.02)
+    return {
+      min: Math.max(0, minVal - span * 0.35),
+      max: maxVal + span * 0.35,
+    }
+  }
+
+  const pressureAxis = buildAxisRange(pressureValues, 4)
+  const flowAxis = buildAxisRange(flowValues, 0.2)
 
   const series = [
-    { name: 'Presión (bar)',   data: pressure },
+    { name: 'Presión (bar)', data: pressure },
     { name: 'Caudal (L/min)', data: flow },
   ]
+
+  const hasAnyPoint = pressure.length > 0 || flow.length > 0
+  const hasVisibleSeries = pressure.length > 1 || flow.length > 1
 
   const options = {
     chart: {
       type: 'line',
       toolbar: { show: false },
+      zoom: { enabled: false },
       animations: { enabled: false },
-      background: 'transparent',
+      background: '#ffffff',
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
-    colors: ['#0c8ecc', '#10b981'],
-    stroke: { curve: 'smooth', width: [2.5, 2.5] },
+    colors: ['#0f766e', '#2563eb'],
+    stroke: {
+      curve: 'smooth',
+      lineCap: 'round',
+      width: [4, 4],
+    },
+    markers: {
+      size: 0,
+      strokeWidth: 0,
+      hover: { size: 4 },
+    },
     fill: {
-      type: 'gradient',
-      gradient: { shadeIntensity: 1, opacityFrom: 0.25, opacityTo: 0.02, stops: [0, 100] },
+      type: 'solid',
+      opacity: 0,
+    },
+    states: {
+      hover: { filter: { type: 'none' } },
+      active: { filter: { type: 'none' } },
     },
     xaxis: {
       type: 'datetime',
@@ -233,19 +290,25 @@ function PipelineChart({ readings, mode, histLoading }) {
     },
     yaxis: [
       {
-        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0c8ecc', fontFamily: '"DM Sans"' } },
-        min: 0,
+        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0f766e', fontFamily: '"DM Sans"' } },
+        min: pressureAxis.min,
+        max: pressureAxis.max,
+        forceNiceScale: true,
+        decimalsInFloat: 2,
         labels: {
-          style: { colors: '#0c8ecc', fontSize: '11px', fontFamily: '"DM Sans"' },
+          style: { colors: '#0f766e', fontSize: '11px', fontFamily: '"DM Sans"' },
           formatter: v => v != null ? `${v.toFixed(2)}` : '',
         },
       },
       {
         opposite: true,
-        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#10b981', fontFamily: '"DM Sans"' } },
-        min: 0,
+        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#2563eb', fontFamily: '"DM Sans"' } },
+        min: flowAxis.min,
+        max: flowAxis.max,
+        forceNiceScale: true,
+        decimalsInFloat: 1,
         labels: {
-          style: { colors: '#10b981', fontSize: '11px', fontFamily: '"DM Sans"' },
+          style: { colors: '#2563eb', fontSize: '11px', fontFamily: '"DM Sans"' },
           formatter: v => v != null ? `${v.toFixed(1)}` : '',
         },
       },
@@ -272,10 +335,11 @@ function PipelineChart({ readings, mode, histLoading }) {
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
     grid: {
-      borderColor: '#f3f3ef',
-      strokeDashArray: 3,
-      xaxis: { lines: { show: false } },
-      padding: { left: 4, right: 8 },
+      borderColor: '#dbe4ee',
+      strokeDashArray: 2,
+      xaxis: { lines: { show: true } },
+      yaxis: { lines: { show: true } },
+      padding: { left: 6, right: 10 },
     },
     dataLabels: { enabled: false },
   }
@@ -291,11 +355,17 @@ function PipelineChart({ readings, mode, histLoading }) {
           {histLoading ? 'Cargando…' : `${readings.length} muestras`}
         </span>
       </div>
-      {readings.length > 0 ? (
-        <ReactApexChart options={options} series={series} type="line" height={260} />
+      {hasVisibleSeries ? (
+        <div className="px-2 pb-2">
+          <ReactApexChart options={options} series={series} type="line" height={320} />
+        </div>
       ) : (
-        <div className="flex items-center justify-center text-navy-200 text-sm" style={{ height: 260 }}>
-          {histLoading ? 'Cargando datos…' : 'Sin datos en este rango'}
+        <div className="flex items-center justify-center text-navy-300 text-sm text-center px-6" style={{ height: 260 }}>
+          {histLoading
+            ? 'Cargando datos…'
+            : hasAnyPoint
+              ? 'Aún no hay suficientes muestras válidas para dibujar una línea continua.'
+              : 'No se están recibiendo datos válidos de presión y caudal.'}
         </div>
       )}
     </div>
@@ -304,7 +374,7 @@ function PipelineChart({ readings, mode, histLoading }) {
 
 // ── Vista principal ────────────────────────────────────────────────────────────
 
-export default function PipelineView() {
+export default function PipelineView({ selectedMac }) {
   const { authFetch } = useAuth()
   const [status,   setStatus]   = useState(null)
   const [readings, setReadings] = useState([])
@@ -324,9 +394,16 @@ export default function PipelineView() {
 
   const fetchLive = useCallback(async () => {
     try {
+      const statusUrl = selectedMac
+        ? `/api/pipeline/status?mac=${encodeURIComponent(selectedMac)}`
+        : '/api/pipeline/status'
+      const readingsUrl = selectedMac
+        ? `/api/pipeline/readings?n=90&mac=${encodeURIComponent(selectedMac)}`
+        : '/api/pipeline/readings?n=90'
+
       const [sRes, rRes] = await Promise.all([
-        authFetch('/api/pipeline/status'),
-        authFetch('/api/pipeline/readings?n=90'),
+        authFetch(statusUrl),
+        authFetch(readingsUrl),
       ])
       const [s, r] = await Promise.all([sRes.json(), rRes.json()])
       setStatus(s)
@@ -336,7 +413,7 @@ export default function PipelineView() {
       // Ignorar fallos transitorios del pipeline en vivo.
     }
     finally { setLoading(false) }
-  }, [authFetch])
+  }, [authFetch, selectedMac])
 
   // Live auto-refresh
   useEffect(() => {
@@ -363,7 +440,8 @@ export default function PipelineView() {
     try {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
-      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
+      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch {

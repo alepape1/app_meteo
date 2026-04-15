@@ -33,6 +33,41 @@ const NAV_ITEMS = [
   { id: 'settings',  label: 'Configuración',     icon: Settings },
 ]
 
+const NAV_DESCRIPTIONS = {
+  dashboard: {
+    title: 'Meteorología',
+    text: 'Monitoriza el clima en tiempo real, consulta las gráficas históricas, cambia el rango temporal y analiza la evolución de cada sensor del dispositivo seleccionado.',
+  },
+  riego: {
+    title: 'Riego',
+    text: 'Revisa el estado del riego y los indicadores clave para decidir cuándo actuar sobre la instalación.',
+  },
+  pipeline: {
+    title: 'Pipeline',
+    text: 'Visualiza el flujo de datos del sistema y entiende cómo se procesan y transportan las lecturas.',
+  },
+  nodos: {
+    title: 'Nodos LoRa',
+    text: 'Explora la conectividad de los nodos y consulta información general de la red inalámbrica.',
+  },
+  alerts: {
+    title: 'Alertas',
+    text: 'Gestiona avisos pendientes, revisa incidencias y marca las alertas atendidas cuando proceda.',
+  },
+  device: {
+    title: 'ESP32',
+    text: 'Consulta el estado técnico del dispositivo, su conectividad y la información principal del hardware.',
+  },
+  devices: {
+    title: 'Mis dispositivos',
+    text: 'Administra tus equipos registrados y selecciona qué dispositivo quieres supervisar en el panel.',
+  },
+  settings: {
+    title: 'Configuración',
+    text: 'Ajusta opciones generales de la aplicación y personaliza el comportamiento del panel.',
+  },
+}
+
 function isOnline(ts) {
   if (!ts) return false
   const parsed = Date.parse(String(ts).trim())
@@ -47,6 +82,7 @@ export default function Sidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [activePreset, setActivePreset] = useState(null)
+  const [hoveredView, setHoveredView] = useState(null)
 
   const now     = new Date()
   const midnight = new Date(); midnight.setHours(0,0,0,0)
@@ -65,6 +101,11 @@ export default function Sidebar({
     setActivePreset(null)
     onFetchFiltered(fmt(new Date(startDt)), fmt(new Date(endDt)))
   }
+
+  const infoView = hoveredView || activeView
+  const sectionInfo = NAV_DESCRIPTIONS[infoView]
+  const showDashboardFilters = activeView === 'dashboard' && !hoveredView
+  const showInfoCard = !!sectionInfo && !showDashboardFilters
 
   return (
     <aside className={`
@@ -112,6 +153,10 @@ export default function Sidebar({
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
+            onMouseEnter={() => setHoveredView(item.id)}
+            onMouseLeave={() => setHoveredView(null)}
+            onFocus={() => setHoveredView(item.id)}
+            onBlur={() => setHoveredView(null)}
             className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors
               ${activeView === item.id
                 ? 'bg-brand-500 text-white'
@@ -131,17 +176,20 @@ export default function Sidebar({
       {/* Dispositivos (collapsed: solo puntos de estado) */}
       {collapsed && devices.length > 0 && (
         <div className="flex flex-col items-center gap-2 px-2 py-3 border-b border-navy-800">
-          {devices.map(d => (
-            <button
-              key={d.id}
-              title={d.mac_address || `Dispositivo ${d.id}`}
-              onClick={() => onSelectDevice(d.mac_address)}
-              className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors
-                ${selectedMac === d.mac_address ? 'bg-brand-500' : 'bg-navy-800 hover:bg-navy-700'}`}
-            >
-              <span className={`w-2 h-2 rounded-full ${isOnline(d.latest_reading) ? 'bg-emerald-400' : 'bg-navy-500'}`} />
-            </button>
-          ))}
+          {devices.map((d, idx) => {
+            const deviceKey = d.mac_address || d.device_serial || `${d.id ?? 'device'}-${idx}`
+            return (
+              <button
+                key={deviceKey}
+                title={d.mac_address || `Dispositivo ${d.id ?? idx + 1}`}
+                onClick={() => onSelectDevice(d.mac_address)}
+                className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors
+                  ${selectedMac === d.mac_address ? 'bg-brand-500' : 'bg-navy-800 hover:bg-navy-700'}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isOnline(d.latest_reading) ? 'bg-emerald-400' : 'bg-navy-500'}`} />
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -156,15 +204,16 @@ export default function Sidebar({
                 <Server size={11} /> Dispositivos
               </p>
               <div className="flex flex-col gap-1">
-                {devices.map(d => {
+                {devices.map((d, idx) => {
                   const online = isOnline(d.latest_reading)
                   const mac = d.mac_address
                   const fincaLabel = d.claimed_by_finca_id || d.finca_id || d.nickname
-                  const label = fincaLabel || d.chip_model || (mac ? mac.slice(-8) : `ECU ${d.id}`)
+                  const label = fincaLabel || d.chip_model || (mac ? mac.slice(-8) : `ECU ${d.id ?? idx + 1}`)
                   const macSuffix = mac ? mac.slice(-5) : ''
+                  const deviceKey = mac || d.device_serial || `${d.id ?? 'device'}-${idx}`
                   return (
                     <button
-                      key={d.id}
+                      key={deviceKey}
                       onClick={() => onSelectDevice(mac)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors
                         ${selectedMac === mac
@@ -183,10 +232,21 @@ export default function Sidebar({
             </section>
           )}
 
-          {devices.length > 0 && activeView === 'dashboard' && <div className="border-t border-navy-800" />}
+          {(showInfoCard || showDashboardFilters) && <div className="border-t border-navy-800" />}
+
+          {showInfoCard && (
+            <section className="rounded-2xl border border-navy-800 bg-navy-800/50 px-3.5 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-brand-300 mb-1">
+                {sectionInfo.title}
+              </p>
+              <p className="text-xs leading-5 text-slate-200/90">
+                {sectionInfo.text}
+              </p>
+            </section>
+          )}
 
           {/* Filtro y contador — solo en dashboard */}
-          {activeView === 'dashboard' && <>
+          {showDashboardFilters && <>
             <section>
               <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-widest mb-3">
                 <Calendar size={11} /> Rango de datos
