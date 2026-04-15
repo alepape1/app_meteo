@@ -174,7 +174,7 @@ app_meteo/
 |-------|-------------|
 | **Meteorología** | Gráficos históricos de temperatura (MCP9808, HTU2x, DHT11), humedad, presión, viento (velocidad + dirección), luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
 | **Riego** | Control de electroválvulas (relays). Selector de zonas para PROFILE_IRRIGATION. |
-| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario simulado. |
+| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario y modo `sim`/`hardware`. |
 | **Nodos LoRa** | Preparada para nodos remotos de riego (pendiente de hardware). |
 | **Alertas** | Panel de alertas MQTT: badge con contador de no resueltas, severidad (critical/warning/info), botón acknowledge, filtro pendientes/todas. |
 | **ESP32** | Estado del dispositivo seleccionado: WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
@@ -649,7 +649,7 @@ La vista **Pipeline** monitoriza presión de tubería y caudal para detectar ano
 | dP/dt consecutivo | Caída > 20% entre dos muestras con válvula abierta | `BURST` |
 | EWMA (λ=0.15) | Deriva estadística > 2.5σ en presión o caudal | `LEAK_SUSPECTED` |
 
-Los datos actuales los genera el simulador integrado en el ESP32 (ruido determinista). Cuando se instalen sensores físicos de presión y caudal, solo hay que sustituir las lecturas simuladas; el sistema de detección no requiere cambios.
+Los datos actuales los genera el simulador integrado en el ESP32 (ruido determinista). En la beta.2 el dashboard ya puede cambiar tanto el escenario como el modo `sim`/`real`, con envío inmediato por MQTT al dispositivo seleccionado y fallback por lectura HTTP desde el firmware.
 
 ### Escenarios de simulación
 
@@ -660,10 +660,14 @@ Los datos actuales los genera el simulador integrado en el ESP32 (ruido determin
 | `burst` | Rotura — caída brusca de presión |
 
 ```bash
-# Cambiar escenario via API
-curl -X POST https://meteo.aquantialab.com/api/pipeline/scenario \
+# Lectura pública para el ESP32 (fallback HTTP)
+curl http://127.0.0.1:7000/api/pipeline/config
+
+# Cambio autenticado desde dashboard/API
+curl -X POST http://127.0.0.1:7000/api/pipeline/config \
+  -H "Authorization: Bearer <JWT>" \
   -H "Content-Type: application/json" \
-  -d '{"scenario": "leak"}'
+  -d '{"mac": "88:13:BF:FD:A2:38", "mode": "sim", "scenario": "leak"}'
 ```
 
 ---
@@ -725,7 +729,7 @@ Ambos repositorios (`app_meteo` y `weather-station-ESP`) se versionan de forma i
 
 ```sql
 SELECT value FROM app_settings WHERE key = 'min_firmware_version';
--- → '0.1.0-beta.1'
+-- → '0.1.0-beta.2'
 ```
 
 Para actualizar el mínimo aceptado al introducir un cambio incompatible:
