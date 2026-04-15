@@ -48,6 +48,11 @@ const SCENARIOS = [
   { id: 'burst',  label: 'Rotura',   hint: 'Presión colapsa' },
 ]
 
+const PIPELINE_MODES = [
+  { id: 'sim', label: 'Simulación', hint: 'Usa el simulador del firmware' },
+  { id: 'real', label: 'Hardware', hint: 'Preparado para sensor físico' },
+]
+
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
 
 function ReadingCard({ title, icon, value, unit, sub }) {
@@ -118,7 +123,7 @@ function StatusBanner({ detection }) {
   )
 }
 
-function ScenarioSelector({ current, onSelect, busy }) {
+function ScenarioSelector({ current, onSelect, busy, mode, onModeChange }) {
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -126,9 +131,34 @@ function ScenarioSelector({ current, onSelect, busy }) {
           <FlaskConical size={14} className="text-navy-400" />
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Escenario simulado
+          Configuración pipeline
         </p>
       </div>
+
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Modo
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {PIPELINE_MODES.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onModeChange(item.id)}
+              disabled={busy || mode === item.id}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                ${mode === item.id
+                  ? 'bg-navy-700 text-white cursor-default'
+                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+            >
+              <span>{item.label}</span>
+              <span className={`${mode === item.id ? 'text-navy-100' : 'text-navy-300'}`}>
+                {item.hint}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-col gap-1.5">
         {SCENARIOS.map(sc => (
           <button
@@ -148,7 +178,7 @@ function ScenarioSelector({ current, onSelect, busy }) {
         ))}
       </div>
       <p className="text-xs text-navy-200 mt-2.5 leading-relaxed">
-        Cambia el escenario para probar los algoritmos de detección.
+        Puedes dejarlo en simulación ahora y pasar a hardware real cuando montes el sensor.
       </p>
     </div>
   )
@@ -250,6 +280,7 @@ function PipelineChart({ readings, mode, histLoading }) {
 
   const hasAnyPoint = pressure.length > 0 || flow.length > 0
   const hasVisibleSeries = pressure.length > 1 || flow.length > 1
+  const chartKey = `${mode}-${samples.length}-${samples.at(-1)?.x ?? 'empty'}`
 
   const options = {
     chart: {
@@ -260,56 +291,71 @@ function PipelineChart({ readings, mode, histLoading }) {
       background: '#ffffff',
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
-    colors: ['#0f766e', '#2563eb'],
+    colors: ['#0d9488', '#2563eb'],
     stroke: {
+      show: true,
       curve: 'smooth',
       lineCap: 'round',
-      width: [4, 4],
+      width: [3.6, 3.6],
     },
     markers: {
-      size: 0,
-      strokeWidth: 0,
-      hover: { size: 4 },
+      size: 2,
+      colors: ['#14b8a6', '#3b82f6'],
+      strokeColors: ['#0d9488', '#2563eb'],
+      strokeWidth: 0.8,
+      hover: { size: 4.5 },
     },
     fill: {
       type: 'solid',
-      opacity: 0,
-    },
-    states: {
-      hover: { filter: { type: 'none' } },
-      active: { filter: { type: 'none' } },
+      opacity: 0.16,
     },
     xaxis: {
       type: 'datetime',
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
+        formatter: (val) => {
+          if (val == null) return ''
+          const ms = typeof val === 'number' ? val : toMs(val)
+          if (ms == null) return ''
+          const d = new Date(ms)
+          if (Number.isNaN(d.getTime())) return ''
+          return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        },
       },
       axisBorder: { show: false },
       axisTicks:  { show: false },
     },
     yaxis: [
       {
-        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0f766e', fontFamily: '"DM Sans"' } },
+        seriesName: 'Presión (bar)',
+        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#14b8a6', fontFamily: '"DM Sans"' } },
         min: pressureAxis.min,
         max: pressureAxis.max,
         forceNiceScale: true,
         decimalsInFloat: 2,
         labels: {
-          style: { colors: '#0f766e', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => v != null ? `${v.toFixed(2)}` : '',
+          style: { colors: '#14b8a6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          formatter: v => {
+            const n = Number(v)
+            return Number.isFinite(n) ? `${n.toFixed(2)}` : ''
+          },
         },
       },
       {
+        seriesName: 'Caudal (L/min)',
         opposite: true,
-        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#2563eb', fontFamily: '"DM Sans"' } },
+        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#3b82f6', fontFamily: '"DM Sans"' } },
         min: flowAxis.min,
         max: flowAxis.max,
         forceNiceScale: true,
         decimalsInFloat: 1,
         labels: {
-          style: { colors: '#2563eb', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => v != null ? `${v.toFixed(1)}` : '',
+          style: { colors: '#3b82f6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          formatter: v => {
+            const n = Number(v)
+            return Number.isFinite(n) ? `${n.toFixed(1)}` : ''
+          },
         },
       },
     ],
@@ -329,14 +375,14 @@ function PipelineChart({ readings, mode, histLoading }) {
       intersect: false,
       x: { format: 'dd MMM HH:mm:ss' },
       y: [
-        { formatter: v => v != null ? `${v.toFixed(3)} bar` : '—' },
-        { formatter: v => v != null ? `${v.toFixed(2)} L/min` : '—' },
+        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(3)} bar` : '—' },
+        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)} L/min` : '—' },
       ],
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
     grid: {
-      borderColor: '#dbe4ee',
-      strokeDashArray: 2,
+      borderColor: '#e8eef5',
+      strokeDashArray: 3,
       xaxis: { lines: { show: true } },
       yaxis: { lines: { show: true } },
       padding: { left: 6, right: 10 },
@@ -347,7 +393,7 @@ function PipelineChart({ readings, mode, histLoading }) {
   const title = mode === 'live' ? 'Presión y Caudal — En vivo' : 'Presión y Caudal — Histórico'
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+    <div className="pipeline-chart bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-5 pt-4 pb-1">
         <Activity size={15} className="text-navy-300 shrink-0" />
         <h3 className="text-sm font-semibold text-navy-900">{title}</h3>
@@ -357,7 +403,7 @@ function PipelineChart({ readings, mode, histLoading }) {
       </div>
       {hasVisibleSeries ? (
         <div className="px-2 pb-2">
-          <ReactApexChart options={options} series={series} type="line" height={320} />
+          <ReactApexChart key={chartKey} options={options} series={series} type="line" height={320} />
         </div>
       ) : (
         <div className="flex items-center justify-center text-navy-300 text-sm text-center px-6" style={{ height: 260 }}>
@@ -380,6 +426,7 @@ export default function PipelineView({ selectedMac }) {
   const [readings, setReadings] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [scenario, setScenario] = useState('normal')
+  const [pipelineMode, setPipelineMode] = useState('sim')
   const [applyBusy, setApplyBusy] = useState(false)
   const timerRef = useRef(null)
 
@@ -409,6 +456,7 @@ export default function PipelineView({ selectedMac }) {
       setStatus(s)
       setReadings(Array.isArray(r) ? r : [])
       if (s.config?.scenario) setScenario(s.config.scenario)
+      if (s.config?.mode) setPipelineMode(s.config.mode)
     } catch {
       // Ignorar fallos transitorios del pipeline en vivo.
     }
@@ -450,21 +498,28 @@ export default function PipelineView({ selectedMac }) {
     finally { setHistLoading(false) }
   }
 
-  const applyScenario = async (sc) => {
+  const applyConfig = async (patch) => {
     setApplyBusy(true)
     try {
-      await authFetch('/api/pipeline/scenario', {
+      const res = await authFetch('/api/pipeline/config', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ scenario: sc }),
+        body:    JSON.stringify({ ...patch, mac: selectedMac }),
       })
-      setScenario(sc)
+      if (res.ok) {
+        const cfg = await res.json()
+        if (cfg.scenario) setScenario(cfg.scenario)
+        if (cfg.mode) setPipelineMode(cfg.mode)
+      }
       if (mode === 'live') await fetchLive()
     } catch {
-      // Ignorar fallos transitorios al aplicar un escenario.
+      // Ignorar fallos transitorios al aplicar configuración del pipeline.
     }
     finally { setApplyBusy(false) }
   }
+
+  const applyScenario = async (sc) => applyConfig({ scenario: sc })
+  const applyMode = async (nextMode) => applyConfig({ mode: nextMode })
 
   const cur = status?.current
   const det = status?.detection
@@ -522,6 +577,8 @@ export default function PipelineView({ selectedMac }) {
             current={scenario}
             onSelect={applyScenario}
             busy={applyBusy}
+            mode={pipelineMode}
+            onModeChange={applyMode}
           />
         </div>
       )}
@@ -601,7 +658,7 @@ export default function PipelineView({ selectedMac }) {
 
       {/* ── Nota ── */}
       <p className="text-xs text-navy-200 text-center pb-2">
-        Valores simulados — caudalímetro y sensor de presión pendientes de instalación física
+        Modo activo: {pipelineMode === 'real' ? 'hardware' : 'simulación'} · Fuente: {cfg?.source ?? '—'}
       </p>
 
     </main>

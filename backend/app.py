@@ -187,6 +187,12 @@ def _require_jwt():
         return  # ficheros estáticos del frontend
     if request.path in _JWT_PUBLIC:
         return  # auth y endpoints internos
+    # GET de configuración del pipeline → lectura por el ESP32 sin JWT
+    if (
+        request.path in ("/api/pipeline/scenario", "/api/pipeline/config")
+        and request.method == "GET"
+    ):
+        return
     # POST /api/device_info y GET+POST /api/relay/command y /api/relay/ack → ESP32
     if request.path == "/api/device_info" and request.method == "POST":
         return
@@ -257,6 +263,32 @@ def _resolve_user_mac(user_id, requested_mac=None):
         (user_id,)
     ).fetchone()
     return row['mac_address'] if row else None
+
+
+def _publish_pipeline_config(mac, scenario=None, mode=None):
+    """Envía la configuración de pipeline por MQTT al dispositivo indicado."""
+    if not mac:
+        return False
+
+    finca_row = get_db().execute(
+        "SELECT finca_id FROM device_info WHERE mac_address=?",
+        (mac,)
+    ).fetchone()
+    if not finca_row or not finca_row['finca_id']:
+        return False
+
+    payload = {
+        "type": "pipeline_config",
+        "mac": mac,
+    }
+    if scenario in ('normal', 'leak', 'burst'):
+        payload["pipeline_scenario"] = scenario
+    if mode in ('sim', 'real'):
+        payload["pipeline_mode"] = mode
+
+    if len(payload) <= 2:
+        return False
+    return mqtt_client.publish_cmd(finca_row['finca_id'], payload)
 
 
 def parse_message_data(message):
@@ -963,15 +995,19 @@ def pipeline_status():
 
     detection = detect_leaks(history)
 
+    mode = cfg.get('pipeline_mode', 'sim')
+    source = "db" if using_db else ("sim-fallback" if mode == 'real' else "sim")
+
     return jsonify({
         "current":   current,
         "detection": detection,
         "config": {
             "scenario":             scenario,
+            "mode":                 mode,
             "nominal_flow_lpm":     nominal_flow,
             "static_pressure_bar":  STATIC_PRESSURE_BAR,
             "dynamic_pressure_bar": DYNAMIC_PRESSURE_BAR,
-            "source":               "db" if using_db else "sim",
+            "source":               source,
         },
     })
 
@@ -1017,36 +1053,88 @@ def pipeline_readings():
     return jsonify(readings)
 
 
+@app.route("/api/pipeline/config", methods=["GET"])
+def get_pipeline_config():
+    """Devuelve la configuración activa del pipeline para dashboard y ESP32."""
+    cfg = _get_settings()
+    return jsonify({
+        "scenario": cfg.get('pipeline_scenario', 'normal'),
+        "mode": cfg.get('pipeline_mode', 'sim'),
+    })
+
+
 @app.route("/api/pipeline/scenario", methods=["GET"])
 def get_pipeline_scenario():
-    """El ESP32 consulta este endpoint para saber el escenario activo.
-    Devuelve texto plano: 'normal', 'leak' o 'burst'."""
+    """Compatibilidad con firmware anterior: devuelve solo el escenario en texto plano."""
     cfg = _get_settings()
     return cfg.get('pipeline_scenario', 'normal'), 200
 
 
-@app.route("/api/pipeline/scenario", methods=["POST"])
-def set_pipeline_scenario():
-    """Cambia el escenario de simulación del pipeline.
+@app.route("/api/pipeline/config", methods=["POST"])
+def set_pipeline_config():
+    """Actualiza la configuración de simulación/lectura del pipeline.
 
-    Body JSON: {"scenario": "normal" | "leak" | "burst"}
+    Body JSON: {"scenario": "normal"|"leak"|"burst", "mode": "sim"|"real", "mac": "..."}
     """
-    payload = request.get_json(silent=True)
-    if not payload or 'scenario' not in payload:
-        return jsonify({"error": "Falta campo 'scenario'"}), 400
-    scenario = payload['scenario']
-    if scenario not in ('normal', 'leak', 'burst'):
+    payload = request.get_json(silent=True) or {}
+    if not payload:
+        return jsonify({"error": "JSON requerido"}), 400
+
+    scenario = payload.get('scenario')
+    mode = payload.get('mode')
+
+    if scenario is not None and scenario not in ('normal', 'leak', 'burst'):
         return jsonify({"error": "Escenario inválido. Use: normal, leak, burst"}), 400
+    if mode is not None and mode not in ('sim', 'real'):
+        return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
+    if scenario is None and mode is None:
+        return jsonify({"error": "Debe enviar scenario y/o mode"}), 400
+
+    user_id = int(get_jwt_identity())
+    requested_mac = payload.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
 
     db = get_db()
-    db.execute(
-        "INSERT INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)"
-        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-        (scenario,)
-    )
+    if scenario is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('pipeline_scenario', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (scenario,)
+        )
+    if mode is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('pipeline_mode', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (mode,)
+        )
     db.commit()
-    logger.info("Pipeline scenario → %s", scenario)
-    return jsonify({"scenario": scenario})
+
+    dispatched = _publish_pipeline_config(mac, scenario=scenario, mode=mode) if mac else False
+    cfg = _get_settings()
+    logger.info(
+        "Pipeline config → scenario=%s mode=%s mac=%s mqtt=%s",
+        cfg.get('pipeline_scenario', 'normal'),
+        cfg.get('pipeline_mode', 'sim'),
+        mac,
+        dispatched,
+    )
+    return jsonify({
+        "scenario": cfg.get('pipeline_scenario', 'normal'),
+        "mode": cfg.get('pipeline_mode', 'sim'),
+        "mac": mac,
+        "mqtt_dispatched": dispatched,
+    })
+
+
+@app.route("/api/pipeline/scenario", methods=["POST"])
+def set_pipeline_scenario():
+    """Compatibilidad con la UI actual: delega en la configuración completa."""
+    payload = request.get_json(silent=True) or {}
+    if 'scenario' not in payload:
+        return jsonify({"error": "Falta campo 'scenario'"}), 400
+    return set_pipeline_config()
 
 
 @app.route("/api/alerts")

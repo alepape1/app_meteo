@@ -9,6 +9,26 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.1.0-beta.2] — 2026-04-16
+
+**Firmware compatible:** `v0.1.0-beta.2`
+
+Beta centrada en tiempo real del dashboard y preparación del pipeline para el futuro caudalímetro.
+
+### Añadido
+- Endpoint autenticado [POST] y público [GET] de configuración de pipeline para sincronizar escenario y modo `sim|real`
+- Despacho inmediato por MQTT del cambio de escenario al dispositivo seleccionado
+- Selector de modo en la vista Pipeline para dejar preparado el salto a hardware real
+
+### Cambiado
+- Actualización automática de gráficas meteorológicas sin recargar la página
+- Refresco incremental de nuevas muestras para evitar redibujar todo el gráfico
+- Estado del pipeline ahora informa del modo activo y la fuente del dato (`db`, `sim`, `sim-fallback`)
+
+### Corregido
+- El ESP32 ya puede leer la configuración del pipeline sin quedar bloqueado por JWT en las rutas de solo lectura
+- El dashboard ya no depende únicamente del polling lento para propagar el escenario del simulador
+
 ## [v0.1.0-beta.1] — 2026-04-13
 
 **Firmware compatible:** `v0.1.0-beta.1`
@@ -85,4 +105,5 @@ Primera versión operativa (HTTP legacy, SQLite).
 
 ---
 
+[v0.1.0-beta.2]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.2
 [v0.1.0-beta.1]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.1

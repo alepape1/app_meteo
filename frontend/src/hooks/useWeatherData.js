@@ -10,6 +10,9 @@ const EMPTY = {
   soil_moisture: [],
 }
 
+const AUTO_REFRESH_MS = 15000
+const MAX_POINTS = 150
+
 export function useWeatherData() {
   const { authFetch } = useAuth()
   const [data, setData] = useState(EMPTY)
@@ -21,14 +24,60 @@ export function useWeatherData() {
   const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
 
-  const applyData = (json) => {
+  const applyData = useCallback((json, mode = 'replace') => {
     const normalized = { ...EMPTY, ...(json || {}) }
-    setData(normalized)
+
+    setData(prev => {
+      if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
+        const replaced = {}
+        Object.keys(EMPTY).forEach((key) => {
+          replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-MAX_POINTS) : []
+        })
+        return replaced
+      }
+
+      const prevTimestamps = prev.timestamp.map(v => String(v))
+      const incomingTimestamps = Array.isArray(normalized.timestamp)
+        ? normalized.timestamp.map(v => String(v))
+        : []
+
+      const seen = new Set(prevTimestamps)
+      const appendIndexes = []
+      incomingTimestamps.forEach((ts, index) => {
+        if (!seen.has(ts)) appendIndexes.push(index)
+      })
+
+      const merged = {}
+      Object.keys(EMPTY).forEach((key) => {
+        const prevArr = Array.isArray(prev[key]) ? prev[key] : []
+        const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
+
+        if (appendIndexes.length > 0) {
+          merged[key] = [
+            ...prevArr,
+            ...appendIndexes.map(i => (i < nextArr.length ? nextArr[i] : null)),
+          ].slice(-MAX_POINTS)
+          return
+        }
+
+        if (incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1) && prevArr.length > 0) {
+          const updated = prevArr.slice()
+          updated[updated.length - 1] = nextArr.at(-1) ?? updated.at(-1)
+          merged[key] = updated
+          return
+        }
+
+        merged[key] = prevArr
+      })
+
+      return merged
+    })
+
     setLastUpdate(new Date().toLocaleTimeString('es-ES'))
     setError(null)
-  }
+  }, [])
 
-  const fetchSamples = useCallback(async (n = 100) => {
+  const fetchSamples = useCallback(async (n = MAX_POINTS) => {
     if (!selectedMac) {
       setData(EMPTY)
       return
@@ -45,6 +94,18 @@ export function useWeatherData() {
       setLoading(false)
     }
   }, [authFetch, selectedMac])
+
+  const fetchLatest = useCallback(async () => {
+    if (!selectedMac) return
+    try {
+      const url = `/api/latest?mac=${encodeURIComponent(selectedMac)}`
+      const res = await authFetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      applyData(await res.json(), 'append')
+    } catch {
+      // Ignorar errores transitorios del refresco incremental.
+    }
+  }, [authFetch, selectedMac, applyData])
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
     if (!selectedMac) return
@@ -106,11 +167,47 @@ export function useWeatherData() {
   // Fetch de dispositivos una vez al montar
   useEffect(() => { fetchDevices() }, [fetchDevices])
 
-  // Auto-refresco cada 60s — actualiza gráficos y lista de dispositivos
+  // Auto-refresco incremental: añade solo puntos nuevos y hace resincronización periódica.
   useEffect(() => {
-    const id = setInterval(() => { fetchSamples(150); fetchDevices() }, 60000)
-    return () => clearInterval(id)
-  }, [fetchSamples, fetchDevices])
+    let tick = 0
+
+    const refreshAll = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+
+      tick += 1
+      if (tick % 4 === 0) fetchSamples(MAX_POINTS)
+      else fetchLatest()
+
+      fetchDevices()
+      fetchDeviceInfo()
+    }
+
+    const handleVisibility = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        fetchSamples(MAX_POINTS)
+        fetchDevices()
+        fetchDeviceInfo()
+      }
+    }
+
+    const id = setInterval(refreshAll, AUTO_REFRESH_MS)
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibility)
+    }
+
+    return () => {
+      clearInterval(id)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibility)
+      }
+    }
+  }, [fetchLatest, fetchSamples, fetchDevices, fetchDeviceInfo])
 
   const latest = {
     temperature:     data.temperature.at(-1),
@@ -138,6 +235,6 @@ export function useWeatherData() {
     data, latest, loading, lastUpdate, error,
     deviceInfo,
     devices, devicesLoaded, selectedMac, setSelectedMac,
-    fetchSamples, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
+    fetchSamples, fetchLatest, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
   }
 }

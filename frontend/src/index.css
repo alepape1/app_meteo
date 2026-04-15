@@ -8,12 +8,6 @@
 body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; }
 #root { height: 100vh; }
 
-.apexcharts-canvas svg {
-  shape-rendering: geometricPrecision;
-  text-rendering: optimizeLegibility;
-}
-
-.apexcharts-canvas .apexcharts-series path,
 .apexcharts-canvas .apexcharts-gridline,
 .apexcharts-canvas .apexcharts-xcrosshairs,
 .apexcharts-canvas .apexcharts-ycrosshairs {

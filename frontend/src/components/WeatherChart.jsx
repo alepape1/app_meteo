@@ -37,10 +37,11 @@ export default function WeatherChart({
 }) {
   const builtSeries = buildSeries(series, timestamps)
   const hasData = builtSeries.some(s => s.data.length > 0)
-  const chartKey = `${title}-${type}-${timestamps?.length ?? 0}-${timestamps?.at?.(-1) ?? 'empty'}`
+  const chartId = `weather-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${type}`
 
   const options = {
     chart: {
+      id: chartId,
       type,
       toolbar: { show: false },
       animations: { enabled: true, speed: 500 },
@@ -143,7 +144,7 @@ export default function WeatherChart({
         <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
       </div>
       {hasData ? (
-        <ReactApexChart key={chartKey} options={options} series={builtSeries} type={type} height={height} />
+        <ReactApexChart options={options} series={builtSeries} type={type} height={height} />
       ) : (
         <div className="flex items-center justify-center text-slate-300 text-sm" style={{ height }}>
           Sin datos — usa el simulador o conecta el ESP32

@@ -323,7 +323,7 @@ def create_tables(conn: _CompatConn):
         ('station_name',          'Aquantia'),
         ('station_location',      'Lanzarote'),
         ('pipeline_scenario',     'normal'),
-        ('min_firmware_version',  '0.1.0-beta.1'),
+        ('min_firmware_version',  '0.1.0-beta.2'),
     ]:
         cur.execute(
             "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
