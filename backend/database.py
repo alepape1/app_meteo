@@ -60,18 +60,25 @@ _INSERT_OR_IGNORE = re.compile(
     r'\bINSERT\s+OR\s+IGNORE\s+INTO\b', re.IGNORECASE
 )
 
-# Patrones de INSERT OR REPLACE necesitan tratamiento especial por tabla
+_SQL_PARAM = r'(?:%s|\?)'
+
+# Patrones de INSERT OR REPLACE necesitan tratamiento especial por tabla.
+# Deben aceptar tanto placeholders SQLite (?) como PostgreSQL (%s).
 _UPSERT_PATTERNS = {
     'app_settings': (
-        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+app_settings\s*\(key,\s*value\)\s*VALUES\s*\(%s,\s*%s\)",
-                   re.IGNORECASE),
+        re.compile(
+            rf"INSERT\s+OR\s+REPLACE\s+INTO\s+app_settings\s*\(key,\s*value\)\s*VALUES\s*\({_SQL_PARAM},\s*{_SQL_PARAM}\)",
+            re.IGNORECASE,
+        ),
         "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
         " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
     ),
     'device_credentials': (
-        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+device_credentials"
-                   r"\s*\(mac,\s*token_hash,\s*serial_number\)\s*VALUES\s*\(%s,\s*%s,\s*%s\)",
-                   re.IGNORECASE),
+        re.compile(
+            rf"INSERT\s+OR\s+REPLACE\s+INTO\s+device_credentials"
+            rf"\s*\(mac,\s*token_hash,\s*serial_number\)\s*VALUES\s*\({_SQL_PARAM},\s*{_SQL_PARAM},\s*{_SQL_PARAM}\)",
+            re.IGNORECASE,
+        ),
         "INSERT INTO device_credentials(mac, token_hash, serial_number) VALUES (%s, %s, %s)"
         " ON CONFLICT (mac) DO UPDATE SET token_hash = EXCLUDED.token_hash,"
         " serial_number = EXCLUDED.serial_number"

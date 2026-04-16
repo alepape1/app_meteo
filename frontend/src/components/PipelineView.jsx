@@ -25,6 +25,12 @@ const toQueryStr = d => {
   return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
+const clampInput = (value, min, max) => {
+  const n = Number.parseInt(value, 10)
+  if (!Number.isFinite(n)) return min
+  return Math.min(max, Math.max(min, n))
+}
+
 // ── Configuración de estados de detección ─────────────────────────────────────
 const STATUS_CFG = {
   NORMAL:         { label: 'Sistema normal',          color: 'emerald', Icon: CheckCircle },
@@ -123,7 +129,9 @@ function StatusBanner({ detection }) {
   )
 }
 
-function ScenarioSelector({ current, onSelect, busy, mode, onModeChange }) {
+function ScenarioSelector({
+  current, onSelect, busy, mode, onModeChange,
+}) {
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -177,8 +185,9 @@ function ScenarioSelector({ current, onSelect, busy, mode, onModeChange }) {
           </button>
         ))}
       </div>
-      <p className="text-xs text-navy-200 mt-2.5 leading-relaxed">
-        Puedes dejarlo en simulación ahora y pasar a hardware real cuando montes el sensor.
+
+      <p className="text-xs text-navy-200 mt-3 leading-relaxed">
+        Los intervalos del equipo se ajustan ahora desde la pantalla de Configuración.
       </p>
     </div>
   )

@@ -15,6 +15,8 @@ from flask_jwt_extended import (
     jwt_required,
 )
 
+load_dotenv()
+
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
 from pipeline_sim import (
@@ -24,8 +26,6 @@ from pipeline_sim import (
     detect_leaks,
     simulate_reading,
 )
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -250,6 +250,18 @@ def _get_settings():
     return {r['key']: r['value'] for r in rows}
 
 
+def _get_int_setting(cfg, key, default, min_value=None, max_value=None):
+    try:
+        value = int(float(cfg.get(key, default)))
+    except (TypeError, ValueError):
+        value = default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
 @app.route("/api/settings")
 def api_get_settings():
     """Devuelve todos los parámetros de configuración."""
@@ -302,7 +314,9 @@ def _resolve_user_mac(user_id, requested_mac=None):
     return row['mac_address'] if row else None
 
 
-def _publish_pipeline_config(mac, scenario=None, mode=None):
+def _publish_pipeline_config(
+        mac, scenario=None, mode=None, telemetry_interval_s=None,
+        config_sync_interval_s=None, display_timeout_s=None):
     """Envía la configuración de pipeline por MQTT al dispositivo indicado."""
     if not mac:
         return False
@@ -322,6 +336,12 @@ def _publish_pipeline_config(mac, scenario=None, mode=None):
         payload["pipeline_scenario"] = scenario
     if mode in ('sim', 'real'):
         payload["pipeline_mode"] = mode
+    if telemetry_interval_s is not None:
+        payload["telemetry_interval_s"] = int(telemetry_interval_s)
+    if config_sync_interval_s is not None:
+        payload["config_sync_interval_s"] = int(config_sync_interval_s)
+    if display_timeout_s is not None:
+        payload["display_timeout_s"] = int(display_timeout_s)
 
     if len(payload) <= 2:
         return False
@@ -1058,6 +1078,12 @@ def pipeline_status():
             "static_pressure_bar": STATIC_PRESSURE_BAR,
             "dynamic_pressure_bar": DYNAMIC_PRESSURE_BAR,
             "source": source,
+            "telemetry_interval_s": _get_int_setting(
+                cfg, 'telemetry_interval_s', 20, min_value=5, max_value=3600),
+            "config_sync_interval_s": _get_int_setting(
+                cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
+            "display_timeout_s": _get_int_setting(
+                cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
         },
     })
 
@@ -1110,6 +1136,12 @@ def get_pipeline_config():
     return jsonify({
         "scenario": cfg.get('pipeline_scenario', 'normal'),
         "mode": cfg.get('pipeline_mode', 'sim'),
+        "telemetry_interval_s": _get_int_setting(
+            cfg, 'telemetry_interval_s', 20, min_value=5, max_value=3600),
+        "config_sync_interval_s": _get_int_setting(
+            cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
+        "display_timeout_s": _get_int_setting(
+            cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
     })
 
 
@@ -1138,8 +1170,42 @@ def set_pipeline_config():
             {"error": "Escenario inválido. Use: normal, leak, burst"}), 400
     if mode is not None and mode not in ('sim', 'real'):
         return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
-    if scenario is None and mode is None:
-        return jsonify({"error": "Debe enviar scenario y/o mode"}), 400
+
+    def _parse_int_field(name, min_value, max_value):
+        raw = payload.get(name)
+        if raw in (None, ""):
+            return None, None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None, f"{name} debe ser un entero"
+        if value < min_value or value > max_value:
+            return None, (
+                f"{name} fuera de rango. Use un valor entre "
+                f"{min_value} y {max_value}")
+        return value, None
+
+    telemetry_interval_s, telemetry_error = _parse_int_field(
+        'telemetry_interval_s', 5, 3600)
+    if telemetry_error:
+        return jsonify({"error": telemetry_error}), 400
+
+    config_sync_interval_s, sync_error = _parse_int_field(
+        'config_sync_interval_s', 5, 3600)
+    if sync_error:
+        return jsonify({"error": sync_error}), 400
+
+    display_timeout_s, display_error = _parse_int_field(
+        'display_timeout_s', 0, 3600)
+    if display_error:
+        return jsonify({"error": display_error}), 400
+
+    if all(v is None for v in (
+            scenario, mode, telemetry_interval_s,
+            config_sync_interval_s, display_timeout_s)):
+        return jsonify({
+            "error": "Debe enviar scenario, mode o un ajuste del dispositivo"
+        }), 400
 
     user_id = int(get_jwt_identity())
     requested_mac = payload.get('mac')
@@ -1158,21 +1224,54 @@ def set_pipeline_config():
             " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (mode,)
         )
+    if telemetry_interval_s is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('telemetry_interval_s', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (str(telemetry_interval_s),)
+        )
+    if config_sync_interval_s is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('config_sync_interval_s', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (str(config_sync_interval_s),)
+        )
+    if display_timeout_s is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('display_timeout_s', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (str(display_timeout_s),)
+        )
     db.commit()
 
     dispatched = _publish_pipeline_config(
-        mac, scenario=scenario, mode=mode) if mac else False
+        mac,
+        scenario=scenario,
+        mode=mode,
+        telemetry_interval_s=telemetry_interval_s,
+        config_sync_interval_s=config_sync_interval_s,
+        display_timeout_s=display_timeout_s,
+    ) if mac else False
     cfg = _get_settings()
     logger.info(
-        "Pipeline config → scenario=%s mode=%s mac=%s mqtt=%s",
+        "Pipeline config → scenario=%s mode=%s telemetry=%ss sync=%ss display=%ss mac=%s mqtt=%s",
         cfg.get('pipeline_scenario', 'normal'),
         cfg.get('pipeline_mode', 'sim'),
+        cfg.get('telemetry_interval_s', '20'),
+        cfg.get('config_sync_interval_s', '20'),
+        cfg.get('display_timeout_s', '60'),
         mac,
         dispatched,
     )
     return jsonify({
         "scenario": cfg.get('pipeline_scenario', 'normal'),
         "mode": cfg.get('pipeline_mode', 'sim'),
+        "telemetry_interval_s": _get_int_setting(
+            cfg, 'telemetry_interval_s', 20, min_value=5, max_value=3600),
+        "config_sync_interval_s": _get_int_setting(
+            cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
+        "display_timeout_s": _get_int_setting(
+            cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })

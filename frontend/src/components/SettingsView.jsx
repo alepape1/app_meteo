@@ -43,37 +43,100 @@ function SettingTextField({ label, description, value, onChange }) {
 export default function SettingsView() {
   const { authFetch } = useAuth()
   const [form, setForm] = useState({
-    flow_lpm:         '5.0',
-    baseline_daily_l: '15.0',
-    station_name:     'Aquantia',
-    station_location: 'Lanzarote',
+    flow_lpm:               '5.0',
+    baseline_daily_l:       '15.0',
+    station_name:           'Aquantia',
+    station_location:       'Lanzarote',
+    telemetry_interval_s:   '20',
+    config_sync_interval_s: '20',
+    display_timeout_s:      '60',
   })
   const [status, setStatus] = useState(null)   // 'saving' | 'saved' | 'error'
 
   useEffect(() => {
-    authFetch('/api/settings')
-      .then(r => r.json())
-      .then(s => setForm(f => ({ ...f, ...s })))
+    let alive = true
+
+    Promise.all([
+      authFetch('/api/settings'),
+      authFetch('/api/pipeline/config'),
+    ])
+      .then(async ([settingsRes, pipelineRes]) => {
+        const settings = settingsRes.ok ? await settingsRes.json() : {}
+        const pipeline = pipelineRes.ok ? await pipelineRes.json() : {}
+        if (!alive) return
+
+        setForm(f => ({
+          ...f,
+          ...settings,
+          telemetry_interval_s: String(
+            pipeline.telemetry_interval_s ?? settings.telemetry_interval_s ?? f.telemetry_interval_s,
+          ),
+          config_sync_interval_s: String(
+            pipeline.config_sync_interval_s ?? settings.config_sync_interval_s ?? f.config_sync_interval_s,
+          ),
+          display_timeout_s: String(
+            pipeline.display_timeout_s ?? settings.display_timeout_s ?? f.display_timeout_s,
+          ),
+        }))
+      })
       .catch(() => {})
-  }, [])
+
+    return () => { alive = false }
+  }, [authFetch])
 
   const set = (key) => (value) => setForm(f => ({ ...f, [key]: value }))
 
   const save = useCallback(async () => {
     setStatus('saving')
     try {
-      await authFetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
+      const generalPayload = {
+        flow_lpm: form.flow_lpm,
+        baseline_daily_l: form.baseline_daily_l,
+        station_name: form.station_name,
+        station_location: form.station_location,
+      }
+      const devicePayload = {
+        telemetry_interval_s: form.telemetry_interval_s,
+        config_sync_interval_s: form.config_sync_interval_s,
+        display_timeout_s: form.display_timeout_s,
+      }
+
+      const [generalRes, deviceRes] = await Promise.all([
+        authFetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(generalPayload),
+        }),
+        authFetch('/api/pipeline/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(devicePayload),
+        }),
+      ])
+
+      if (!generalRes.ok || !deviceRes.ok) {
+        throw new Error('No se pudieron guardar todos los ajustes')
+      }
+
+      const [savedSettings, savedDevice] = await Promise.all([
+        generalRes.json(),
+        deviceRes.json(),
+      ])
+
+      setForm(f => ({
+        ...f,
+        ...savedSettings,
+        telemetry_interval_s: String(savedDevice.telemetry_interval_s ?? f.telemetry_interval_s),
+        config_sync_interval_s: String(savedDevice.config_sync_interval_s ?? f.config_sync_interval_s),
+        display_timeout_s: String(savedDevice.display_timeout_s ?? f.display_timeout_s),
+      }))
       setStatus('saved')
       setTimeout(() => setStatus(null), 2500)
     } catch (_) {
       setStatus('error')
       setTimeout(() => setStatus(null), 3000)
     }
-  }, [form])
+  }, [authFetch, form])
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -161,6 +224,43 @@ export default function SettingsView() {
         />
       </div>
 
+      {/* ── Sección Dispositivo ── */}
+      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="bg-emerald-50 p-1.5 rounded-lg">
+            <Settings size={15} className="text-emerald-600" />
+          </div>
+          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+            Ajustes del dispositivo
+          </p>
+        </div>
+
+        <SettingField
+          label="Intervalo de telemetría"
+          description="Cada cuántos segundos el equipo envía nuevas lecturas al backend."
+          value={form.telemetry_interval_s}
+          onChange={set('telemetry_interval_s')}
+          type="number" min={5} max={3600} step={1}
+          unit="s"
+        />
+        <SettingField
+          label="Sincronización de configuración"
+          description="Frecuencia con la que el dispositivo comprueba si hay cambios pendientes."
+          value={form.config_sync_interval_s}
+          onChange={set('config_sync_interval_s')}
+          type="number" min={5} max={3600} step={1}
+          unit="s"
+        />
+        <SettingField
+          label="Tiempo de pantalla"
+          description="Segundos que permanece encendida la pantalla antes de apagarse por inactividad."
+          value={form.display_timeout_s}
+          onChange={set('display_timeout_s')}
+          type="number" min={0} max={3600} step={1}
+          unit="s"
+        />
+      </div>
+
       {/* ── Info técnica (solo lectura) ── */}
       <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest mb-4">
@@ -168,10 +268,12 @@ export default function SettingsView() {
         </p>
         <div className="space-y-3">
           {[
-            ['Intervalo de envío ESP32', '20 s'],
-            ['GPIO relay (ESP32)',        'GPIO 26'],
-            ['Modelo relay',             'JQC-3FF-S-Z · activo-HIGH'],
-            ['Puerto OTA',               '3232'],
+            ['Telemetría activa', `${form.telemetry_interval_s} s`],
+            ['Sync activo', `${form.config_sync_interval_s} s`],
+            ['Pantalla activa', `${form.display_timeout_s} s`],
+            ['GPIO relay (ESP32)', 'GPIO 26'],
+            ['Modelo relay', 'JQC-3FF-S-Z · activo-HIGH'],
+            ['Puerto OTA', '3232'],
           ].map(([label, val]) => (
             <div key={label} className="flex justify-between items-center text-xs">
               <span className="text-navy-400">{label}</span>
