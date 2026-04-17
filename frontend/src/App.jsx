@@ -226,39 +226,65 @@ function AppInner({ user, logout }) {
             <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 
           {/* ── Stat cards ── */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <StatCard
-              title="Temperatura" icon={Thermometer} color="amber" unit="°C"
-              value={latest.temperature}
-              min={minOf(data.temperature)} max={maxOf(data.temperature)}
+              title="Temperatura" icon={Thermometer} color="amber"
+              items={[
+                {
+                  label: 'Exterior',
+                  value: latest.temperature,
+                  unit: '°C',
+                  min: minOf(data.temperature),
+                  max: maxOf(data.temperature),
+                },
+                {
+                  label: 'Barométrica',
+                  value: latest.temperature_bar,
+                  unit: '°C',
+                  min: minOf(data.temperature_bar),
+                  max: maxOf(data.temperature_bar),
+                },
+              ]}
             />
             <StatCard
-              title="Temp. Baróm." icon={Thermometer} color="orange" unit="°C"
-              value={latest.temperature_bar}
-              min={minOf(data.temperature_bar)} max={maxOf(data.temperature_bar)}
+              title="Atmósfera" icon={Gauge} color="navy"
+              items={[
+                {
+                  label: 'Humedad',
+                  value: latest.humidity,
+                  unit: '%',
+                  min: minOf(data.humidity),
+                  max: maxOf(data.humidity),
+                },
+                {
+                  label: 'Presión',
+                  value: latest.pressure,
+                  unit: ' hPa',
+                  min: minOf(data.pressure),
+                  max: maxOf(data.pressure),
+                },
+              ]}
             />
             <StatCard
-              title="Humedad" icon={Droplets} color="teal" unit="%"
-              value={latest.humidity}
-              min={minOf(data.humidity)} max={maxOf(data.humidity)}
+              title="Viento" icon={Wind} color="teal"
+              items={[
+                {
+                  label: 'Velocidad',
+                  value: latest.windSpeed,
+                  unit: ' m/s',
+                  min: minOf(data.windSpeed),
+                  max: maxOf(data.windSpeed),
+                },
+                {
+                  label: 'Dirección',
+                  value: latest.windDirection,
+                  unit: '°',
+                  subtitle: degreesToCompass(latest.windDirection),
+                },
+              ]}
             />
             <StatCard
-              title="Presión" icon={Gauge} color="navy" unit=" hPa"
-              value={latest.pressure}
-              min={minOf(data.pressure)} max={maxOf(data.pressure)}
-            />
-            <StatCard
-              title="Viento" icon={Wind} color="teal" unit=" m/s"
-              value={latest.windSpeed}
-              min={minOf(data.windSpeed)} max={maxOf(data.windSpeed)}
-            />
-            <StatCard
-              title="Dirección" icon={Compass} color="purple" unit="°"
-              value={latest.windDirection}
-              subtitle={degreesToCompass(latest.windDirection)}
-            />
-            <StatCard
-              title="Humedad Suelo" icon={Sprout} color="green" unit="%"
+              title="Suelo" icon={Sprout} color="green" unit="%"
               value={latest.soil_moisture}
               min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
             />
@@ -289,7 +315,7 @@ function AppInner({ user, logout }) {
               title="Presión Atmosférica" icon={Gauge} timestamps={ts}
               series={[{ name: 'Presión', data: data.pressure }]}
               colors={['#012d5c']}
-              yUnit=" kPa" type="area"
+              yUnit=" hPa" minYRange={40} type="area"
             />
             <WeatherChart
               title="Luz Ambiente" icon={Sun} timestamps={ts}

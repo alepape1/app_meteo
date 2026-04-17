@@ -33,11 +33,37 @@ function buildSeries(series, timestamps) {
 
 export default function WeatherChart({
   title, icon: Icon, series, timestamps, colors,
-  type = 'area', yUnit = '', yMin, yMax, height = 230,
+  type = 'area', yUnit = '', yMin, yMax, minYRange, height = 230,
 }) {
   const builtSeries = buildSeries(series, timestamps)
   const hasData = builtSeries.some(s => s.data.length > 0)
   const chartId = `weather-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${type}`
+
+  const yValues = builtSeries
+    .flatMap(s => s.data.map(pt => pt.y))
+    .filter(v => Number.isFinite(v))
+
+  let resolvedYMin = yMin
+  let resolvedYMax = yMax
+
+  if (Number.isFinite(minYRange) && yValues.length > 0) {
+    const dataMin = Number.isFinite(yMin) ? yMin : Math.min(...yValues)
+    const dataMax = Number.isFinite(yMax) ? yMax : Math.max(...yValues)
+    const span = dataMax - dataMin
+
+    if (span < minYRange) {
+      const center = (dataMin + dataMax) / 2
+      const half = minYRange / 2
+      const step = minYRange >= 20 ? 2 : 1
+
+      if (!Number.isFinite(yMin)) {
+        resolvedYMin = Math.floor((center - half) / step) * step
+      }
+      if (!Number.isFinite(yMax)) {
+        resolvedYMax = Math.ceil((center + half) / step) * step
+      }
+    }
+  }
 
   const options = {
     chart: {
@@ -94,8 +120,8 @@ export default function WeatherChart({
       axisTicks:  { show: false },
     },
     yaxis: {
-      min: yMin,
-      max: yMax,
+      min: resolvedYMin,
+      max: resolvedYMax,
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         formatter: v => {

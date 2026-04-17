@@ -611,6 +611,20 @@ function fmtDuration(seconds) {
   return s > 0 ? `${m}m ${s}s` : `${m}m`
 }
 
+function getBarColumnWidth(count, periodId = 'default') {
+  if (count <= 6) return '34%'
+  if (count <= 12) return '42%'
+  if (count <= 24) return '52%'
+  if (periodId === 'session') return '68%'
+  return '62%'
+}
+
+function getChartMinWidth(count, periodId = 'default') {
+  const base = periodId === 'session' ? 760 : 680
+  const perItem = periodId === 'session' ? 26 : 32
+  return Math.max(base, count * perItem)
+}
+
 function ConsumptionChart() {
   const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
@@ -658,7 +672,17 @@ function ConsumptionChart() {
         animations: { enabled: false },
       },
       colors: ['#10b981'],
-      plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
+      plotOptions: {
+        bar: {
+          borderRadius: 6,
+          borderRadiusApplication: 'end',
+          columnWidth: getBarColumnWidth(normalizedSessions.length, 'session'),
+          colors: {
+            backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+            backgroundBarRadius: 6,
+          },
+        },
+      },
       dataLabels: { enabled: false },
       xaxis: {
         type: 'datetime',
@@ -726,7 +750,11 @@ function ConsumptionChart() {
           </div>
         </div>
         {normalizedSessions.length > 0 ? (
-          <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={240} />
+          <div className="overflow-x-auto px-2 pb-2">
+            <div style={{ minWidth: `${getChartMinWidth(normalizedSessions.length, 'session')}px` }}>
+              <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={250} />
+            </div>
+          </div>
         ) : (
           <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
             Sin sesiones de riego registradas
@@ -756,7 +784,17 @@ function ConsumptionChart() {
       animations: { enabled: false },
     },
     colors: ['#0c8ecc'],
-    plotOptions: { bar: { borderRadius: 4, columnWidth: '58%' } },
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        borderRadiusApplication: 'end',
+        columnWidth: getBarColumnWidth(normalizedHistory.length, period),
+        colors: {
+          backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+          backgroundBarRadius: 6,
+        },
+      },
+    },
     dataLabels: { enabled: false },
     xaxis: {
       type: 'category',
@@ -812,7 +850,11 @@ function ConsumptionChart() {
         </div>
       </div>
       {normalizedHistory.length > 0 ? (
-        <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={240} />
+        <div className="overflow-x-auto px-2 pb-2">
+          <div style={{ minWidth: `${getChartMinWidth(normalizedHistory.length, period)}px` }}>
+            <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={250} />
+          </div>
+        </div>
       ) : (
         <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
           Sin datos de riego en este período
