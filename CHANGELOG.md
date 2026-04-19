@@ -9,6 +9,20 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.1.0-beta.3] — 2026-04-19
+
+**Firmware compatible:** `v0.1.0-beta.3`
+
+Beta de estabilización para despliegue en VPS, con foco en fiabilidad del backend MQTT y trazabilidad operativa.
+
+### Cambiado
+- Alineada la versión del dashboard y la documentación del proyecto con la nueva beta
+- Actualizada la versión mínima de firmware compatible a `0.1.0-beta.3`
+
+### Corregido
+- El backend ahora inicia el cliente MQTT también cuando arranca bajo Gunicorn en Docker/producción
+- Se evita perder la suscripción MQTT tras reinicios del contenedor backend
+
 ## [v0.1.0-beta.2] — 2026-04-16
 
 **Firmware compatible:** `v0.1.0-beta.2`
@@ -105,5 +119,6 @@ Primera versión operativa (HTTP legacy, SQLite).
 
 ---
 
+[v0.1.0-beta.3]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.3
 [v0.1.0-beta.2]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.2
 [v0.1.0-beta.1]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.1

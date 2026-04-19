@@ -729,7 +729,7 @@ Ambos repositorios (`app_meteo` y `weather-station-ESP`) se versionan de forma i
 
 ```sql
 SELECT value FROM app_settings WHERE key = 'min_firmware_version';
--- → '0.1.0-beta.2'
+-- → '0.1.0-beta.3'
 ```
 
 Para actualizar el mínimo aceptado al introducir un cambio incompatible:
