@@ -238,6 +238,11 @@ def create_tables(conn: _CompatConn):
         temperature_barometer  REAL,
         humidity               REAL,
         pressure               REAL,
+        temperature_source     TEXT    DEFAULT NULL,
+        pressure_source        TEXT    DEFAULT NULL,
+        bmp280_ok              BOOLEAN DEFAULT FALSE,
+        bmp280_temperature     REAL    DEFAULT NULL,
+        bmp280_pressure        REAL    DEFAULT NULL,
         windSpeed              REAL,
         windDirection          REAL,
         windSpeedFiltered      REAL,
@@ -257,6 +262,16 @@ def create_tables(conn: _CompatConn):
         PRIMARY KEY (id, timestamp)
     );
     """)
+
+    # Migraciones ligeras para instalaciones ya existentes.
+    for ddl in [
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS temperature_source TEXT DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS pressure_source TEXT DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_ok BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_temperature REAL DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_pressure REAL DEFAULT NULL",
+    ]:
+        cur.execute(ddl)
 
     # Índices estándar (TimescaleDB añade los suyos propios sobre timestamp)
     cur.execute("""

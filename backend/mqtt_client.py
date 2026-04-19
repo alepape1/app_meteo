@@ -72,18 +72,25 @@ def _handle_telemetry(finca_id: str, payload: dict):
         db.execute("""
             INSERT INTO home_weather_station(
                 temperature, pressure, temperature_barometer, humidity,
+                temperature_source, pressure_source,
+                bmp280_ok, bmp280_temperature, bmp280_pressure,
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
                 pipeline_pressure, pipeline_flow, soil_moisture, device_mac,
                 timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                       COALESCE(?, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
             payload.get("temperature_barometer"),
             payload.get("humidity"),
+            payload.get("temperature_source"),
+            payload.get("pressure_source"),
+            payload.get("bmp280_ok"),
+            payload.get("bmp280_temperature"),
+            payload.get("bmp280_pressure"),
             payload.get("windSpeed"),
             payload.get("windDirection"),
             payload.get("windSpeedFiltered"),

@@ -226,7 +226,7 @@ function AppInner({ user, logout }) {
             <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 
           {/* ── Stat cards ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
             <StatCard
               title="Temperatura" icon={Thermometer} color="amber"
               items={[
@@ -234,6 +234,7 @@ function AppInner({ user, logout }) {
                   label: 'Exterior',
                   value: latest.temperature,
                   unit: '°C',
+                  subtitle: latest.temperature_source || 'Principal',
                   min: minOf(data.temperature),
                   max: maxOf(data.temperature),
                 },
@@ -260,8 +261,30 @@ function AppInner({ user, logout }) {
                   label: 'Presión',
                   value: latest.pressure,
                   unit: ' hPa',
+                  subtitle: latest.pressure_source || 'Principal',
                   min: minOf(data.pressure),
                   max: maxOf(data.pressure),
+                },
+              ]}
+            />
+            <StatCard
+              title="BMP280" icon={Gauge} color="purple"
+              items={[
+                {
+                  label: 'Temperatura',
+                  value: latest.bmp280_temperature,
+                  unit: '°C',
+                  subtitle: latest.bmp280_ok ? 'OK' : 'Sin dato',
+                  min: minOf(data.bmp280_temperature),
+                  max: maxOf(data.bmp280_temperature),
+                },
+                {
+                  label: 'Presión',
+                  value: latest.bmp280_pressure,
+                  unit: ' hPa',
+                  subtitle: 'BMP280',
+                  min: minOf(data.bmp280_pressure),
+                  max: maxOf(data.bmp280_pressure),
                 },
               ]}
             />
@@ -295,11 +318,12 @@ function AppInner({ user, logout }) {
             <WeatherChart
               title="Temperatura" icon={Thermometer} timestamps={ts}
               series={[
-                { name: 'MCP9808 (ext)', data: data.temperature },
-                { name: 'HTU2x (int)',   data: data.temperature_bar },
-                { name: 'DHT11',         data: data.dht_temperature },
+                { name: latest.temperature_source || 'Exterior', data: data.temperature },
+                { name: 'Barométrica', data: data.temperature_bar },
+                { name: 'BMP280', data: data.bmp280_temperature },
+                { name: 'DHT11', data: data.dht_temperature },
               ]}
-              colors={['#BA7517', '#c4730a', '#534AB7']}
+              colors={['#BA7517', '#c4730a', '#534AB7', '#8b83dc']}
               yUnit="°C" type="area"
             />
             <WeatherChart
@@ -313,8 +337,11 @@ function AppInner({ user, logout }) {
             />
             <WeatherChart
               title="Presión Atmosférica" icon={Gauge} timestamps={ts}
-              series={[{ name: 'Presión', data: data.pressure }]}
-              colors={['#012d5c']}
+              series={[
+                { name: latest.pressure_source || 'Presión principal', data: data.pressure },
+                { name: 'BMP280', data: data.bmp280_pressure },
+              ]}
+              colors={['#012d5c', '#534AB7']}
               yUnit=" hPa" minYRange={40} type="area"
             />
             <WeatherChart

@@ -3,7 +3,9 @@ import { useAuth } from '../AuthContext'
 
 const EMPTY = {
   timestamp: [], temperature: [], temperature_bar: [], humidity: [],
-  pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
+  pressure: [], temperature_source: [], pressure_source: [],
+  bmp280_ok: [], bmp280_temperature: [], bmp280_pressure: [],
+  windSpeed: [], windDirection: [], windSpeedFiltered: [],
   windDirectionFiltered: [], light: [],
   dht_temperature: [], dht_humidity: [],
   rssi: [], free_heap: [], uptime_s: [], relay_active: [],
@@ -210,17 +212,22 @@ export function useWeatherData() {
   }, [fetchLatest, fetchSamples, fetchDevices, fetchDeviceInfo])
 
   const latest = {
-    temperature:     data.temperature.at(-1),
-    temperature_bar: data.temperature_bar.at(-1),
-    humidity:        data.humidity.at(-1),
-    pressure:        data.pressure.at(-1),
-    windSpeed:       data.windSpeed.at(-1),
-    windDirection:   data.windDirection.at(-1),
-    rssi:            data.rssi.at(-1),
-    free_heap:       data.free_heap.at(-1),
-    uptime_s:        data.uptime_s.at(-1),
-    relay_active:    data.relay_active.at(-1) ?? 0,
-    soil_moisture:   data.soil_moisture.at(-1),
+    temperature:        data.temperature.at(-1),
+    temperature_bar:    data.temperature_bar.at(-1),
+    humidity:           data.humidity.at(-1),
+    pressure:           data.pressure.at(-1),
+    temperature_source: data.temperature_source.at(-1),
+    pressure_source:    data.pressure_source.at(-1),
+    bmp280_ok:          data.bmp280_ok.at(-1),
+    bmp280_temperature: data.bmp280_temperature.at(-1),
+    bmp280_pressure:    data.bmp280_pressure.at(-1),
+    windSpeed:          data.windSpeed.at(-1),
+    windDirection:      data.windDirection.at(-1),
+    rssi:               data.rssi.at(-1),
+    free_heap:          data.free_heap.at(-1),
+    uptime_s:           data.uptime_s.at(-1),
+    relay_active:       data.relay_active.at(-1) ?? 0,
+    soil_moisture:      data.soil_moisture.at(-1),
   }
 
   const setRelay = useCallback(async (state, index = 0) => {
