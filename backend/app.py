@@ -1470,20 +1470,36 @@ def register_factory():
     return jsonify({"ok": True, "mac": mac, "serial_number": serial_number})
 
 
+def _autostart_mqtt():
+    """Arranca el cliente MQTT también bajo Gunicorn.
+
+    En desarrollo con el autoreload de Flask evitamos el proceso padre para no
+    duplicar la suscripción.
+    """
+    if os.getenv("MQTT_AUTOSTART", "1") != "1":
+        logger.info("MQTT autostart deshabilitado por entorno")
+        return
+
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    if debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        logger.info("MQTT autostart omitido en el proceso padre del reloader")
+        return
+
+    mqtt_client.start()
+
+
 # Inicializar DB una sola vez al arrancar
 with app.app_context():
     conn = get_db_connection()
     create_tables(conn)
     conn.close()
 
+# Importante: Gunicorn importa este módulo pero no ejecuta __main__.
+# Por eso el cliente MQTT debe arrancar aquí también.
+_autostart_mqtt()
+
 if __name__ == "__main__":
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = int(os.getenv("FLASK_PORT", 7000))
     debug = os.getenv("FLASK_DEBUG", "0") == "1"
-
-    # Iniciar MQTT solo en el proceso servidor real para evitar duplicados
-    # cuando Flask usa autoreload en desarrollo.
-    if (not debug) or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        mqtt_client.start()
-
     app.run(host=host, port=port, debug=debug)
