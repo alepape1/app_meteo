@@ -38,6 +38,10 @@ export default function WeatherChart({
   const builtSeries = buildSeries(series, timestamps)
   const hasData = builtSeries.some(s => s.data.length > 0)
   const chartId = `weather-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${type}`
+  const legendItems = builtSeries.map((item, index) => ({
+    name: item.name,
+    color: colors?.[index] ?? '#012d5c',
+  }))
 
   const yValues = builtSeries
     .flatMap(s => s.data.map(pt => pt.y))
@@ -137,9 +141,10 @@ export default function WeatherChart({
       padding: { left: 0, right: 8 },
     },
     legend: {
-      show: series.length > 1,
+      show: builtSeries.length > 1,
+      showForSingleSeries: true,
       position: 'top',
-      horizontalAlign: 'right',
+      horizontalAlign: 'left',
       fontSize: '12px',
       fontFamily: '"DM Sans"',
       labels: { colors: '#3d506a' },
@@ -169,6 +174,24 @@ export default function WeatherChart({
         <h3 className="font-semibold text-navy-900 text-sm">{title}</h3>
         <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
       </div>
+
+      {legendItems.length > 1 && (
+        <div className="px-5 pb-2 flex flex-wrap gap-2">
+          {legendItems.map((item) => (
+            <span
+              key={`${chartId}-${item.name}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-navy-100 bg-navy-50 px-2.5 py-1 text-[11px] font-medium text-navy-500"
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              {item.name}
+            </span>
+          ))}
+        </div>
+      )}
+
       {hasData ? (
         <ReactApexChart options={options} series={builtSeries} type={type} height={height} />
       ) : (
