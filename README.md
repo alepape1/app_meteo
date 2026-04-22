@@ -120,7 +120,7 @@ app_meteo/
 │   │   ├── App.jsx                  # Layout, navegación, guard de autenticación
 │   │   ├── AuthContext.jsx          # JWT: login, logout, authFetch
 │   │   ├── hooks/
-│   │   │   └── useWeatherData.js    # Fetching, estado y auto-refresco (60s)
+│   │       └── useWeatherData.js    # Fetching, estado y auto-refresco incremental (15s)
 │   │   └── components/
 │   │       ├── LoginView.jsx        # Pantalla de login
 │   │       ├── Sidebar.jsx          # Navegación + filtros de fecha + selector ECU

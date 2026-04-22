@@ -9,6 +9,26 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.1.0] — 2026-04-22
+
+**Firmware compatible:** `v0.1.0`
+
+Primera versión estable del sistema Aquantia. Incluye todas las funcionalidades desarrolladas durante el ciclo beta y la suite de tests automatizados completa.
+
+### Añadido
+- Suite de tests automatizados (113 tests): unitarios, integración REST, integración MQTT y tests de regresión golden-file para el algoritmo `detect_leaks()`
+- Script `run_release_tests.ps1` para ejecutar la suite completa y generar informe HTML antes de cada release
+
+### Cambiado
+- Cliente MQTT actualizado a `CallbackAPIVersion.VERSION2` (paho-mqtt ≥ 2.0)
+- Auto-refresco del dashboard actualizado a refresco incremental cada 15s
+
+### Corregido
+- `UniqueViolation` en `app_settings`: compat layer SQLite→PostgreSQL traduce correctamente `INSERT OR REPLACE` a `ON CONFLICT ... DO UPDATE`
+- Duplicados en el historial pipeline: el cliente MQTT solo arranca en el proceso hijo del reloader de Werkzeug (guarda de `WERKZEUG_RUN_MAIN`)
+
+---
+
 ## [v0.1.0-beta.3] — 2026-04-19
 
 **Firmware compatible:** `v0.1.0-beta.3`
@@ -119,6 +139,7 @@ Primera versión operativa (HTTP legacy, SQLite).
 
 ---
 
+[v0.1.0]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0
 [v0.1.0-beta.3]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.3
 [v0.1.0-beta.2]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.2
 [v0.1.0-beta.1]: https://github.com/alepape1/app_meteo/releases/tag/v0.1.0-beta.1
