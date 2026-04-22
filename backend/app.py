@@ -1170,9 +1170,9 @@ def set_pipeline_config():
     scenario = payload.get('scenario')
     mode = payload.get('mode')
 
-    if scenario is not None and scenario not in ('normal', 'leak', 'burst'):
+    if scenario is not None and scenario not in ('normal', 'leak', 'burst', 'obstruction'):
         return jsonify(
-            {"error": "Escenario inválido. Use: normal, leak, burst"}), 400
+            {"error": "Escenario inválido. Use: normal, leak, burst, obstruction"}), 400
     if mode is not None and mode not in ('sim', 'real'):
         return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
 

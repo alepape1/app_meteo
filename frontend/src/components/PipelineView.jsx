@@ -33,11 +33,13 @@ const clampInput = (value, min, max) => {
 
 // ── Configuración de estados de detección ─────────────────────────────────────
 const STATUS_CFG = {
-  NORMAL:         { label: 'Sistema normal',          color: 'emerald', Icon: CheckCircle },
-  LEAK_SUSPECTED: { label: 'Fuga sospechada (EWMA)',  color: 'amber',   Icon: AlertTriangle },
-  LEAK:           { label: 'Fuga detectada',          color: 'orange',  Icon: AlertTriangle },
-  BURST:          { label: 'Rotura detectada',        color: 'red',     Icon: Zap },
-  NO_DATA:        { label: 'Sin datos suficientes',   color: 'navy',    Icon: Info },
+  NORMAL:                { label: 'Sistema normal',             color: 'emerald', Icon: CheckCircle },
+  LEAK_SUSPECTED:        { label: 'Fuga sospechada (EWMA)',     color: 'amber',   Icon: AlertTriangle },
+  LEAK:                  { label: 'Fuga detectada',             color: 'orange',  Icon: AlertTriangle },
+  BURST:                 { label: 'Rotura detectada',           color: 'red',     Icon: Zap },
+  OBSTRUCTION_SUSPECTED: { label: 'Obstrucción parcial (EWMA)', color: 'purple',  Icon: AlertTriangle },
+  OBSTRUCTION:           { label: 'Obstrucción detectada',      color: 'purple',  Icon: Search },
+  NO_DATA:               { label: 'Sin datos suficientes',      color: 'navy',    Icon: Info },
 }
 
 const COLOR = {
@@ -45,13 +47,15 @@ const COLOR = {
   amber:   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   bar: 'bg-amber-400' },
   orange:  { bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200',  bar: 'bg-orange-500' },
   red:     { bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     bar: 'bg-red-500' },
+  purple:  { bg: 'bg-purple-50',  text: 'text-purple-700',  border: 'border-purple-200',  bar: 'bg-purple-500' },
   navy:    { bg: 'bg-navy-50',    text: 'text-navy-500',    border: 'border-navy-100',    bar: 'bg-navy-300' },
 }
 
 const SCENARIOS = [
-  { id: 'normal', label: 'Normal',   hint: 'Sin anomalías' },
-  { id: 'leak',   label: 'Fuga',     hint: '~0.3 L/min fuga' },
-  { id: 'burst',  label: 'Rotura',   hint: 'Presión colapsa' },
+  { id: 'normal',      label: 'Normal',      hint: 'Sin anomalías' },
+  { id: 'leak',        label: 'Fuga',        hint: '~0.3 L/min fuga' },
+  { id: 'burst',       label: 'Rotura',      hint: 'Presión colapsa' },
+  { id: 'obstruction', label: 'Obstrucción', hint: 'Presión alta, caudal ~0' },
 ]
 
 const PIPELINE_MODES = [

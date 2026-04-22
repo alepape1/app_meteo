@@ -12,6 +12,8 @@ from pipeline_sim import (
     BURST_PRESSURE,
     LEAK_FLOW_BG,
     LEAK_FLOW_THRESHOLD,
+    OBSTRUCTION_FLOW_MAX,
+    OBSTRUCTION_PRESSURE_RATIO,
     build_synthetic_history,
     detect_leaks,
     simulate_reading,
@@ -259,3 +261,91 @@ class TestDetectLeaksSingleReading:
         r = simulate_reading(FIXED_TS, False, "leak", NOMINAL_FLOW)
         result = detect_leaks([r])
         assert result["status"] in ("NORMAL", "LEAK", "LEAK_SUSPECTED", "BURST")
+
+
+# ── Obstruction scenario — simulate_reading ──────────────────────────────────
+
+class TestSimulateReadingObstruction:
+    def test_obstruction_valve_open_flow_near_zero(self):
+        r = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        assert r["flow_lpm"] < OBSTRUCTION_FLOW_MAX
+
+    def test_obstruction_valve_open_pressure_near_static(self):
+        r = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        # Presión no cae al abrir la válvula: permanece cerca de la presión estática
+        assert r["pressure_bar"] >= STATIC_PRESSURE_BAR * OBSTRUCTION_PRESSURE_RATIO
+
+    def test_obstruction_valve_open_pressure_above_dynamic(self):
+        r = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        # La presión con obstrucción >> presión dinámica normal
+        assert r["pressure_bar"] > DYNAMIC_PRESSURE_BAR
+
+    def test_obstruction_valve_closed_behaves_like_normal(self):
+        r_obs = simulate_reading(FIXED_TS, False, "obstruction", NOMINAL_FLOW)
+        r_norm = simulate_reading(FIXED_TS, False, "normal", NOMINAL_FLOW)
+        # Con válvula cerrada la obstrucción no es distinguible del estado normal
+        assert abs(r_obs["pressure_bar"] - r_norm["pressure_bar"]) < 0.05
+        assert abs(r_obs["flow_lpm"] - r_norm["flow_lpm"]) < 0.01
+
+    def test_obstruction_valve_closed_flow_near_zero(self):
+        r = simulate_reading(FIXED_TS, False, "obstruction", NOMINAL_FLOW)
+        assert r["flow_lpm"] < 0.1
+
+    def test_obstruction_pressure_and_flow_nonnegative(self):
+        for valve in (True, False):
+            r = simulate_reading(FIXED_TS, valve, "obstruction", NOMINAL_FLOW)
+            assert r["pressure_bar"] >= 0.0
+            assert r["flow_lpm"] >= 0.0
+
+    def test_obstruction_is_deterministic(self):
+        r1 = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        r2 = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        assert r1 == r2
+
+    def test_scenario_field_stored(self):
+        r = simulate_reading(FIXED_TS, True, "obstruction", NOMINAL_FLOW)
+        assert r["scenario"] == "obstruction"
+
+
+# ── Obstruction scenario — detect_leaks ─────────────────────────────────────
+
+class TestDetectLeaksObstruction:
+    def test_obstruction_detected_valve_open(self):
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        assert r["status"] in ("OBSTRUCTION", "OBSTRUCTION_SUSPECTED")
+
+    def test_obstruction_has_obstruction_alert(self):
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        methods = [a["method"] for a in r["alerts"]]
+        assert any(m.startswith("obstruction") for m in methods)
+
+    def test_obstruction_confidence_above_threshold(self):
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        assert r["confidence"] > 0.4
+
+    def test_obstruction_not_detected_as_leak(self):
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        assert r["status"] not in ("LEAK", "LEAK_SUSPECTED")
+
+    def test_obstruction_not_detected_as_burst(self):
+        # Obstrucción: presión alta, no hay colapso de presión
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        assert r["status"] != "BURST"
+
+    def test_obstruction_valve_closed_not_triggered(self):
+        # Con válvula cerrada la obstrucción no puede detectarse
+        h = build_synthetic_history(50, False, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        assert r["status"] in ("NORMAL", "LEAK_SUSPECTED")
+
+    def test_obstruction_alert_has_required_method_key(self):
+        h = build_synthetic_history(50, True, "obstruction", NOMINAL_FLOW)
+        r = detect_leaks(h)
+        for a in r["alerts"]:
+            assert "method" in a and "severity" in a and "message" in a
+
