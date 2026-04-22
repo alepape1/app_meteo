@@ -11,3 +11,6 @@ nohup.out
 venv/
 env/
 .DS_Store
+
+# Reportes de tests generados automáticamente
+backend/tests/reports/

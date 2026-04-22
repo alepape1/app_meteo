@@ -218,17 +218,17 @@ def _handle_register(finca_id: str, payload: dict):
         db.close()
 
 
-def _on_connect(client, userdata, flags, rc):
-    if rc == 0:
+def _on_connect(client, userdata, flags, reason_code, properties):
+    if reason_code == 0:
         logger.info("MQTT conectado a %s:%d", MQTT_HOST, MQTT_PORT)
         client.subscribe("aquantia/+/telemetry")
         client.subscribe("aquantia/+/alerts")
         client.subscribe("aquantia/+/register")
     else:
-        logger.error("MQTT error de conexión: rc=%d", rc)
+        logger.error("MQTT error de conexión: reason_code=%s", reason_code)
 
 
-def _on_message(client, userdata, msg):
+def _on_message(client, userdata, msg):  # firma compatible con API v1 y v2
     try:
         finca_id = _finca_id_from_topic(msg.topic)
         if not finca_id:
@@ -276,7 +276,11 @@ def start():
         if _client is not None:
             return
 
-    client = mqtt.Client(client_id=f"aquantia-backend-{os.getpid()}", clean_session=True)
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"aquantia-backend-{os.getpid()}",
+        clean_session=True,
+    )
 
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
