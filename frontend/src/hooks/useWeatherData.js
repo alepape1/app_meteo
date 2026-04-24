@@ -10,6 +10,7 @@ const EMPTY = {
   dht_temperature: [], dht_humidity: [],
   rssi: [], free_heap: [], uptime_s: [], relay_active: [],
   soil_moisture: [],
+  dew_point: [], heat_index: [], abs_humidity: [],
 }
 
 const AUTO_REFRESH_MS = 15000

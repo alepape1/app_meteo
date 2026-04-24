@@ -77,10 +77,11 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
-                pipeline_pressure, pipeline_flow, soil_moisture, device_mac,
-                timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      COALESCE(?, NOW()))
+                pipeline_pressure, pipeline_flow, soil_moisture,
+                dew_point, heat_index, abs_humidity,
+                device_mac, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, COALESCE(?, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -105,6 +106,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_pressure"),
             payload.get("pipeline_flow"),
             payload.get("soil_moisture"),
+            payload.get("dew_point"),
+            payload.get("heat_index"),
+            payload.get("abs_humidity"),
             device_mac,
             ts_dt,
         ))
@@ -112,14 +116,14 @@ def _handle_telemetry(finca_id: str, payload: dict):
         if device_mac:
             relay_mask = int(payload.get("relay_active", 0))
             try:
-                payload_relay_count = max(1, int(payload.get("relay_count", 1) or 1))
+                payload_relay_count = max(0, int(payload.get("relay_count", 1) or 0))
             except (TypeError, ValueError):
                 payload_relay_count = 1
 
             row = db.execute(
                 "SELECT relay_count FROM device_info WHERE mac_address=?", (device_mac,)
             ).fetchone()
-            existing_relay_count = int(row["relay_count"]) if row and row["relay_count"] else 1
+            existing_relay_count = int(row["relay_count"]) if row and row["relay_count"] else 0
             relay_count = max(existing_relay_count, payload_relay_count)
 
             db.execute("""
@@ -129,7 +133,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 ON CONFLICT(mac_address) DO UPDATE SET
                     finca_id         = excluded.finca_id,
                     ip_address       = COALESCE(excluded.ip_address, device_info.ip_address),
-                    relay_count      = GREATEST(COALESCE(device_info.relay_count, 1), excluded.relay_count),
+                    relay_count      = GREATEST(COALESCE(device_info.relay_count, 0), excluded.relay_count),
                     firmware_version = COALESCE(excluded.firmware_version, device_info.firmware_version),
                     last_seen        = CURRENT_TIMESTAMP
             """, (
@@ -186,8 +190,9 @@ def _handle_register(finca_id: str, payload: dict):
         db.execute("""
             INSERT INTO device_info(
                 finca_id, chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
-                sdk_version, mac_address, ip_address, relay_count, firmware_version, last_seen
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                sdk_version, mac_address, ip_address, relay_count, firmware_version,
+                device_profile, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mac_address) DO UPDATE SET
                 finca_id         = excluded.finca_id,
                 chip_model       = excluded.chip_model,
@@ -198,6 +203,7 @@ def _handle_register(finca_id: str, payload: dict):
                 ip_address       = excluded.ip_address,
                 relay_count      = excluded.relay_count,
                 firmware_version = excluded.firmware_version,
+                device_profile   = COALESCE(excluded.device_profile, device_info.device_profile),
                 last_seen        = CURRENT_TIMESTAMP
         """, (
             finca_id,
@@ -210,6 +216,7 @@ def _handle_register(finca_id: str, payload: dict):
             payload.get("ip_address"),
             int(payload.get("relay_count", 1)),
             payload.get("firmware_version"),
+            payload.get("device_profile"),
         ))
         db.commit()
         logger.info("Dispositivo MQTT registrado: finca_id=%s mac=%s",

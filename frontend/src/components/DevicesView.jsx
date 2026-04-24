@@ -105,9 +105,22 @@ export default function DevicesView({ onNavigate }) {
                         <p className="text-sm font-bold text-navy-900">
                           {d.nickname || d.serial_number || mac.slice(-8)}
                         </p>
-                        <p className={`text-xs font-medium mt-0.5 ${online ? 'text-emerald-600' : 'text-navy-400'}`}>
-                          {online ? 'Online' : 'Offline'}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className={`text-xs font-medium ${online ? 'text-emerald-600' : 'text-navy-400'}`}>
+                            {online ? 'Online' : 'Offline'}
+                          </p>
+                          {d.device_profile && (
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                              d.device_profile === 'AGROMETEO'
+                                ? 'bg-green-100 text-green-700'
+                                : d.device_profile === 'IRRIGATION'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {d.device_profile}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

@@ -646,6 +646,7 @@ def _get_user_devices_rows(user_id):
         SELECT
             COALESCE(di.mac_address, ud.mac_address) AS mac_address,
             di.chip_model, di.relay_count, di.ip_address, di.last_seen, di.finca_id,
+            di.device_profile,
             ud.nickname, ud.claimed_at,
             dc.serial_number, dc.claimed_by_finca_id,
             (SELECT timestamp FROM home_weather_station

@@ -60,6 +60,9 @@ function AppInner({ user, logout }) {
   }, [])
 
   const selectedDevice = devices.find(d => d.mac_address === selectedMac)
+  const deviceProfile = (selectedDevice?.device_profile || deviceInfo?.device_profile || '').toUpperCase()
+  const isAgrometeo = deviceProfile === 'AGROMETEO'
+  const isIrrigation = deviceProfile === 'IRRIGATION'
   const isDeviceOnline = selectedDevice?.latest_reading
     ? (() => {
         const parsed = Date.parse(String(selectedDevice.latest_reading).trim())
@@ -288,29 +291,59 @@ function AppInner({ user, logout }) {
                 },
               ]}
             />
-            <StatCard
-              title="Viento" icon={Wind} color="teal"
-              items={[
-                {
-                  label: 'Velocidad',
-                  value: latest.windSpeed,
-                  unit: ' m/s',
-                  min: minOf(data.windSpeed),
-                  max: maxOf(data.windSpeed),
-                },
-                {
-                  label: 'Dirección',
-                  value: latest.windDirection,
-                  unit: '°',
-                  subtitle: degreesToCompass(latest.windDirection),
-                },
-              ]}
-            />
-            <StatCard
-              title="Suelo" icon={Sprout} color="green" unit="%"
-              value={latest.soil_moisture}
-              min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
-            />
+            {isAgrometeo ? (
+              <StatCard
+                title="Agrometeorología" icon={Droplets} color="green"
+                items={[
+                  {
+                    label: 'Pto. rocío',
+                    value: latest.dew_point,
+                    unit: '°C',
+                    min: minOf(data.dew_point),
+                    max: maxOf(data.dew_point),
+                  },
+                  {
+                    label: 'Hum. absoluta',
+                    value: latest.abs_humidity,
+                    unit: ' g/m³',
+                    min: minOf(data.abs_humidity),
+                    max: maxOf(data.abs_humidity),
+                  },
+                ]}
+              />
+            ) : (
+              <StatCard
+                title="Viento" icon={Wind} color="teal"
+                items={[
+                  {
+                    label: 'Velocidad',
+                    value: latest.windSpeed,
+                    unit: ' m/s',
+                    min: minOf(data.windSpeed),
+                    max: maxOf(data.windSpeed),
+                  },
+                  {
+                    label: 'Dirección',
+                    value: latest.windDirection,
+                    unit: '°',
+                    subtitle: degreesToCompass(latest.windDirection),
+                  },
+                ]}
+              />
+            )}
+            {isAgrometeo ? (
+              <StatCard
+                title="Índice calor" icon={Thermometer} color="amber" unit="°C"
+                value={latest.heat_index}
+                min={minOf(data.heat_index)} max={maxOf(data.heat_index)}
+              />
+            ) : (
+              <StatCard
+                title="Suelo" icon={Sprout} color="green" unit="%"
+                value={latest.soil_moisture}
+                min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
+              />
+            )}
           </div>
 
           {/* ── Charts ── */}
@@ -321,7 +354,7 @@ function AppInner({ user, logout }) {
                 { name: latest.temperature_source || 'Exterior', data: data.temperature },
                 { name: 'Barométrica', data: data.temperature_bar },
                 { name: 'BMP280', data: data.bmp280_temperature },
-                { name: 'DHT11', data: data.dht_temperature },
+                ...(!isAgrometeo ? [{ name: 'DHT11', data: data.dht_temperature }] : []),
               ]}
               colors={['#BA7517', '#c4730a', '#534AB7', '#8b83dc']}
               yUnit="°C" type="area"
@@ -329,8 +362,8 @@ function AppInner({ user, logout }) {
             <WeatherChart
               title="Humedad Relativa" icon={Droplets} timestamps={ts}
               series={[
-                { name: 'HTU2x', data: data.humidity },
-                { name: 'DHT11', data: data.dht_humidity },
+                { name: isAgrometeo ? 'HDC1080' : 'HTU2x', data: data.humidity },
+                ...(!isAgrometeo ? [{ name: 'DHT11', data: data.dht_humidity }] : []),
               ]}
               colors={['#0c8ecc', '#534AB7']}
               yUnit="%" yMin={0} yMax={100} type="area"
@@ -350,30 +383,49 @@ function AppInner({ user, logout }) {
               colors={['#BA7517']}
               yUnit=" lx" yMin={0} type="area"
             />
-            <WeatherChart
-              title="Velocidad del Viento" icon={Wind} timestamps={ts}
-              series={[
-                { name: 'Velocidad', data: data.windSpeed },
-                { name: 'Filtrada',  data: data.windSpeedFiltered },
-              ]}
-              colors={['#0c8ecc', '#012d5c']}
-              yUnit=" m/s" type="line"
-            />
-            <WeatherChart
-              title="Dirección del Viento" icon={Compass} timestamps={ts}
-              series={[
-                { name: 'Dirección', data: data.windDirection },
-                { name: 'Filtrada',  data: data.windDirectionFiltered },
-              ]}
-              colors={['#534AB7', '#8b83dc']}
-              yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
-            />
-            <WeatherChart
-              title="Humedad del Suelo" icon={Sprout} timestamps={ts}
-              series={[{ name: 'Suelo', data: data.soil_moisture }]}
-              colors={['#10b981']}
-              yUnit="%" yMin={0} yMax={100} type="area"
-            />
+            {isAgrometeo ? (
+              <>
+                <WeatherChart
+                  title="Punto de Rocío" icon={Droplets} timestamps={ts}
+                  series={[{ name: 'Pto. rocío', data: data.dew_point }]}
+                  colors={['#0c8ecc']}
+                  yUnit="°C" type="area"
+                />
+                <WeatherChart
+                  title="Humedad Absoluta" icon={Droplets} timestamps={ts}
+                  series={[{ name: 'Hum. absoluta', data: data.abs_humidity }]}
+                  colors={['#10b981']}
+                  yUnit=" g/m³" yMin={0} type="area"
+                />
+              </>
+            ) : (
+              <>
+                <WeatherChart
+                  title="Velocidad del Viento" icon={Wind} timestamps={ts}
+                  series={[
+                    { name: 'Velocidad', data: data.windSpeed },
+                    { name: 'Filtrada',  data: data.windSpeedFiltered },
+                  ]}
+                  colors={['#0c8ecc', '#012d5c']}
+                  yUnit=" m/s" type="line"
+                />
+                <WeatherChart
+                  title="Dirección del Viento" icon={Compass} timestamps={ts}
+                  series={[
+                    { name: 'Dirección', data: data.windDirection },
+                    { name: 'Filtrada',  data: data.windDirectionFiltered },
+                  ]}
+                  colors={['#534AB7', '#8b83dc']}
+                  yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
+                />
+                <WeatherChart
+                  title="Humedad del Suelo" icon={Sprout} timestamps={ts}
+                  series={[{ name: 'Suelo', data: data.soil_moisture }]}
+                  colors={['#10b981']}
+                  yUnit="%" yMin={0} yMax={100} type="area"
+                />
+              </>
+            )}
           </div>
 
             </main>

@@ -257,6 +257,9 @@ def create_tables(conn: _CompatConn):
         pipeline_pressure      REAL    DEFAULT NULL,
         pipeline_flow          REAL    DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
+        dew_point              REAL    DEFAULT NULL,
+        heat_index             REAL    DEFAULT NULL,
+        abs_humidity           REAL    DEFAULT NULL,
         device_mac             TEXT    DEFAULT NULL,
         timestamp              TIMESTAMPTZ DEFAULT NOW(),
         PRIMARY KEY (id, timestamp)
@@ -270,6 +273,9 @@ def create_tables(conn: _CompatConn):
         "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_ok BOOLEAN DEFAULT FALSE",
         "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_temperature REAL DEFAULT NULL",
         "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_pressure REAL DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS dew_point    REAL DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS heat_index   REAL DEFAULT NULL",
+        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS abs_humidity REAL DEFAULT NULL",
     ]:
         cur.execute(ddl)
 
@@ -320,6 +326,7 @@ def create_tables(conn: _CompatConn):
         relay_count       INTEGER DEFAULT 1,
         serial_number     TEXT    DEFAULT NULL,
         firmware_version  TEXT    DEFAULT NULL,
+        device_profile    TEXT    DEFAULT NULL,
         claimed_at        TIMESTAMPTZ DEFAULT NULL,
         last_seen         TIMESTAMPTZ DEFAULT NOW()
     );
@@ -438,6 +445,7 @@ def create_tables(conn: _CompatConn):
     # ALTER TABLE IF NOT EXISTS COLUMN es idempotente en PostgreSQL.
     migrations = [
         "ALTER TABLE device_info ADD COLUMN IF NOT EXISTS firmware_version TEXT DEFAULT NULL",
+        "ALTER TABLE device_info ADD COLUMN IF NOT EXISTS device_profile   TEXT DEFAULT NULL",
     ]
     for sql in migrations:
         try:
