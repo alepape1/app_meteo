@@ -34,6 +34,7 @@ function buildSeries(series, timestamps) {
 export default function WeatherChart({
   title, icon: Icon, series, timestamps, colors,
   type = 'area', yUnit = '', yMin, yMax, minYRange, height = 230,
+  hideLegend = false,
 }) {
   const builtSeries = buildSeries(series, timestamps)
   const hasData = builtSeries.some(s => s.data.length > 0)
@@ -175,7 +176,7 @@ export default function WeatherChart({
         <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
       </div>
 
-      {legendItems.length > 1 && (
+      {!hideLegend && legendItems.length > 1 && (
         <div className="px-5 pb-2 flex flex-wrap gap-2">
           {legendItems.map((item) => (
             <span

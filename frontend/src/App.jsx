@@ -356,7 +356,7 @@ function AppInner({ user, logout }) {
                 { name: 'BMP280', data: data.bmp280_temperature },
               ]}
               colors={['#BA7517', '#c4730a', '#534AB7']}
-              yUnit="°C" type="area"
+              yUnit="°C" type="area" hideLegend
             />
             <WeatherChart
               title="Humedad Relativa" icon={Droplets} timestamps={ts}
