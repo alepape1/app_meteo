@@ -164,6 +164,12 @@ export function useWeatherData() {
     }
   }, [authFetch])
 
+  // Limpiar datos obsoletos al cambiar de dispositivo
+  useEffect(() => {
+    setData(EMPTY)
+    setDeviceInfo(null)
+  }, [selectedMac])
+
   // Carga inicial y recarga al cambiar dispositivo
   useEffect(() => { fetchSamples(150) }, [fetchSamples])
   useEffect(() => { fetchDeviceInfo() }, [fetchDeviceInfo])

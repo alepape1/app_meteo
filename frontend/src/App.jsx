@@ -226,7 +226,7 @@ function AppInner({ user, logout }) {
             {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}
             {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
 
-            <main className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
+            <main key={selectedMac} className={`flex-1 overflow-y-auto p-5 space-y-5 ${activeView === 'dashboard' ? '' : 'hidden'}`}>
 
           {/* ── Stat cards ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -354,18 +354,16 @@ function AppInner({ user, logout }) {
                 { name: latest.temperature_source || 'Exterior', data: data.temperature },
                 { name: 'Barométrica', data: data.temperature_bar },
                 { name: 'BMP280', data: data.bmp280_temperature },
-                ...(!isAgrometeo ? [{ name: 'DHT11', data: data.dht_temperature }] : []),
               ]}
-              colors={['#BA7517', '#c4730a', '#534AB7', '#8b83dc']}
+              colors={['#BA7517', '#c4730a', '#534AB7']}
               yUnit="°C" type="area"
             />
             <WeatherChart
               title="Humedad Relativa" icon={Droplets} timestamps={ts}
               series={[
                 { name: isAgrometeo ? 'HDC1080' : 'HTU2x', data: data.humidity },
-                ...(!isAgrometeo ? [{ name: 'DHT11', data: data.dht_humidity }] : []),
               ]}
-              colors={['#0c8ecc', '#534AB7']}
+              colors={['#0c8ecc']}
               yUnit="%" yMin={0} yMax={100} type="area"
             />
             <WeatherChart
