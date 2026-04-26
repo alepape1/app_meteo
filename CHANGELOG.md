@@ -29,6 +29,22 @@ Primera versión estable del sistema Aquantia. Incluye todas las funcionalidades
 
 ---
 
+## [v0.1.0-beta.4] — 2026-04-26
+
+**Firmware compatible:** `v0.1.0-beta.5`
+
+Beta de corrección para el perfil AGROMETEO: los campos calculados ahora se muestran correctamente en el dashboard.
+
+### Añadido
+- Nuevo fichero de tests `test_rows_to_dict.py` (15 tests) que cubre la serialización de `dew_point`, `heat_index` y `abs_humidity`, incluyendo valores nulos y cero
+
+### Corregido
+- `rows_to_dict` en el backend no incluía `dew_point`, `heat_index` ni `abs_humidity`; las tarjetas de Agrometeorología e Índice de Calor mostraban `—` aunque los datos estaban en DB
+- `latest` en `useWeatherData.js` no exponía los tres campos anteriores, impidiendo que `StatCard` los leyera aunque los arrays de gráfica sí estuvieran rellenos
+- Clave duplicada en los items de leyenda de `WeatherChart` cuando el nombre de dos series coincidía (ej. `"BMP280"`); ahora se usa el índice como parte de la clave
+
+---
+
 ## [v0.1.0-beta.3] — 2026-04-19
 
 **Firmware compatible:** `v0.1.0-beta.3`

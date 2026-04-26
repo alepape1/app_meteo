@@ -386,6 +386,9 @@ def rows_to_dict(rows):
         "pipeline_pressure": [r["pipeline_pressure"] for r in rows],
         "pipeline_flow": [r["pipeline_flow"] for r in rows],
         "soil_moisture": [r["soil_moisture"] for r in rows],
+        "dew_point": [r.get("dew_point") for r in rows],
+        "heat_index": [r.get("heat_index") for r in rows],
+        "abs_humidity": [r.get("abs_humidity") for r in rows],
     }
 
 

@@ -235,6 +235,9 @@ export function useWeatherData() {
     uptime_s:           data.uptime_s.at(-1),
     relay_active:       data.relay_active.at(-1) ?? 0,
     soil_moisture:      data.soil_moisture.at(-1),
+    dew_point:          data.dew_point.at(-1),
+    heat_index:         data.heat_index.at(-1),
+    abs_humidity:       data.abs_humidity.at(-1),
   }
 
   const setRelay = useCallback(async (state, index = 0) => {

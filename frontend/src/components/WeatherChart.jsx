@@ -178,9 +178,9 @@ export default function WeatherChart({
 
       {!hideLegend && legendItems.length > 1 && (
         <div className="px-5 pb-2 flex flex-wrap gap-2">
-          {legendItems.map((item) => (
+          {legendItems.map((item, index) => (
             <span
-              key={`${chartId}-${item.name}`}
+              key={`${chartId}-${index}`}
               className="inline-flex items-center gap-1.5 rounded-full border border-navy-100 bg-navy-50 px-2.5 py-1 text-[11px] font-medium text-navy-500"
             >
               <span
