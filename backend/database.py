@@ -25,24 +25,23 @@ logger = logging.getLogger(__name__)
 
 # ── Configuración de conexión ─────────────────────────────────────────────────
 
-PG_HOST = os.environ.get("PG_HOST", "localhost")
-PG_PORT = int(os.environ.get("PG_PORT", 5432))
-PG_DB   = os.environ.get("PG_DB",   "aquantia")
-PG_USER = os.environ.get("PG_USER", "aquantia")
-PG_PASS = os.environ.get("PG_PASS", "aquantia")
-
 _pool: psycopg2.pool.ThreadedConnectionPool = None
 
 
 def init_pool():
     """Inicializa el pool de conexiones. Llamar una vez al arrancar la app."""
     global _pool
+    pg_host = os.environ.get("PG_HOST", "localhost")
+    pg_port = int(os.environ.get("PG_PORT", 5432))
+    pg_db   = os.environ.get("PG_DB",   "aquantia")
+    pg_user = os.environ.get("PG_USER", "aquantia")
+    pg_pass = os.environ.get("PG_PASS", "aquantia")
     _pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=2, maxconn=20,
-        host=PG_HOST, port=PG_PORT,
-        dbname=PG_DB, user=PG_USER, password=PG_PASS
+        host=pg_host, port=pg_port,
+        dbname=pg_db, user=pg_user, password=pg_pass
     )
-    logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", PG_HOST, PG_PORT, PG_DB)
+    logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", pg_host, pg_port, pg_db)
 
 
 # ── Capa de compatibilidad sqlite3 → psycopg2 ─────────────────────────────────

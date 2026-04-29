@@ -70,12 +70,15 @@ export default function WeatherChart({
     }
   }
 
+  const accentColor = colors?.[0] ?? '#0c8ecc'
+  const accentColor2 = colors?.[1] ?? accentColor
+
   const options = {
     chart: {
       id: chartId,
       type,
       toolbar: { show: false },
-      animations: { enabled: true, speed: 500 },
+      animations: { enabled: true, speed: 400, easing: 'easeinout' },
       background: 'transparent',
       fontFamily: '"DM Sans", system-ui, sans-serif',
       zoom: { enabled: true },
@@ -84,21 +87,22 @@ export default function WeatherChart({
     stroke: {
       curve: 'smooth',
       lineCap: 'round',
-      width: type === 'scatter' ? 0 : series.map((_, i) => i === 0 ? 3 : 2),
-      dashArray: series.map((_, i) => i > 0 ? 4 : 0),
+      width: type === 'scatter' ? 0 : series.map((_, i) => i === 0 ? 2.5 : 2),
+      dashArray: series.map((_, i) => i > 0 ? 5 : 0),
     },
     fill: {
       type: type === 'area' ? 'gradient' : 'solid',
       gradient: {
+        type: 'vertical',
         shadeIntensity: 0,
-        opacityFrom: 0.08,
+        opacityFrom: 0.18,
         opacityTo: 0,
-        stops: [0, 100],
+        stops: [0, 85, 100],
       },
     },
     markers: {
-      size: type === 'scatter' ? 3 : 0,
-      hover: { size: 4 },
+      size: type === 'scatter' ? 3.5 : 0,
+      hover: { size: 5 },
       strokeWidth: 0,
     },
     states: {
@@ -108,7 +112,7 @@ export default function WeatherChart({
     xaxis: {
       type: 'datetime',
       labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
+        style: { fontSize: '11px', colors: '#94a3b8', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
         // Formatter explícito para evitar el crash interno de ApexCharts (ki/formatDate)
         // cuando recibe un número en vez de un string durante updateOptions.
@@ -128,7 +132,7 @@ export default function WeatherChart({
       min: resolvedYMin,
       max: resolvedYMax,
       labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
+        style: { fontSize: '11px', colors: '#94a3b8', fontFamily: '"DM Sans"' },
         formatter: v => {
           const n = Number(v)
           return Number.isFinite(n) ? `${n.toFixed(1)}${yUnit}` : ''
@@ -136,27 +140,20 @@ export default function WeatherChart({
       },
     },
     grid: {
-      borderColor: '#f3f3ef',
-      strokeDashArray: 3,
+      borderColor: '#e2e8f0',
+      strokeDashArray: 4,
       xaxis: { lines: { show: false } },
-      padding: { left: 0, right: 8 },
+      yaxis: { lines: { show: true } },
+      padding: { left: 0, right: 8, top: -4 },
     },
     legend: {
-      show: builtSeries.length > 1,
-      showForSingleSeries: true,
-      position: 'top',
-      horizontalAlign: 'left',
-      fontSize: '12px',
-      fontFamily: '"DM Sans"',
-      labels: { colors: '#3d506a' },
-      markers: { size: 5, shape: 'circle', offsetX: -2 },
-      itemMargin: { horizontal: 8 },
+      show: false,
     },
     tooltip: {
-      theme: 'light',
+      theme: 'dark',
       shared: true,
       intersect: false,
-      x: { format: 'dd MMM HH:mm' },
+      x: { format: 'dd MMM · HH:mm' },
       y: {
         formatter: v => {
           const n = Number(v)
@@ -169,22 +166,42 @@ export default function WeatherChart({
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-2">
-        {Icon && <Icon size={16} className="text-navy-300 shrink-0" />}
+    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden transition-shadow duration-200 hover:shadow-md">
+      {/* Colored accent bar */}
+      <div
+        className="h-[3px]"
+        style={{
+          background: colors?.length > 1
+            ? `linear-gradient(90deg, ${accentColor}, ${accentColor2})`
+            : accentColor,
+        }}
+      />
+
+      {/* Header */}
+      <div className="flex items-center gap-2.5 px-5 pt-3.5 pb-2">
+        {Icon && (
+          <span
+            className="inline-flex items-center justify-center w-7 h-7 rounded-lg shrink-0"
+            style={{ backgroundColor: `${accentColor}18` }}
+          >
+            <Icon size={14} style={{ color: accentColor }} />
+          </span>
+        )}
         <h3 className="font-semibold text-navy-900 text-sm">{title}</h3>
-        <span className="ml-auto text-xs text-navy-200">{timestamps.length} pts</span>
+        <span className="ml-auto text-[11px] text-slate-300 font-medium tabular-nums">
+          {timestamps.length} pts
+        </span>
       </div>
 
       {!hideLegend && legendItems.length > 1 && (
-        <div className="px-5 pb-2 flex flex-wrap gap-2">
+        <div className="px-5 pb-1.5 flex flex-wrap gap-1.5">
           {legendItems.map((item, index) => (
             <span
               key={`${chartId}-${index}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-navy-100 bg-navy-50 px-2.5 py-1 text-[11px] font-medium text-navy-500"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-100 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500"
             >
               <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
+                className="inline-block h-2 w-2 rounded-full"
                 style={{ backgroundColor: item.color }}
               />
               {item.name}

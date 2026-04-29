@@ -1,0 +1,55 @@
+{
+	"folders": [
+		{
+			"name": "app_meteo",
+			"path": "."
+		},
+		{
+			"path": "../weather-station-ESP"
+		},
+	],
+	"settings": {
+		// Permite que las tasks con runOn:folderOpen se ejecuten automáticamente
+		"task.allowAutomaticTasks": "on",
+
+		// Python: intérprete real del proyecto
+		"python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+		// Excluir carpetas de indexación que no son código fuente
+		"files.exclude": {
+			"**/node_modules": true,
+			"**/__pycache__": true,
+			"**/.pytest_cache": true,
+			"**/.venv": true,
+			"**/dist": true,
+			"**/mosquitto/data": true,
+			"**/mosquitto/log": true
+		},
+		"search.exclude": {
+			"**/node_modules": true,
+			"**/.venv": true,
+			"**/dist": true,
+			"**/mosquitto/data": true,
+			"**/mosquitto/log": true
+		},
+		"files.watcherExclude": {
+			"**/node_modules/**": true,
+			"**/.venv/**": true,
+			"**/dist/**": true,
+			"**/mosquitto/data/**": true,
+			"**/mosquitto/log/**": true
+		},
+
+		// Puerto del servidor de Vite para abrir en el navegador
+		"livePreview.portNumber": 5173
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.debugpy",
+			"ms-azuretools.vscode-docker",
+			"esbenp.prettier-vscode",
+			"dbaeumer.vscode-eslint"
+		]
+	}
+}

@@ -17,6 +17,16 @@ if not exist "%BACKEND%\.env" (
     copy "%BACKEND%\.env.example" "%BACKEND%\.env" >nul
 )
 
+REM --- Arrancar TimescaleDB (Docker) ---
+echo  Arrancando TimescaleDB...
+docker compose -f "%ROOT%docker-compose.yml" up timescaledb -d
+if errorlevel 1 (
+    echo  AVISO: No se pudo arrancar TimescaleDB con Docker.
+    echo  Asegurate de que Docker Desktop esta en ejecucion.
+)
+echo  Esperando a que la DB este lista...
+timeout /t 5 >nul
+
 REM --- Instalar dependencias Python ---
 echo  Verificando dependencias Python...
 pip install -q -r "%BACKEND%\requirements.txt"

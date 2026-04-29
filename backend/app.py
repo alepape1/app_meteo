@@ -15,7 +15,7 @@ from flask_jwt_extended import (
     jwt_required,
 )
 
-load_dotenv()
+load_dotenv(override=True)
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool

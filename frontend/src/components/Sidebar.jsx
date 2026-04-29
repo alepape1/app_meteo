@@ -1,26 +1,11 @@
 import { createElement, useState } from 'react'
 import {
-  Search, ChevronLeft, ChevronRight,
-  Calendar, Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
+  ChevronLeft, ChevronRight,
+  Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
   Server, Bell, Layers, Power,
 } from 'lucide-react'
 import BrandLogo from './BrandLogo'
-
-const fmt = d => {
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-const toInputVal = d => {
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const PRESETS = [
-  { label: 'Hoy',  getDates: () => { const d=new Date(); d.setHours(0,0,0,0); const e=new Date(); e.setHours(23,59,59,0); return [d,e] } },
-  { label: 'Ayer', getDates: () => { const d=new Date(); d.setDate(d.getDate()-1); d.setHours(0,0,0,0); const e=new Date(d); e.setHours(23,59,59,0); return [d,e] } },
-  { label: '7d',   getDates: () => { const d=new Date(); d.setDate(d.getDate()-7); d.setHours(0,0,0,0); return [d, new Date()] } },
-  { label: '30d',  getDates: () => { const d=new Date(); d.setDate(d.getDate()-30); d.setHours(0,0,0,0); return [d, new Date()] } },
-]
+import TimeRangeControl from './TimeRangeControl'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Meteorología',      icon: LayoutDashboard },
@@ -81,26 +66,7 @@ export default function Sidebar({
   onLogout,
 }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [activePreset, setActivePreset] = useState(null)
   const [hoveredView, setHoveredView] = useState(null)
-
-  const now     = new Date()
-  const midnight = new Date(); midnight.setHours(0,0,0,0)
-  const [startDt, setStartDt] = useState(toInputVal(midnight))
-  const [endDt,   setEndDt]   = useState(toInputVal(now))
-
-  const applyPreset = (preset, idx) => {
-    const [s, e] = preset.getDates()
-    setStartDt(toInputVal(s))
-    setEndDt(toInputVal(e))
-    setActivePreset(idx)
-    onFetchFiltered(fmt(s), fmt(e))
-  }
-
-  const handleFilter = () => {
-    setActivePreset(null)
-    onFetchFiltered(fmt(new Date(startDt)), fmt(new Date(endDt)))
-  }
 
   const infoView = hoveredView || activeView
   const sectionInfo = NAV_DESCRIPTIONS[infoView]
@@ -247,70 +213,10 @@ export default function Sidebar({
 
           {/* Filtro y contador — solo en dashboard */}
           {showDashboardFilters && <>
-            <section>
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-widest mb-3">
-                <Calendar size={11} /> Rango de datos
-              </p>
-
-              <div className="grid grid-cols-2 gap-1.5 mb-3">
-                {PRESETS.map((p, i) => (
-                  <button
-                    key={p.label}
-                    onClick={() => applyPreset(p, i)}
-                    disabled={loading}
-                    className={`text-xs font-semibold py-2 rounded-xl transition-colors ${
-                      activePreset === i
-                        ? 'bg-brand-500 text-white'
-                        : 'bg-white/[.10] text-white border border-white/[.18] hover:bg-white/[.20]'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2 my-3">
-                <div className="flex-1 border-t border-navy-800" />
-                <span className="text-xs text-navy-600">o personalizado</span>
-                <div className="flex-1 border-t border-navy-800" />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 bg-navy-800 rounded-xl px-3 py-2 border border-navy-700 focus-within:border-brand-500">
-                  <Calendar size={12} className="text-navy-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-navy-500 text-xs leading-none mb-1">Desde</p>
-                    <input
-                      type="datetime-local"
-                      value={startDt}
-                      onChange={e => { setStartDt(e.target.value); setActivePreset(null) }}
-                      className="w-full bg-transparent text-navy-100 text-xs focus:outline-none [color-scheme:dark]"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 bg-navy-800 rounded-xl px-3 py-2 border border-navy-700 focus-within:border-brand-500">
-                  <Calendar size={12} className="text-navy-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-navy-500 text-xs leading-none mb-1">Hasta</p>
-                    <input
-                      type="datetime-local"
-                      value={endDt}
-                      onChange={e => { setEndDt(e.target.value); setActivePreset(null) }}
-                      className="w-full bg-transparent text-navy-100 text-xs focus:outline-none [color-scheme:dark]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={handleFilter}
-                disabled={loading}
-                className="mt-3 w-full flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-sm font-semibold rounded-xl px-3 py-2.5 transition-colors"
-              >
-                <Search size={13} />
-                {loading ? 'Cargando…' : 'Consultar'}
-              </button>
-            </section>
+            <TimeRangeControl
+              onFetchFiltered={onFetchFiltered}
+              loading={loading}
+            />
 
             <div className="border-t border-navy-800" />
 
