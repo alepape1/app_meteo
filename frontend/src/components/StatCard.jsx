@@ -23,8 +23,8 @@ export default function StatCard({ title, value, unit, icon: Icon, color = 'teal
     : [{ label: title, value, unit, subtitle, min, max }]
 
   return (
-    <div className={`bg-white rounded-2xl border ${t.border} shadow-sm overflow-hidden`}>
-      <div className={`h-1 bg-gradient-to-r ${t.gradient}`} />
+    <div className={`bg-white rounded-2xl border ${t.border} shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
+      <div className={`h-[3px] bg-gradient-to-r ${t.gradient}`} />
 
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-2">
@@ -51,7 +51,7 @@ export default function StatCard({ title, value, unit, icon: Icon, color = 'teal
 
                 <div className="flex items-end justify-between gap-2">
                   <div className="min-w-0">
-                    <p className={`${groupedItems.length > 1 ? 'text-xl' : 'text-2xl'} font-extrabold text-navy-900 leading-none tracking-tight`}> 
+                    <p className={`${groupedItems.length > 1 ? 'text-xl' : 'text-2xl'} font-extrabold text-navy-900 leading-none tracking-tight tabular-nums`}>
                       {formatMetricValue(item.value)}
                     </p>
                     <p className="text-xs font-medium text-navy-300 mt-0.5">{item.unit}</p>
@@ -65,9 +65,9 @@ export default function StatCard({ title, value, unit, icon: Icon, color = 'teal
                 </div>
 
                 {hasRange && (
-                  <div className="mt-2 flex justify-between text-xs text-navy-300">
-                    <span>Min <strong className="text-navy-500">{Number(item.min).toFixed(1)}</strong></span>
-                    <span>Max <strong className="text-navy-500">{Number(item.max).toFixed(1)}</strong></span>
+                  <div className="mt-2 pt-2 border-t border-navy-50 flex justify-between text-xs text-navy-300">
+                    <span>Min <strong className="text-navy-500 tabular-nums">{Number(item.min).toFixed(1)}</strong></span>
+                    <span>Max <strong className="text-navy-500 tabular-nums">{Number(item.max).toFixed(1)}</strong></span>
                   </div>
                 )}
               </div>

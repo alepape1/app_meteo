@@ -237,9 +237,9 @@ export default function Sidebar({
         {!collapsed ? (
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white hover:bg-navy-800 hover:text-white transition-all"
+            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white hover:bg-navy-800 hover:text-white transition-all"
           >
-            <span className="inline-flex items-center justify-center text-red-500 drop-shadow-sm">
+            <span className="inline-flex items-center justify-center text-navy-500 group-hover:text-red-400 transition-colors drop-shadow-sm">
               <Power size={20} strokeWidth={2.6} className="shrink-0" />
             </span>
             <span className="truncate text-sm font-semibold text-white">Cerrar sesión</span>
