@@ -211,7 +211,13 @@ export default function WeatherChart({
       )}
 
       {hasData ? (
-        <ReactApexChart options={options} series={builtSeries} type={type} height={height} />
+        <ReactApexChart
+          key={`${chartId}-${timestamps.length}-${timestamps[0] ?? ''}-${timestamps.at(-1) ?? ''}`}
+          options={options}
+          series={builtSeries}
+          type={type}
+          height={height}
+        />
       ) : (
         <div className="flex items-center justify-center text-slate-300 text-sm" style={{ height }}>
           Sin datos — usa el simulador o conecta el ESP32

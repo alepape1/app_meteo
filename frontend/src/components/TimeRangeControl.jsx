@@ -232,7 +232,7 @@ export default function TimeRangeControl({ onFetchFiltered, loading }) {
                   focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-400
                   ${isActive
                     ? 'text-brand-400'
-                    : 'text-navy-500 hover:text-navy-300'
+                    : 'text-white hover:text-brand-300'
                   }
                 `}
               >
