@@ -231,7 +231,7 @@ export default function TimeRangeControl({ onFetchFiltered, loading }) {
                   disabled:cursor-not-allowed px-0.5 py-1 rounded
                   focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-400
                   ${isActive
-                    ? 'text-brand-400'
+                    ? 'text-white bg-brand-500/30 ring-1 ring-brand-400/50'
                     : 'text-white hover:text-brand-300'
                   }
                 `}

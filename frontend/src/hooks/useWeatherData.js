@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../AuthContext'
 
 const EMPTY = {
@@ -26,6 +26,9 @@ export function useWeatherData() {
   const [devices, setDevices] = useState([])
   const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
+  // Guarda los parámetros del último fetchFiltered activo.
+  // Cuando no es null, el polling re-ejecuta ese filtro en lugar de fetchSamples/fetchLatest.
+  const activeFilterRef = useRef(null)
 
   const applyData = useCallback((json, mode = 'replace') => {
     const normalized = { ...EMPTY, ...(json || {}) }
@@ -85,6 +88,8 @@ export function useWeatherData() {
       setData(EMPTY)
       return
     }
+    // Salir del modo filtro: el usuario quiere datos recientes
+    activeFilterRef.current = null
     setLoading(true)
     try {
       const url = `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
@@ -112,6 +117,8 @@ export function useWeatherData() {
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
     if (!selectedMac) return
+    // Guardar parámetros para que el polling mantenga este rango activo
+    activeFilterRef.current = { startDate, endDate }
     setLoading(true)
     try {
       const body = { start_date: startDate, end_date: endDate, mac: selectedMac }
@@ -168,6 +175,7 @@ export function useWeatherData() {
   useEffect(() => {
     setData(EMPTY)
     setDeviceInfo(null)
+    activeFilterRef.current = null
   }, [selectedMac])
 
   // Carga inicial y recarga al cambiar dispositivo
@@ -183,6 +191,16 @@ export function useWeatherData() {
     const refreshAll = () => {
       if (typeof document !== 'undefined' && document.hidden) return
 
+      // Si hay un filtro activo, re-ejecutarlo para mantener el rango visible actualizado.
+      // No llamar a fetchSamples ni fetchLatest para no sobreescribir el rango filtrado.
+      if (activeFilterRef.current) {
+        const { startDate, endDate } = activeFilterRef.current
+        fetchFiltered(startDate, endDate)
+        fetchDevices()
+        fetchDeviceInfo()
+        return
+      }
+
       tick += 1
       if (tick % 4 === 0) fetchSamples(MAX_POINTS)
       else fetchLatest()
@@ -193,7 +211,12 @@ export function useWeatherData() {
 
     const handleVisibility = () => {
       if (typeof document === 'undefined' || !document.hidden) {
-        fetchSamples(MAX_POINTS)
+        if (activeFilterRef.current) {
+          const { startDate, endDate } = activeFilterRef.current
+          fetchFiltered(startDate, endDate)
+        } else {
+          fetchSamples(MAX_POINTS)
+        }
         fetchDevices()
         fetchDeviceInfo()
       }
@@ -216,7 +239,7 @@ export function useWeatherData() {
         window.removeEventListener('focus', handleVisibility)
       }
     }
-  }, [fetchLatest, fetchSamples, fetchDevices, fetchDeviceInfo])
+  }, [fetchLatest, fetchSamples, fetchFiltered, fetchDevices, fetchDeviceInfo])
 
   const latest = {
     temperature:        data.temperature.at(-1),
