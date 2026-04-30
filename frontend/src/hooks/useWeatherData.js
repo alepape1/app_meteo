@@ -15,7 +15,21 @@ const EMPTY = {
 
 const AUTO_REFRESH_MS = 15000
 const MAX_POINTS = 150
-const MAX_FILTERED_POINTS = 2000
+// Puntos objetivo para datos filtrados según el rango temporal (ms → puntos)
+const FILTER_POINTS_BY_RANGE = [
+  { ms: 2  * 60 * 60 * 1000,  points: 120 },  // ≤2h  → 1 pt/min
+  { ms: 12 * 60 * 60 * 1000,  points: 180 },  // ≤12h → 1 pt/5min
+  { ms: 2  * 24 * 60 * 60 * 1000, points: 288 }, // ≤2d → 1 pt/10min
+  { ms: 7  * 24 * 60 * 60 * 1000, points: 336 }, // ≤7d → 1 pt/30min
+]
+const MAX_FILTERED_POINTS_DEFAULT = 500 // rangos >7d o desconocidos
+
+function calcFilterPoints(startDate, endDate) {
+  const ms = new Date(endDate).getTime() - new Date(startDate).getTime()
+  if (isNaN(ms) || ms <= 0) return MAX_FILTERED_POINTS_DEFAULT
+  const entry = FILTER_POINTS_BY_RANGE.find(e => ms <= e.ms)
+  return entry ? entry.points : MAX_FILTERED_POINTS_DEFAULT
+}
 
 export function useWeatherData() {
   const { authFetch } = useAuth()
@@ -120,16 +134,17 @@ export function useWeatherData() {
     if (!selectedMac) return
     // Guardar parámetros para que el polling mantenga este rango activo
     activeFilterRef.current = { startDate, endDate }
+    const maxPoints = calcFilterPoints(startDate, endDate)
     setLoading(true)
     try {
-      const body = { start_date: startDate, end_date: endDate, mac: selectedMac }
+      const body = { start_date: startDate, end_date: endDate, mac: selectedMac, max_points: maxPoints }
       const res = await authFetch('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      applyData(await res.json(), 'replace', MAX_FILTERED_POINTS)
+      applyData(await res.json(), 'replace', maxPoints)
     } catch {
       setError('Error al filtrar datos')
     } finally {

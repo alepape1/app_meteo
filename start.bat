@@ -17,15 +17,26 @@ if not exist "%BACKEND%\.env" (
     copy "%BACKEND%\.env.example" "%BACKEND%\.env" >nul
 )
 
-REM --- Arrancar TimescaleDB (Docker) ---
-echo  Arrancando TimescaleDB...
-docker compose -f "%ROOT%docker-compose.yml" up timescaledb -d
-if errorlevel 1 (
-    echo  AVISO: No se pudo arrancar TimescaleDB con Docker.
+
+REM --- Arrancar infraestructura completa (incluye Mosquitto, TimescaleDB, Adminer) ---
+echo  Comprobando infraestructura Docker (Mosquitto, TimescaleDB, Adminer)...
+docker compose -f "%ROOT%docker-compose.dev.yml" ps | findstr /I "Up" >nul
+if %ERRORLEVEL%==0 goto infra_up
+
+echo  Arrancando infraestructura completa (docker-compose.dev.yml)...
+docker compose -f "%ROOT%docker-compose.dev.yml" up -d
+if %ERRORLEVEL% NEQ 0 (
+    echo  AVISO: No se pudo arrancar la infraestructura con Docker.
     echo  Asegurate de que Docker Desktop esta en ejecucion.
 )
-echo  Esperando a que la DB este lista...
-timeout /t 5 >nul
+echo  Esperando a que los servicios esten listos...
+timeout /t 8 >nul
+goto infra_done
+
+:infra_up
+echo  Infraestructura ya levantada. Saltando arranque de contenedores.
+
+:infra_done
 
 REM --- Instalar dependencias Python ---
 echo  Verificando dependencias Python...

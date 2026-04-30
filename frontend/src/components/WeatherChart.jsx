@@ -150,7 +150,7 @@ export default function WeatherChart({
       show: false,
     },
     tooltip: {
-      theme: 'dark',
+      theme: false, // Desactiva el tema por defecto para personalizar colores
       shared: true,
       intersect: false,
       x: { format: 'dd MMM · HH:mm' },
@@ -161,6 +161,21 @@ export default function WeatherChart({
         },
       },
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
+      custom: function({ series, seriesIndex, dataPointIndex, w }) {
+        // Color azul claro del menú de navegación: #0c8ecc, más transparente
+        const bg = 'rgba(12, 142, 204, 0.72)';
+        const color = '#fff';
+        const border = '1.5px solid #b6e0fa';
+        const items = series.map((s, i) => {
+          const val = s[dataPointIndex];
+          return `<div style="margin-bottom:2px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.config.colors[i]};margin-right:6px;"></span><span>${w.globals.seriesNames[i]}</span>: <b>${val ?? '—'}</b></div>`;
+        }).join('');
+        const xVal = w.globals.labels[dataPointIndex] || '';
+        return `<div style="background:${bg};color:${color};border-radius:10px;padding:10px 14px;backdrop-filter:blur(2px);border:${border};box-shadow:0 2px 8px 0 #0c8ecc22;min-width:120px;max-width:220px;">
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${w.config.xaxis.labels.formatter ? w.config.xaxis.labels.formatter(xVal) : xVal}</div>
+          ${items}
+        </div>`;
+      }
     },
     dataLabels: { enabled: false },
   }

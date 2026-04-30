@@ -543,13 +543,27 @@ def filtrar_datos_api():
     if not mac:
         return jsonify(rows_to_dict([]))
 
+    max_points = int(payload.get('max_points', 500))
+    max_points = max(10, min(max_points, 2000))  # clamp 10–2000
+
     db = get_db()
     cursor = db.cursor()
+    # Decimación temporal: selecciona 1 de cada N filas para no devolver miles de puntos.
+    # Siempre incluye el primer y último punto del rango.
+    # GREATEST(1, ...) evita división por cero cuando total <= max_points.
     cursor.execute("""
-        SELECT * FROM home_weather_station
-        WHERE timestamp BETWEEN ? AND ? AND device_mac=?
+        WITH ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (ORDER BY timestamp) AS rn,
+                   COUNT(*)     OVER ()                   AS total
+            FROM home_weather_station
+            WHERE timestamp BETWEEN ? AND ? AND device_mac=?
+        )
+        SELECT * FROM ranked
+        WHERE (rn - 1) % GREATEST(1, (total / ?)::int) = 0
+           OR rn = total
         ORDER BY timestamp ASC
-    """, (start_date, end_date, mac))
+    """, (start_date, end_date, mac, max_points))
     rows = cursor.fetchall()
     cursor.close()
 

@@ -532,9 +532,14 @@ function SavingsCard({ stats }) {
                 {daily.slice(-5).map(d => (
                   <div key={d.date} className="flex justify-between text-xs">
                     <span className="text-navy-400">
-                      {new Date(d.date + 'T12:00:00').toLocaleDateString('es-ES', {
-                        weekday: 'short', day: 'numeric', month: 'short',
-                      })}
+                      {/* Manejo robusto de fechas: soporta ISO, yyyy-mm-dd, y fechas legacy */}
+                      {(() => {
+                        const ms = Date.parse(d.date) || Date.parse(d.date + 'T12:00:00');
+                        if (!ms || isNaN(ms)) return d.date;
+                        return new Date(ms).toLocaleDateString('es-ES', {
+                          weekday: 'short', day: 'numeric', month: 'short',
+                        });
+                      })()}
                     </span>
                     <span className="font-medium text-brand-600">
                       {d.liters.toFixed(1)} L · {Math.floor(d.seconds / 60)}m {d.seconds % 60}s
