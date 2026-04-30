@@ -1,7 +1,7 @@
 Flask
 flask-cors
 flask-jwt-extended
-flask-limiter
+flask-limiter>=3.0,<4.0
 gunicorn
 python-dotenv
 paho-mqtt

@@ -80,8 +80,8 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pipeline_pressure, pipeline_flow, soil_moisture,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, COALESCE(?, NOW()))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -147,8 +147,8 @@ def _handle_telemetry(finca_id: str, payload: dict):
             for i in range(relay_count):
                 actual = 1 if (relay_mask & (1 << i)) else 0
                 db.execute(
-                    "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
-                    " VALUES (?, ?, 0, ?)",
+                    "INSERT INTO relay_state(device_mac, relay_index, desired, actual)"
+                    " VALUES (?, ?, 0, ?) ON CONFLICT DO NOTHING",
                     (device_mac, i, actual),
                 )
                 db.execute(
