@@ -5,6 +5,7 @@ import {
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
   BarChart2,
 } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -219,25 +220,43 @@ function SectorCard({ sector }) {
   )
 }
 
-// ── RelayControl con temporizador de sesión ──────────────────────────────────
-function RelayControl({ setRelay, flowLpm = 5 }) {
-  const [desired, setDesired] = useState(false)
-  const [actual, setActual]   = useState(false)  // confirmado por ESP32 vía ACK
+// ── ValveCard — control individual de una electroválvula ─────────────────────
+function ValveCard({ index, mac, flowLpm = 5, initialState }) {
+  const { authFetch } = useAuth()
+  const [desired, setDesired] = useState(initialState?.desired ?? false)
+  const [actual,  setActual]  = useState(initialState?.actual  ?? false)
   const [busy, setBusy] = useState(false)
+  const [retryRemainingMs, setRetryRemainingMs] = useState(0)
   const [sessionStart, setSessionStart] = useState(null)
-  const [sessionSeconds, setSessionSeconds] = useState(0)
+  const [sessionSeconds, setSessionSeconds] = useState(null)
   const pollRef = useRef(null)
+  const retryTimerRef = useRef(null)
 
-  // Carga el estado inicial (desired + actual) desde el servidor
+  // Sync state when parent passes new initialState
   useEffect(() => {
-    fetch('/api/relay')
-      .then(r => r.json())
-      .then(j => { setDesired(j.desired ?? false); setActual(j.actual ?? false) })
-      .catch(() => {})
-  }, [])
+    if (initialState) {
+      const nextDesired = Boolean(initialState.desired)
+      const nextActual = Boolean(initialState.actual)
+      setDesired(nextDesired)
+      setActual(nextActual)
+      if (nextDesired === nextActual) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
+        if (retryTimerRef.current) {
+          clearInterval(retryTimerRef.current)
+          retryTimerRef.current = null
+        }
+        setRetryRemainingMs(0)
+      }
+    }
+  }, [initialState?.desired, initialState?.actual])
 
-  // Limpia el polling al desmontar
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    if (retryTimerRef.current) clearInterval(retryTimerRef.current)
+  }, [])
 
   useEffect(() => {
     if (!sessionStart) return
@@ -245,41 +264,82 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
     return () => clearInterval(id)
   }, [sessionStart])
 
-  // Polling rápido hasta que el ESP32 confirme el nuevo estado (máx ~30s)
+  const startRetryCooldown = useCallback((timeoutMs = 8000) => {
+    if (retryTimerRef.current) clearInterval(retryTimerRef.current)
+    const endsAt = Date.now() + timeoutMs
+    setRetryRemainingMs(timeoutMs)
+    retryTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, endsAt - Date.now())
+      setRetryRemainingMs(remaining)
+      if (remaining <= 0) {
+        clearInterval(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    }, 250)
+  }, [])
+
   const startSyncPolling = useCallback((expected) => {
     if (pollRef.current) clearInterval(pollRef.current)
     let attempts = 0
     pollRef.current = setInterval(async () => {
       attempts++
       try {
-        const res = await fetch('/api/relay')
-        const j = await res.json()
-        const confirmed = j.actual ?? false
-        setActual(confirmed)
-        if (confirmed === expected || attempts >= 15) {
+        const url = mac ? `/api/relay?mac=${encodeURIComponent(mac)}` : '/api/relay'
+        const res = await authFetch(url)
+        const arr = await res.json()
+        const row = Array.isArray(arr) ? arr.find(r => r.index === index) : null
+        if (row) {
+          const backendDesired = Boolean(row.desired)
+          const backendActual = Boolean(row.actual)
+          setDesired(backendDesired)
+          setActual(backendActual)
+          if (backendActual === expected || backendDesired === backendActual || attempts >= 15) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+          }
+          if (backendDesired === backendActual && retryTimerRef.current) {
+            clearInterval(retryTimerRef.current)
+            retryTimerRef.current = null
+            setRetryRemainingMs(0)
+          }
+        } else if (attempts >= 15) {
           clearInterval(pollRef.current)
           pollRef.current = null
         }
       } catch (_) {
-        if (attempts >= 15) { clearInterval(pollRef.current); pollRef.current = null }
+        if (attempts >= 15) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
       }
     }, 2000)
-  }, [])
-
-  const toggle = useCallback(async () => {
-    setBusy(true)
-    const next = !desired
-    await setRelay(next)
-    setDesired(next)
-    if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
-    else { setSessionStart(null) }
-    setBusy(false)
-    startSyncPolling(next)
-  }, [desired, setRelay, startSyncPolling])
+  }, [authFetch, mac, index])
 
   const synced = desired === actual
-  const sessionLiters = (sessionSeconds / 60 * flowLpm).toFixed(1)
+  const cooldownSeconds = Math.ceil(retryRemainingMs / 1000)
+  const actionLocked = busy || retryRemainingMs > 0
+
+  const toggle = useCallback(async () => {
+    if (busy || retryRemainingMs > 0) return
+    setBusy(true)
+    const next = synced ? !desired : !actual
+    try {
+      await authFetch('/api/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, index, state: next }),
+      })
+      setDesired(next)
+      startRetryCooldown(8000)
+      if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
+      else { setSessionStart(null) }
+      startSyncPolling(next)
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, retryRemainingMs, synced, desired, actual, authFetch, mac, index, startRetryCooldown, startSyncPolling])
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+  const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * flowLpm).toFixed(1) : null
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -288,7 +348,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
           <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Electroválvula principal
+          Válvula {index + 1}
         </p>
       </div>
 
@@ -298,15 +358,14 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
         }`} />
         <div className="flex-1">
           <p className="text-sm font-semibold text-navy-900">
-            {actual ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
+            {actual ? 'Abierta — Regando' : 'Cerrada'}
           </p>
           <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando…'}
+            {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
           </p>
         </div>
       </div>
 
-      {/* Info de sesión — visible cuando está abierta o recién cerrada */}
       {(desired || sessionSeconds > 0) && (
         <div className={`rounded-xl p-3 mb-4 ${
           desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
@@ -315,7 +374,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             <span className="flex items-center gap-1 text-navy-400">
               <Clock size={11} /> Tiempo abierta
             </span>
-            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds)}</span>
+            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
           </div>
           <div className="flex justify-between text-xs mt-1.5">
             <span className="flex items-center gap-1 text-navy-400">
@@ -323,27 +382,70 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             </span>
             <span className="font-semibold text-brand-600">{sessionLiters} L</span>
           </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal nominal: {flowLpm} L/min</p>
+          <p className="text-xs text-navy-300 mt-1">Caudal: {flowLpm} L/min</p>
         </div>
       )}
 
       <button
         onClick={toggle}
-        disabled={busy}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 ${
+        disabled={actionLocked}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
           desired
             ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
             : 'bg-brand-500 text-white hover:bg-brand-600'
         }`}
       >
         {desired ? <Lock size={14} /> : <Unlock size={14} />}
-        {busy ? 'Enviando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+        {busy
+          ? 'Enviando…'
+          : retryRemainingMs > 0
+            ? `Espera ${cooldownSeconds}s…`
+            : !synced
+              ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
+              : desired ? 'Cerrar válvula' : 'Abrir válvula'}
       </button>
-
-      <p className="text-xs text-navy-300 mt-2.5 text-center">
-        GPIO 26 · JQC-3FF-S-Z · Relay activo-LOW
-      </p>
     </div>
+  )
+}
+
+// ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
+function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
+  const { authFetch } = useAuth()
+  const [states, setStates] = useState([])
+
+  useEffect(() => {
+    setStates([])
+    const url = selectedMac
+      ? `/api/relay?mac=${encodeURIComponent(selectedMac)}`
+      : '/api/relay'
+    authFetch(url)
+      .then(r => r.json())
+      .then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      })
+      .catch(() => {})
+    const id = setInterval(() => {
+      authFetch(url).then(r => r.json()).then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      }).catch(() => {})
+    }, 5000)
+    return () => clearInterval(id)
+  }, [authFetch, selectedMac])
+
+  return (
+    <>
+      {Array.from({ length: relayCount }, (_, i) => (
+        <ValveCard
+          key={`${selectedMac || 'default'}-${i}`}
+          index={i}
+          mac={selectedMac}
+          flowLpm={flowLpm}
+          initialState={states.find(s => s.index === i)}
+        />
+      ))}
+    </>
   )
 }
 
@@ -430,9 +532,14 @@ function SavingsCard({ stats }) {
                 {daily.slice(-5).map(d => (
                   <div key={d.date} className="flex justify-between text-xs">
                     <span className="text-navy-400">
-                      {new Date(d.date + 'T12:00:00').toLocaleDateString('es-ES', {
-                        weekday: 'short', day: 'numeric', month: 'short',
-                      })}
+                      {/* Manejo robusto de fechas: soporta ISO, yyyy-mm-dd, y fechas legacy */}
+                      {(() => {
+                        const ms = Date.parse(d.date) || Date.parse(d.date + 'T12:00:00');
+                        if (!ms || isNaN(ms)) return d.date;
+                        return new Date(ms).toLocaleDateString('es-ES', {
+                          weekday: 'short', day: 'numeric', month: 'short',
+                        });
+                      })()}
                     </span>
                     <span className="font-medium text-brand-600">
                       {d.liters.toFixed(1)} L · {Math.floor(d.seconds / 60)}m {d.seconds % 60}s
@@ -452,46 +559,247 @@ function SavingsCard({ stats }) {
 
 // ── Gráfico de consumo con selector de período ────────────────────────────────
 const PERIODS = [
-  { id: 'day',   label: 'Días',    hint: 'últimos 30 días' },
-  { id: 'week',  label: 'Semanas', hint: 'últimas 16 semanas' },
-  { id: 'month', label: 'Meses',   hint: 'últimos 12 meses' },
+  { id: 'day',     label: 'Días',     hint: 'últimos 30 días' },
+  { id: 'week',    label: 'Semanas',  hint: 'últimas 16 semanas' },
+  { id: 'month',   label: 'Meses',    hint: 'últimos 12 meses' },
+  { id: 'session', label: 'Sesiones', hint: 'últimas 60 sesiones' },
 ]
 
+function toChartMs(value) {
+  if (value == null) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) return parsed
+  const fallback = new Date(raw.includes(',') ? raw : raw.replace(' ', 'T')).getTime()
+  return Number.isNaN(fallback) ? null : fallback
+}
+
+function toChartNum(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
 function fmtPeriodLabel(key, periodId) {
+  if (!key) return '—'
+
   if (periodId === 'day') {
-    const d = new Date(key + 'T12:00:00')
-    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+    const ms = toChartMs(`${key}T12:00:00`)
+    if (ms == null) return String(key)
+    return new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
   }
+
   if (periodId === 'week') {
-    const [, w] = key.split('-W')
-    return `Sem ${parseInt(w, 10)}`
+    const [, w] = String(key).split('-W')
+    return w ? `Sem ${parseInt(w, 10)}` : String(key)
   }
+
+  if (periodId === 'session') {
+    const ms = toChartMs(key)
+    if (ms == null) return 'Sesión'
+    return new Date(ms)
+      .toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      .replace(',', '')
+  }
+
   // month: "2025-03"
-  const [y, m] = key.split('-')
+  const [y, m] = String(key).split('-')
+  if (!y || !m) return String(key)
   return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
 }
 
+function fmtDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+function getBarColumnWidth(count, periodId = 'default') {
+  if (count <= 6) return '34%'
+  if (count <= 12) return '42%'
+  if (count <= 24) return '52%'
+  if (periodId === 'session') return '68%'
+  return '62%'
+}
+
+function getChartMinWidth(count, periodId = 'default') {
+  const base = periodId === 'session' ? 760 : 680
+  const perItem = periodId === 'session' ? 26 : 32
+  return Math.max(base, count * perItem)
+}
+
 function ConsumptionChart() {
+  const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
+  const [sessions, setSessions] = useState([])
 
   useEffect(() => {
-    fetch(`/api/irrigation/history?period=${period}`)
-      .then(r => r.json())
-      .then(setHistory)
-      .catch(() => {})
+    if (period === 'session') {
+      authFetch('/api/irrigation/sessions')
+        .then(r => r.json())
+        .then(setSessions)
+        .catch(() => {})
+    } else {
+      authFetch(`/api/irrigation/history?period=${period}`)
+        .then(r => r.json())
+        .then(setHistory)
+        .catch(() => {})
+    }
   }, [period])
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
-  const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.period, y: d.liters })) }]
+
+  // ── Sessions view ──
+  if (period === 'session') {
+    const normalizedSessions = sessions
+      .map(s => ({
+        ...s,
+        startMs: toChartMs(s.start),
+        liters: toChartNum(s.liters),
+        duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
+      }))
+      .filter(s => s.startMs != null)
+
+    const sessionSeries = [{
+      name: 'Consumo',
+      data: normalizedSessions.map(s => ({ x: s.startMs, y: s.liters })),
+    }]
+
+    const sessionChartKey = `session-${normalizedSessions.length}-${normalizedSessions[normalizedSessions.length - 1]?.startMs ?? 'empty'}`
+
+    const sessionOptions = {
+      chart: {
+        type: 'bar', toolbar: { show: false }, background: 'transparent',
+        fontFamily: '"DM Sans", system-ui, sans-serif',
+        animations: { enabled: false },
+      },
+      colors: ['#10b981'],
+      plotOptions: {
+        bar: {
+          borderRadius: 6,
+          borderRadiusApplication: 'end',
+          columnWidth: getBarColumnWidth(normalizedSessions.length, 'session'),
+          colors: {
+            backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+            backgroundBarRadius: 6,
+          },
+        },
+      },
+      dataLabels: { enabled: false },
+      xaxis: {
+        type: 'datetime',
+        labels: {
+          style: { fontSize: '10px', colors: '#8a9aaa' },
+          datetimeUTC: false,
+          rotate: -35,
+          hideOverlappingLabels: true,
+          formatter: val => fmtPeriodLabel(val, 'session'),
+        },
+        axisBorder: { show: false }, axisTicks: { show: false },
+      },
+      yaxis: {
+        labels: {
+          style: { fontSize: '11px', colors: '#8a9aaa' },
+          formatter: v => `${toChartNum(v).toFixed(0)} L`,
+        },
+      },
+      grid: {
+        borderColor: '#f3f3ef',
+        strokeDashArray: 3,
+        xaxis: { lines: { show: false } },
+        padding: { left: 0, right: 8, bottom: 8 },
+      },
+      tooltip: {
+        theme: 'light',
+        x: { formatter: val => fmtPeriodLabel(val, 'session') },
+        custom: ({ dataPointIndex }) => {
+          const s = normalizedSessions[dataPointIndex]
+          if (!s) return ''
+          return `<div style="padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:12px">
+            <div style="font-weight:600;color:#1e2d3d;margin-bottom:4px">${fmtDuration(s.duration_s)}</div>
+            <div style="color:#5a7a9a">${s.liters.toFixed(1)} L consumidos</div>
+          </div>`
+        },
+      },
+    }
+
+    const totalL = normalizedSessions.reduce((a, s) => a + s.liters, 0)
+
+    return (
+      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
+          <BarChart2 size={15} className="text-navy-300 shrink-0" />
+          <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
+          {normalizedSessions.length > 0 && (
+            <span className="text-xs text-navy-300">
+              {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
+            </span>
+          )}
+          <div className="ml-auto flex gap-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  period === p.id
+                    ? 'bg-brand-500 text-white'
+                    : 'text-navy-400 hover:bg-navy-50'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {normalizedSessions.length > 0 ? (
+          <div className="overflow-x-auto px-2 pb-2">
+            <div style={{ minWidth: `${getChartMinWidth(normalizedSessions.length, 'session')}px` }}>
+              <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={250} />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
+            Sin sesiones de riego registradas
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Días / Semanas / Meses view ──
+  const normalizedHistory = history
+    .map(d => ({
+      ...d,
+      period: String(d.period ?? ''),
+      liters: toChartNum(d.liters),
+      seconds: Math.max(0, Math.round(toChartNum(d.seconds))),
+    }))
+    .filter(d => d.period)
+
+  const series = [{ name: 'Consumo', data: normalizedHistory.map(d => ({ x: d.period, y: d.liters })) }]
+  const historyChartKey = `${period}-${normalizedHistory.length}-${normalizedHistory[normalizedHistory.length - 1]?.period ?? 'empty'}`
 
   const options = {
     chart: {
       type: 'bar', toolbar: { show: false }, background: 'transparent',
       fontFamily: '"DM Sans", system-ui, sans-serif',
+      animations: { enabled: false },
     },
     colors: ['#0c8ecc'],
-    plotOptions: { bar: { borderRadius: 4, columnWidth: '58%' } },
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        borderRadiusApplication: 'end',
+        columnWidth: getBarColumnWidth(normalizedHistory.length, period),
+        colors: {
+          backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+          backgroundBarRadius: 6,
+        },
+      },
+    },
     dataLabels: { enabled: false },
     xaxis: {
       type: 'category',
@@ -499,27 +807,34 @@ function ConsumptionChart() {
         style: { fontSize: '11px', colors: '#8a9aaa' },
         formatter: v => fmtPeriodLabel(v, period),
         rotate: -30,
+        hideOverlappingLabels: true,
+        trim: true,
       },
       axisBorder: { show: false }, axisTicks: { show: false },
     },
     yaxis: {
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => `${v.toFixed(0)} L`,
+        formatter: v => `${toChartNum(v).toFixed(0)} L`,
       },
     },
-    grid: { borderColor: '#f3f3ef', strokeDashArray: 3, xaxis: { lines: { show: false } } },
+    grid: {
+      borderColor: '#f3f3ef',
+      strokeDashArray: 3,
+      xaxis: { lines: { show: false } },
+      padding: { left: 0, right: 8, bottom: 8 },
+    },
     tooltip: {
       theme: 'light',
       x: { formatter: v => fmtPeriodLabel(v, period) },
-      y: { formatter: v => `${v.toFixed(1)} L` },
+      y: { formatter: v => `${toChartNum(v).toFixed(1)} L` },
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
   }
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-2">
+      <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
         <BarChart2 size={15} className="text-navy-300 shrink-0" />
         <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
         <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
@@ -539,8 +854,12 @@ function ConsumptionChart() {
           ))}
         </div>
       </div>
-      {history.length > 0 ? (
-        <ReactApexChart options={options} series={series} type="bar" height={220} />
+      {normalizedHistory.length > 0 ? (
+        <div className="overflow-x-auto px-2 pb-2">
+          <div style={{ minWidth: `${getChartMinWidth(normalizedHistory.length, period)}px` }}>
+            <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={250} />
+          </div>
+        </div>
       ) : (
         <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
           Sin datos de riego en este período
@@ -635,17 +954,20 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 }
 
 // ── Vista principal ──────────────────────────────────────────────────────────
-export default function IrrigationView({ latest, setRelay }) {
+export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
+  const { authFetch } = useAuth()
   const [stats, setStats] = useState(null)
   const [flowLpm, setFlowLpm] = useState(5.0)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
+  const relayCount = deviceInfo?.relay_count ?? 1
+
   const loadStats = useCallback(() =>
-    fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
+    authFetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
   [])
 
   useEffect(() => {
-    fetch('/api/settings')
+    authFetch('/api/settings')
       .then(r => r.json())
       .then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0')))
       .catch(() => {})
@@ -658,12 +980,16 @@ export default function IrrigationView({ latest, setRelay }) {
   }, [loadStats])
 
   const handleIrrigate = useCallback(async () => {
-    await setRelay(true)
-  }, [setRelay])
+    await authFetch('/api/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: selectedMac, index: 0, state: true }),
+    })
+  }, [selectedMac])
 
   const handleReset = useCallback(async () => {
     setShowResetConfirm(false)
-    await fetch('/api/irrigation/reset', { method: 'POST' })
+    await authFetch('/api/irrigation/reset', { method: 'POST' })
     loadStats()
   }, [loadStats])
 
@@ -702,8 +1028,8 @@ export default function IrrigationView({ latest, setRelay }) {
       {/* ── Grid de control: 1 col → 2 col → 4 col ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-        {/* Electroválvula + temporizador de sesión */}
-        <RelayControl setRelay={setRelay} flowLpm={flowLpm} />
+        {/* Electroválvulas — una card por relay */}
+        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">

@@ -1,0 +1,72 @@
+services:
+
+  # ── TimescaleDB (PostgreSQL + extensión time-series) ──────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       aquantia
+      POSTGRES_USER:     aquantia
+      POSTGRES_PASSWORD: aquantia_159
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"          # exponer solo en desarrollo; quitar en producción
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquantia -d aquantia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend Flask + MQTT client ────────────────────────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    environment:
+      FLASK_HOST:    0.0.0.0
+      FLASK_PORT:    7000
+      PG_HOST:       timescaledb
+      PG_PORT:       5432
+      PG_DB:         aquantia
+      PG_USER:       aquantia
+      PG_PASS:       ${PG_PASS:-cambia_esto}
+      MQTT_HOST:     mosquitto
+      MQTT_PORT:     1883
+      MQTT_USER:     backend
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-cambia_esto}
+      MQTT_TLS:      0
+      DATA_DIR:      /app/data
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-cambia_esto_en_produccion}
+    volumes:
+      - backend_data:/app/data
+    ports:
+      - "7000:7000"
+
+  # ── Mosquitto MQTT broker ──────────────────────────────────────────────────
+  mosquitto:
+    image: iegomez/mosquitto-go-auth:latest
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - /home/alejandro/conf/web/meteo.aquantialab.com/ssl:/certs:ro
+    ports:
+      - "1883:1883"     # interno (backend dentro de Docker)
+      - "8883:8883"     # externo TLS (dispositivos ESP32)
+
+  # ── Adminer — interfaz web para PostgreSQL (solo desarrollo) ──────────────
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+
+volumes:
+  timescaledb_data:
+  backend_data:

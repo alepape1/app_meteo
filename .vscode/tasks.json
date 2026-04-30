@@ -1,0 +1,159 @@
+{
+  "version": "2.0.0",
+  "windows": {
+    "options": {
+      "shell": {
+        "executable": "powershell.exe",
+        "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+      }
+    }
+  },
+  "tasks": [
+    // ── 0. Arrancar Docker Desktop y esperar a que el engine esté listo ────────
+    {
+      "label": "Dev: Arrancar Docker Desktop",
+      "type": "shell",
+      "command": "Start-Process 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe'; Write-Host 'Esperando Docker engine...'; $timeout = 120; $elapsed = 0; do { Start-Sleep -Seconds 3; $elapsed += 3; $ready = (docker info 2>$null) -ne $null } while (-not $ready -and $elapsed -lt $timeout); if (-not $ready) { Write-Error 'Docker Desktop no arranc\u00f3 en 2 minutos'; exit 1 }; Write-Host 'Docker listo.'",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+
+    // ── 1. Infraestructura Docker (TimescaleDB + Mosquitto + Adminer) ──────────
+    {
+      "label": "Dev: Infraestructura",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.dev.yml up -d",
+      "options": {
+        "cwd": "${workspaceFolder}/app_meteo"
+      },
+      "dependsOn": ["Dev: Arrancar Docker Desktop"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+
+    // ── 2. Backend Flask (estable en terminal) ────────────────────────────────
+    {
+      "label": "Dev: Backend Flask",
+      "type": "shell",
+      "command": "& \"${workspaceFolder}\\.venv\\Scripts\\python.exe\" -u app.py",
+      "options": {
+        "cwd": "${workspaceFolder}/app_meteo/backend",
+        "env": {
+          "FLASK_ENV": "development",
+          "FLASK_DEBUG": "0",
+          "PYTHONUNBUFFERED": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "close": false,
+        "showReuseMessage": false
+      },
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [{ "regexp": "^(NOMATCH)(.*)$", "kind": "file", "file": 1, "message": 2 }],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "\\* Running on",
+            "endsPattern": "\\* Running on"
+          }
+        }
+      ]
+    },
+
+    // ── 3. Frontend React/Vite ────────────────────────────────────────────────
+    {
+      "label": "Dev: Frontend Vite",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/app_meteo/frontend"
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "close": false,
+        "showReuseMessage": false
+      },
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [{ "regexp": "^(NOMATCH)(.*)$", "kind": "file", "file": 1, "message": 2 }],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE",
+            "endsPattern": "ready in"
+          }
+        }
+      ]
+    },
+
+    // ── 4. Preparar entorno local para F5 (infra + frontend) ─────────────────
+    {
+      "label": "Dev: Preparar entorno local",
+      "dependsOn": [
+        "Dev: Infraestructura",
+        "Dev: Frontend Vite"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+
+    // ── 5. Arranque completo automático al abrir el workspace ─────────────────
+    {
+      "label": "Dev: Arrancar Todo",
+      "dependsOn": [
+        "Dev: Infraestructura",
+        "Dev: Backend Flask",
+        "Dev: Frontend Vite"
+      ],
+      "dependsOrder": "sequence",
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "problemMatcher": []
+    },
+
+    // ── 5. Parar infra Docker ─────────────────────────────────────────────────
+    {
+      "label": "Dev: Parar Infraestructura",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.dev.yml down",
+      "options": {
+        "cwd": "${workspaceFolder}/app_meteo"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+
+    // ── 6. Instalar dependencias del frontend (primera vez) ───────────────────
+    {
+      "label": "Dev: Instalar dependencias frontend",
+      "type": "shell",
+      "command": "npm install",
+      "options": {
+        "cwd": "${workspaceFolder}/app_meteo/frontend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

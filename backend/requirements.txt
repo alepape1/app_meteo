@@ -1,4 +1,8 @@
 Flask
 flask-cors
+flask-jwt-extended
 gunicorn
 python-dotenv
+paho-mqtt
+bcrypt>=4.0
+psycopg2-binary
