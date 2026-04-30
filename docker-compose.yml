@@ -7,11 +7,12 @@ services:
     environment:
       POSTGRES_DB:       aquantia
       POSTGRES_USER:     aquantia
-      POSTGRES_PASSWORD: aquantia_159
+      # Requiere PG_PASS en el .env — falla al arrancar si no está definida.
+      POSTGRES_PASSWORD: "${PG_PASS:?Falta PG_PASS en .env}"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"          # exponer solo en desarrollo; quitar en producción
+    # Puerto 5432 NO expuesto al host en producción.
+    # Para acceso directo usa: docker compose exec timescaledb psql -U aquantia
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aquantia -d aquantia"]
       interval: 10s
@@ -28,20 +29,23 @@ services:
       mosquitto:
         condition: service_started
     environment:
-      FLASK_HOST:    0.0.0.0
-      FLASK_PORT:    7000
-      PG_HOST:       timescaledb
-      PG_PORT:       5432
-      PG_DB:         aquantia
-      PG_USER:       aquantia
-      PG_PASS:       ${PG_PASS:-cambia_esto}
-      MQTT_HOST:     mosquitto
-      MQTT_PORT:     1883
-      MQTT_USER:     backend
-      MQTT_PASSWORD: ${MQTT_PASSWORD:-cambia_esto}
-      MQTT_TLS:      0
-      DATA_DIR:      /app/data
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-cambia_esto_en_produccion}
+      FLASK_HOST:     0.0.0.0
+      FLASK_PORT:     7000
+      PG_HOST:        timescaledb
+      PG_PORT:        5432
+      PG_DB:          aquantia
+      PG_USER:        aquantia
+      PG_PASS:        "${PG_PASS:?Falta PG_PASS en .env}"
+      MQTT_HOST:      mosquitto
+      MQTT_PORT:      1883
+      MQTT_USER:      backend
+      MQTT_PASSWORD:  "${MQTT_PASSWORD:?Falta MQTT_PASSWORD en .env}"
+      MQTT_TLS:       0
+      DATA_DIR:       /app/data
+      # Genera con: openssl rand -hex 32
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?Falta JWT_SECRET_KEY en .env}"
+      # Orígenes permitidos para CORS (separados por coma si son varios)
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:5173}"
     volumes:
       - backend_data:/app/data
     ports:
@@ -57,15 +61,11 @@ services:
       - ./mosquitto/log:/mosquitto/log
       - /home/alejandro/conf/web/meteo.aquantialab.com/ssl:/certs:ro
     ports:
-      - "1883:1883"     # interno (backend dentro de Docker)
-      - "8883:8883"     # externo TLS (dispositivos ESP32)
+      - "1883:1883"    # solo red interna Docker
+      - "8883:8883"    # externo TLS para dispositivos ESP32
 
-  # ── Adminer — interfaz web para PostgreSQL (solo desarrollo) ──────────────
-  adminer:
-    image: adminer:latest
-    restart: unless-stopped
-    ports:
-      - "8888:8080"
+  # ── Adminer — solo en docker-compose.dev.yml ──────────────────────────────
+  # Adminer eliminado de producción. Usa docker-compose.dev.yml para desarrollo.
 
 volumes:
   timescaledb_data:

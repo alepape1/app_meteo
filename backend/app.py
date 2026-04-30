@@ -19,6 +19,8 @@ load_dotenv(override=True)
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pipeline_sim import (
     DYNAMIC_PRESSURE_BAR,
     STATIC_PRESSURE_BAR,
@@ -34,14 +36,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
 
-app.config["JWT_SECRET_KEY"] = os.environ.get(
-    "JWT_SECRET_KEY",
-    "cambia_esto_en_produccion",
-)
-app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(days=30)
+# ── CORS restringido por origen (VULN-004) ───────────────────────────────────
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+CORS(app, origins=_allowed_origins, supports_credentials=False)
+
+# ── JWT: clave obligatoria, TTL reducido (VULN-001, VULN-005) ───────────────
+_jwt_secret = os.environ.get("JWT_SECRET_KEY", "")
+if not _jwt_secret:
+    raise RuntimeError(
+        "JWT_SECRET_KEY no está definida. "
+        "Genera una con: openssl rand -hex 32"
+    )
+app.config["JWT_SECRET_KEY"] = _jwt_secret
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(hours=8)
 jwt = JWTManager(app)
+
+# ── Rate limiter (VULN-006) ──────────────────────────────────────────────────
+# IMPORTANTE: memory:// no es efectivo con Gunicorn multi-worker.
+# En producción agrega Redis al docker-compose y cambia a:
+#   storage_uri = "redis://redis:6379"
+# y env var RATELIMIT_STORAGE_URI=redis://redis:6379
+_limiter_uri = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri=_limiter_uri,
+)
 
 TEMPLATE_FILE = "index.html"
 
@@ -54,6 +77,56 @@ def get_db():
     if 'db' not in g:
         g.db = get_db_connection()
     return g.db
+
+
+# ── Autenticación de dispositivos ESP32 (VULN-002) ──────────────────────────
+def _verify_device_auth(req) -> tuple[str | None, bool]:
+    """Verifica la identidad de un dispositivo ESP32.
+
+    Extrae MAC de X-Device-MAC (header) o 'mac' (query/body).
+    Extrae token de X-Device-Token (header).
+
+    Política:
+    - Si la MAC tiene credenciales registradas en device_credentials
+      → el token es obligatorio y debe coincidir (bcrypt).
+    - Si la MAC NO tiene credenciales aún (dispositivo recién fabricado
+      que aún no completó el registro factory) → se permite sin token
+      pero se registra en el log para auditoría.
+
+    Devuelve (mac, ok): mac puede ser None si no se proporcionó.
+    """
+    mac = (
+        req.headers.get("X-Device-MAC")
+        or req.args.get("mac")
+        or (req.get_json(silent=True) or {}).get("mac_address")
+    )
+    if mac:
+        mac = str(mac).strip().upper()
+
+    token = req.headers.get("X-Device-Token", "")
+
+    if not mac:
+        return None, True  # sin MAC → endpoints legacy, pasar (sin permisos extra)
+
+    db = get_db()
+    row = db.execute(
+        "SELECT token_hash FROM device_credentials WHERE mac=%s", (mac,)
+    ).fetchone()
+
+    if not row:
+        # Dispositivo sin credenciales registradas: permitido con aviso
+        logger.warning("Device auth: MAC %s sin credenciales registradas (acceso permitido temporalmente)", mac)
+        return mac, True
+
+    if not token:
+        logger.warning("Device auth: MAC %s tiene credenciales pero no envió X-Device-Token", mac)
+        return mac, False
+
+    if not bcrypt.checkpw(token.encode(), row["token_hash"].encode()):
+        logger.warning("Device auth: token inválido para MAC %s", mac)
+        return mac, False
+
+    return mac, True
 
 
 # ── Estado del relay persistido en SQLite ────────────────────────────────────
@@ -124,6 +197,7 @@ def _relay_set_actual(mac, index, state):
 # ── Autenticación ────────────────────────────────────────────────────────────
 
 @app.route("/api/auth/register", methods=["POST"])
+@limiter.limit("5 per minute; 20 per hour")
 def auth_register():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
@@ -160,6 +234,7 @@ def auth_register():
 
 
 @app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute; 30 per hour")
 def auth_login():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
@@ -283,6 +358,31 @@ def api_set_settings():
     db.commit()
     logger.info("Settings actualizados: %s", list(payload.keys()))
     return jsonify(_get_settings())
+
+
+@app.after_request
+def set_security_headers(response):
+    """Cabeceras de seguridad HTTP en todas las respuestas."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # CSP restrictiva: solo recursos propios; ajusta si usas CDNs (NUEVA-002)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    # HSTS: solo en producción (cuando hay TLS)
+    if os.environ.get("FLASK_ENV") == "production":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains; preload"
+        )
+    return response
 
 
 @app.teardown_appcontext
@@ -423,7 +523,11 @@ def descargar_muestras(cantidad_muestras):
 
 
 @app.route("/send_message", methods=["POST"])
+@limiter.limit("120 per minute")
 def send_message():
+    _, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     message = request.get_data().decode("utf-8")
     logger.info("Datos recibidos del ESP32: %s", message)
 
@@ -599,7 +703,11 @@ def api_muestras(n):
 
 
 @app.route("/api/device_info", methods=["POST"])
+@limiter.limit("30 per minute")
 def post_device_info():
+    _, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     payload = request.get_json(silent=True)
     if not payload:
         return "JSON inválido", 400
@@ -709,10 +817,13 @@ def api_latest():
 
 
 @app.route("/api/relay/command")
+@limiter.limit("120 per minute")
 def relay_command():
     """El ESP32 consulta el estado deseado de sus relays.
     Devuelve bitmask en texto plano: bit 0 = relay 0, bit 1 = relay 1, etc."""
-    mac = request.args.get('mac')
+    mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     if mac:
         _relay_ensure(mac)
     states = _relay_get(mac)
@@ -774,9 +885,13 @@ def set_relay():
 
 
 @app.route("/api/relay/ack", methods=["POST"])
+@limiter.limit("120 per minute")
 def relay_ack():
     """El ESP32 confirma el estado real de sus relays (bitmask)."""
-    mac = request.headers.get('X-Device-MAC') or request.args.get('mac')
+    mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
+    mac = mac or request.headers.get('X-Device-MAC') or request.args.get('mac')
     body = request.get_data(as_text=True).strip()
     try:
         bitmask = int(body)
@@ -1311,27 +1426,43 @@ def set_pipeline_scenario():
 
 @app.route("/api/alerts")
 def api_alerts():
-    """Lista alertas recientes (últimas 100). Filtros opcionales: mac, finca_id, acked."""
-    mac = request.args.get('mac')
-    finca_id = request.args.get('finca_id')
-    # "0" solo no acks, "1" solo acks, None = todas
+    """Lista alertas recientes (últimas 100) de los dispositivos del usuario.
+    Filtros opcionales: mac, acked. IDOR corregido: solo MACs propias (NUEVA-005).
+    """
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
     acked = request.args.get('acked')
 
-    query = "SELECT * FROM alerts WHERE 1=1"
-    params = []
-    if mac:
-        query += " AND device_mac=?"
-        params.append(mac)
-    if finca_id:
-        query += " AND finca_id=?"
-        params.append(finca_id)
+    # Obtener MACs del usuario autenticado
+    db = get_db()
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+    if not user_macs:
+        return jsonify([])
+
+    # Si se solicita una MAC concreta, verificar que pertenece al usuario
+    if requested_mac:
+        if requested_mac.upper() not in [m.upper() for m in user_macs]:
+            return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+        filter_macs = [requested_mac.upper()]
+    else:
+        filter_macs = user_macs
+
+    placeholders = ",".join(["%s"] * len(filter_macs))
+    query = f"SELECT * FROM alerts WHERE device_mac IN ({placeholders})"
+    params = list(filter_macs)
+
     if acked == "0":
         query += " AND acked=0"
     elif acked == "1":
         query += " AND acked=1"
     query += " ORDER BY created_at DESC LIMIT 100"
 
-    rows = get_db().execute(query, params).fetchall()
+    rows = db.execute(query, params).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -1383,9 +1514,81 @@ def mqtt_auth():
 
 @app.route("/api/mqtt/acl", methods=["POST"])
 def mqtt_acl():
-    """Llamado por mosquitto-go-auth para validar permisos de topic.
-    Por ahora permisivo para todos los usuarios autenticados.
+    """Llamado por mosquitto-go-auth para validar permisos de topic (VULN-003).
+
+    Política:
+    - 'backend' (usuario interno Flask) → acceso total.
+    - Dispositivos (MAC como username):
+        * Solo pueden publicar en aquantia/<su_finca_id>/{telemetry,alerts,register}
+        * Solo pueden suscribirse a aquantia/<su_finca_id>/cmd
+        * No pueden acceder a topics de otras fincas.
+
+    acc: 1=suscribir, 2=publicar, 3=leer (superuser check).
     """
+    data = request.get_json(silent=True, force=True) or {}
+    username = data.get("username", "")
+    topic    = data.get("topic", "")
+    acc      = int(data.get("acc", 1))
+
+    if not username or not topic:
+        return jsonify({"error": "missing"}), 401
+
+    # Usuario interno del backend: acceso total
+    if username == "backend":
+        return jsonify({"ok": True}), 200
+
+    # Dispositivos: username = MAC address
+    # Formato esperado: aquantia/<finca_id>/<subtopic>
+    parts = topic.split("/")
+    if len(parts) < 3 or parts[0] != "aquantia":
+        app.logger.warning("[mqtt/acl] topic malformado: %s (user=%s)", topic, username)
+        return jsonify({"error": "forbidden"}), 401
+
+    topic_finca_id = parts[1]
+    subtopic       = parts[2]
+
+    # Resolver el finca_id asociado a esta MAC
+    db = get_db()
+    cred_row = db.execute(
+        "SELECT claimed_by_finca_id FROM device_credentials WHERE mac=%s", (username,)
+    ).fetchone()
+    device_finca_id = cred_row["claimed_by_finca_id"] if cred_row else None
+
+    if not device_finca_id:
+        # Fallback: usar device_info.finca_id si el dispositivo ya envió telemetría
+        info_row = db.execute(
+            "SELECT finca_id FROM device_info WHERE mac_address=%s", (username,)
+        ).fetchone()
+        device_finca_id = info_row["finca_id"] if info_row else None
+
+    if not device_finca_id:
+        # Dispositivo sin finca asignada: solo puede publicar en register
+        if subtopic == "register" and acc == 2:
+            return jsonify({"ok": True}), 200
+        app.logger.warning("[mqtt/acl] MAC %s sin finca, topic denegado: %s", username, topic)
+        return jsonify({"error": "forbidden"}), 401
+
+    # El finca_id del topic debe coincidir con el del dispositivo
+    if topic_finca_id != device_finca_id:
+        app.logger.warning(
+            "[mqtt/acl] MAC %s (finca=%s) intentó acceder a finca %s — denegado",
+            username, device_finca_id, topic_finca_id,
+        )
+        return jsonify({"error": "forbidden"}), 401
+
+    # Permisos por subtopic
+    # acc=1 → suscribir, acc=2 → publicar, acc=3 → superuser/read
+    ALLOWED_PUB = {"telemetry", "alerts", "register"}
+    ALLOWED_SUB = {"cmd"}
+
+    if acc == 2:  # publicar
+        if subtopic not in ALLOWED_PUB:
+            return jsonify({"error": "forbidden"}), 401
+    elif acc == 1:  # suscribir
+        if subtopic not in ALLOWED_SUB:
+            return jsonify({"error": "forbidden"}), 401
+    # acc=3 (superuser check) → permitir si la finca coincide
+
     return jsonify({"ok": True}), 200
 
 
@@ -1466,14 +1669,22 @@ def claim_device():
 @app.route("/api/devices/register_factory", methods=["POST"])
 def register_factory():
     """Llamado por el script de fábrica para registrar un dispositivo nuevo."""
-    allowed = ("127.0.0.1", "::1")
+    import ipaddress
+    _FACTORY_ALLOWED_NETWORKS = [
+        ipaddress.ip_network("127.0.0.0/8"),    # loopback
+        ipaddress.ip_network("::1/128"),          # loopback IPv6
+        ipaddress.ip_network("10.0.0.0/8"),       # red privada clase A
+        ipaddress.ip_network("172.16.0.0/12"),    # red privada Docker (172.16–172.31)
+        ipaddress.ip_network("192.168.0.0/16"),   # red privada clase C
+    ]
     addr = request.remote_addr or ""
-    # Permitir también redes internas Docker (172.16-31.x.x, 10.x.x.x,
-    # 192.168.x.x)
-    if addr not in allowed and not (
-        addr.startswith("172.") or addr.startswith(
-            "10.") or addr.startswith("192.168.")
-    ):
+    try:
+        remote_ip = ipaddress.ip_address(addr)
+        allowed = any(remote_ip in net for net in _FACTORY_ALLOWED_NETWORKS)
+    except ValueError:
+        allowed = False
+    if not allowed:
+        logger.warning("register_factory: acceso denegado desde %s", addr)
         return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
     mac = (data.get("mac") or "").upper()
