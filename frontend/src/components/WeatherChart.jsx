@@ -150,32 +150,67 @@ export default function WeatherChart({
       show: false,
     },
     tooltip: {
-      theme: false, // Desactiva el tema por defecto para personalizar colores
+      theme: false,
       shared: true,
       intersect: false,
-      x: { format: 'dd MMM · HH:mm' },
-      y: {
-        formatter: v => {
-          const n = Number(v)
-          return Number.isFinite(n) ? `${n.toFixed(2)} ${yUnit}` : '—'
-        },
+      custom: function({ series, dataPointIndex, w }) {
+        const xVal = w.globals.seriesX?.[0]?.[dataPointIndex]
+        let timeLabel = ''
+        if (xVal != null) {
+          const d = new Date(xVal)
+          if (!isNaN(d)) {
+            timeLabel = d.toLocaleString('es-ES', {
+              day: '2-digit', month: 'short',
+              hour: '2-digit', minute: '2-digit',
+            })
+          }
+        }
+
+        const rows = series
+          .map((s, i) => {
+            const val = s[dataPointIndex]
+            if (val == null) return ''
+            const n = Number(val)
+            const formatted = Number.isFinite(n) ? `${n.toFixed(2)} ${yUnit}` : '—'
+            const color = w.config.colors?.[i] ?? '#0c8ecc'
+            const name = w.globals.seriesNames?.[i] ?? ''
+            return `
+              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+                <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;box-shadow:0 0 6px ${color}88;"></span>
+                <span style="color:rgba(148,163,184,0.85);font-size:11px;flex:1;">${name}</span>
+                <span style="color:#fff;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;">${formatted}</span>
+              </div>`
+          })
+          .filter(Boolean)
+          .join('')
+
+        return `
+          <div style="
+            font-family:'DM Sans',system-ui,sans-serif;
+            background:rgba(8,16,32,0.82);
+            backdrop-filter:blur(16px) saturate(180%);
+            -webkit-backdrop-filter:blur(16px) saturate(180%);
+            border:1px solid rgba(255,255,255,0.10);
+            border-radius:12px;
+            box-shadow:0 12px 40px rgba(0,0,0,0.5),0 1px 0 rgba(255,255,255,0.06) inset;
+            padding:0;
+            overflow:hidden;
+            min-width:155px;
+            max-width:240px;
+          ">
+            <div style="
+              padding:6px 12px 5px;
+              border-bottom:1px solid rgba(255,255,255,0.07);
+              background:rgba(255,255,255,0.04);
+              color:rgba(148,163,184,0.8);
+              font-size:10px;
+              font-weight:600;
+              letter-spacing:0.05em;
+              text-transform:uppercase;
+            ">${timeLabel}</div>
+            <div style="padding:6px 12px 8px;">${rows}</div>
+          </div>`
       },
-      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
-      custom: function({ series, seriesIndex, dataPointIndex, w }) {
-        // Color azul claro del menú de navegación: #0c8ecc, más transparente
-        const bg = 'rgba(12, 142, 204, 0.72)';
-        const color = '#fff';
-        const border = '1.5px solid #b6e0fa';
-        const items = series.map((s, i) => {
-          const val = s[dataPointIndex];
-          return `<div style="margin-bottom:2px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.config.colors[i]};margin-right:6px;"></span><span>${w.globals.seriesNames[i]}</span>: <b>${val ?? '—'}</b></div>`;
-        }).join('');
-        const xVal = w.globals.labels[dataPointIndex] || '';
-        return `<div style="background:${bg};color:${color};border-radius:10px;padding:10px 14px;backdrop-filter:blur(2px);border:${border};box-shadow:0 2px 8px 0 #0c8ecc22;min-width:120px;max-width:220px;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${w.config.xaxis.labels.formatter ? w.config.xaxis.labels.formatter(xVal) : xVal}</div>
-          ${items}
-        </div>`;
-      }
     },
     dataLabels: { enabled: false },
   }
