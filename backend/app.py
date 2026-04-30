@@ -560,7 +560,7 @@ def filtrar_datos_api():
             WHERE timestamp BETWEEN ? AND ? AND device_mac=?
         )
         SELECT * FROM ranked
-        WHERE (rn - 1) % GREATEST(1, (total / ?)::int) = 0
+        WHERE MOD(rn - 1, GREATEST(1, (total / ?)::int)) = 0
            OR rn = total
         ORDER BY timestamp ASC
     """, (start_date, end_date, mac, max_points))
