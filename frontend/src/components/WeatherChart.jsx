@@ -187,7 +187,7 @@ export default function WeatherChart({
         return `
           <div style="
             font-family:'DM Sans',system-ui,sans-serif;
-            background:rgba(8,16,32,0.82);
+            background:rgba(12,142,204,0.18);
             backdrop-filter:blur(16px) saturate(180%);
             -webkit-backdrop-filter:blur(16px) saturate(180%);
             border:1px solid rgba(255,255,255,0.10);
@@ -201,7 +201,7 @@ export default function WeatherChart({
             <div style="
               padding:6px 12px 5px;
               border-bottom:1px solid rgba(255,255,255,0.07);
-              background:rgba(255,255,255,0.04);
+              background:rgba(12,142,204,0.15);
               color:rgba(148,163,184,0.8);
               font-size:10px;
               font-weight:600;
