@@ -15,6 +15,7 @@ const EMPTY = {
 
 const AUTO_REFRESH_MS = 15000
 const MAX_POINTS = 150
+const MAX_FILTERED_POINTS = 2000
 
 export function useWeatherData() {
   const { authFetch } = useAuth()
@@ -30,14 +31,14 @@ export function useWeatherData() {
   // Cuando no es null, el polling re-ejecuta ese filtro en lugar de fetchSamples/fetchLatest.
   const activeFilterRef = useRef(null)
 
-  const applyData = useCallback((json, mode = 'replace') => {
+  const applyData = useCallback((json, mode = 'replace', maxPoints = MAX_POINTS) => {
     const normalized = { ...EMPTY, ...(json || {}) }
 
     setData(prev => {
       if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
         const replaced = {}
         Object.keys(EMPTY).forEach((key) => {
-          replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-MAX_POINTS) : []
+          replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-maxPoints) : []
         })
         return replaced
       }
@@ -128,7 +129,7 @@ export function useWeatherData() {
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      applyData(await res.json())
+      applyData(await res.json(), 'replace', MAX_FILTERED_POINTS)
     } catch {
       setError('Error al filtrar datos')
     } finally {
