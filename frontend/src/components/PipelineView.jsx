@@ -435,6 +435,9 @@ function PipelineChart({ readings, mode, histLoading }) {
 
 export default function PipelineView({ selectedMac }) {
   const { authFetch } = useAuth()
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
   const [status,   setStatus]   = useState(null)
   const [readings, setReadings] = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -442,6 +445,7 @@ export default function PipelineView({ selectedMac }) {
   const [pipelineMode, setPipelineMode] = useState('sim')
   const [applyBusy, setApplyBusy] = useState(false)
   const timerRef = useRef(null)
+  const liveAbortRef = useRef(null)
 
   // Historical mode
   const [mode, setMode] = useState('live')  // 'live' | 'history'
@@ -453,6 +457,11 @@ export default function PipelineView({ selectedMac }) {
   const [histReadings, setHistReadings] = useState([])
 
   const fetchLive = useCallback(async () => {
+    // Cancelar la petición anterior si sigue en vuelo
+    if (liveAbortRef.current) liveAbortRef.current.abort()
+    const controller = new AbortController()
+    liveAbortRef.current = controller
+    const signal = controller.signal
     try {
       const statusUrl = selectedMac
         ? `/api/pipeline/status?mac=${encodeURIComponent(selectedMac)}`
@@ -462,19 +471,19 @@ export default function PipelineView({ selectedMac }) {
         : '/api/pipeline/readings?n=90'
 
       const [sRes, rRes] = await Promise.all([
-        authFetch(statusUrl),
-        authFetch(readingsUrl),
+        authFetchRef.current(statusUrl, { signal }),
+        authFetchRef.current(readingsUrl, { signal }),
       ])
       const [s, r] = await Promise.all([sRes.json(), rRes.json()])
       setStatus(s)
       setReadings(Array.isArray(r) ? r : [])
       if (s.config?.scenario) setScenario(s.config.scenario)
       if (s.config?.mode) setPipelineMode(s.config.mode)
-    } catch {
-      // Ignorar fallos transitorios del pipeline en vivo.
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar fallos transitorios del pipeline */ }
     }
     finally { setLoading(false) }
-  }, [authFetch, selectedMac])
+  }, [selectedMac])
 
   // Live auto-refresh
   useEffect(() => {
@@ -502,7 +511,7 @@ export default function PipelineView({ selectedMac }) {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
       const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
-      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
+      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch {
@@ -514,7 +523,7 @@ export default function PipelineView({ selectedMac }) {
   const applyConfig = async (patch) => {
     setApplyBusy(true)
     try {
-      const res = await authFetch('/api/pipeline/config', {
+      const res = await authFetchRef.current('/api/pipeline/config', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ ...patch, mac: selectedMac }),

@@ -77,11 +77,13 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
-                pipeline_pressure, pipeline_flow, soil_moisture,
+                pipeline_pressure, pipeline_flow,
+                pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                soil_moisture,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, COALESCE(%s, NOW()))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -105,6 +107,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
             int(payload.get("relay_active", 0)),
             payload.get("pipeline_pressure"),
             payload.get("pipeline_flow"),
+            payload.get("pipeline_source"),
+            payload.get("pipeline_pressure_ok"),
+            payload.get("pipeline_flow_ok"),
             payload.get("soil_moisture"),
             payload.get("dew_point"),
             payload.get("heat_index"),

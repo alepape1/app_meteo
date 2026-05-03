@@ -33,6 +33,12 @@ function calcFilterPoints(startDate, endDate) {
 
 export function useWeatherData() {
   const { authFetch } = useAuth()
+  // Ref estable: evita que los useCallback dependan de authFetch como valor
+  // y causen un cascade de re-renders / rebuilds de interval cuando el token
+  // no ha cambiado realmente.
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
   const [data, setData] = useState(EMPTY)
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
@@ -98,80 +104,105 @@ export function useWeatherData() {
     setError(null)
   }, [])
 
+  // Ref al AbortController activo para peticiones de muestras/latest/filtrar.
+  // Se cancela si selectedMac cambia antes de que llegue la respuesta.
+  const abortRef = useRef(null)
+  // Refs para cancelar fetchLatest y fetchDeviceInfo si el poller dispara uno nuevo
+  // antes de que el anterior haya respondido.
+  const latestAbortRef = useRef(null)
+  const deviceInfoAbortRef = useRef(null)
+
   const fetchSamples = useCallback(async (n = MAX_POINTS) => {
     if (!selectedMac) {
       setData(EMPTY)
       return
     }
+    // Cancelar petición anterior si sigue en vuelo
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     // Salir del modo filtro: el usuario quiere datos recientes
     activeFilterRef.current = null
     setLoading(true)
     try {
       const url = `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
-      const res = await authFetch(url)
+      const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
-    } catch {
-      setError('No se pudo conectar al servidor Flask')
+    } catch (e) {
+      if (e.name !== 'AbortError') setError('No se pudo conectar al servidor Flask')
     } finally {
       setLoading(false)
     }
-  }, [authFetch, selectedMac])
+  }, [selectedMac, applyData])
 
   const fetchLatest = useCallback(async () => {
     if (!selectedMac) return
+    // Cancelar la petición anterior si sigue en vuelo
+    if (latestAbortRef.current) latestAbortRef.current.abort()
+    const controller = new AbortController()
+    latestAbortRef.current = controller
     try {
       const url = `/api/latest?mac=${encodeURIComponent(selectedMac)}`
-      const res = await authFetch(url)
+      const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json(), 'append')
-    } catch {
-      // Ignorar errores transitorios del refresco incremental.
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar errores transitorios del refresco */ }
     }
-  }, [authFetch, selectedMac, applyData])
+  }, [selectedMac, applyData])
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
     if (!selectedMac) return
-    // Guardar parámetros para que el polling mantenga este rango activo
+    // Guardar parámetros para que el polling sepa que hay un rango activo
     activeFilterRef.current = { startDate, endDate }
+    // Cancelar petición anterior si sigue en vuelo (mismo patrón que fetchSamples)
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     const maxPoints = calcFilterPoints(startDate, endDate)
     setLoading(true)
     try {
       const body = { start_date: startDate, end_date: endDate, mac: selectedMac, max_points: maxPoints }
-      const res = await authFetch('/api/filtrar', {
+      const res = await authFetchRef.current('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json(), 'replace', maxPoints)
-    } catch {
-      setError('Error al filtrar datos')
+    } catch (e) {
+      if (e.name !== 'AbortError') setError('Error al filtrar datos')
     } finally {
       setLoading(false)
     }
-  }, [authFetch, selectedMac])
+  }, [selectedMac, applyData])
 
   const fetchDeviceInfo = useCallback(async () => {
     if (!selectedMac) {
       setDeviceInfo(null)
       return
     }
+    // Cancelar la petición anterior si sigue en vuelo
+    if (deviceInfoAbortRef.current) deviceInfoAbortRef.current.abort()
+    const controller = new AbortController()
+    deviceInfoAbortRef.current = controller
     try {
       const url = `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
-      const res = await authFetch(url)
+      const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) return
       const json = await res.json()
       if (Object.keys(json).length > 0) setDeviceInfo(json)
       else setDeviceInfo(null)
-    } catch {
-      // Ignorar errores transitorios de información del dispositivo.
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar errores transitorios de device_info */ }
     }
-  }, [authFetch, selectedMac])
+  }, [selectedMac])
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await authFetch('/api/devices/mine')
+      const res = await authFetchRef.current('/api/devices/mine')
       if (!res.ok) return
       const json = await res.json()
       setDevices(json)
@@ -185,10 +216,14 @@ export function useWeatherData() {
     } finally {
       setDevicesLoaded(true)
     }
-  }, [authFetch])
+  }, [])
 
-  // Limpiar datos obsoletos al cambiar de dispositivo
+  // Limpiar datos obsoletos al cambiar de dispositivo y cancelar requests en vuelo
   useEffect(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
     setData(EMPTY)
     setDeviceInfo(null)
     activeFilterRef.current = null
@@ -207,21 +242,22 @@ export function useWeatherData() {
     const refreshAll = () => {
       if (typeof document !== 'undefined' && document.hidden) return
 
-      // Si hay un filtro activo, re-ejecutarlo para mantener el rango visible actualizado.
-      // No llamar a fetchSamples ni fetchLatest para no sobreescribir el rango filtrado.
+      // Si hay un filtro activo, solo añadir el punto más reciente con fetchLatest
+      // (rápido, una fila). Re-ejecutar fetchFiltered completo solo cuando el
+      // usuario cambia el rango explícitamente — no en cada tick del poller.
+      tick += 1
       if (activeFilterRef.current) {
-        const { startDate, endDate } = activeFilterRef.current
-        fetchFiltered(startDate, endDate)
-        fetchDevices()
+        fetchLatest()
+        if (tick % 8 === 0) fetchDevices()
         fetchDeviceInfo()
         return
       }
-
-      tick += 1
       if (tick % 4 === 0) fetchSamples(MAX_POINTS)
       else fetchLatest()
 
-      fetchDevices()
+      // fetchDevices cada 8 ticks (~2 min): la lista de dispositivos no cambia
+      // frecuentemente y llamarla en cada tick causaba re-renders masivos.
+      if (tick % 8 === 0) fetchDevices()
       fetchDeviceInfo()
     }
 
@@ -233,7 +269,6 @@ export function useWeatherData() {
         } else {
           fetchSamples(MAX_POINTS)
         }
-        fetchDevices()
         fetchDeviceInfo()
       }
     }
@@ -242,17 +277,14 @@ export function useWeatherData() {
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibility)
     }
-    if (typeof window !== 'undefined') {
-      window.addEventListener('focus', handleVisibility)
-    }
+    // Nota: NO se añade listener de 'focus' en window — visibilitychange ya
+    // cubre la vuelta al tab. El handler de focus causaba doble burst de
+    // peticiones al volver a la ventana.
 
     return () => {
       clearInterval(id)
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', handleVisibility)
-      }
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('focus', handleVisibility)
       }
     }
   }, [fetchLatest, fetchSamples, fetchFiltered, fetchDevices, fetchDeviceInfo])
@@ -280,12 +312,12 @@ export function useWeatherData() {
   }
 
   const setRelay = useCallback(async (state, index = 0) => {
-    await authFetch('/api/relay', {
+    await authFetchRef.current('/api/relay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac: selectedMac, state, index }),
     })
-  }, [authFetch, selectedMac])
+  }, [selectedMac])
 
   return {
     data, latest, loading, lastUpdate, error,

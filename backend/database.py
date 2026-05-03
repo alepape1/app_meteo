@@ -211,6 +211,13 @@ class _CompatConn:
     def close(self):
         """Devuelve la conexión al pool en lugar de cerrarla."""
         if _pool and self._conn:
+            # Asegurarse de que no queda ninguna transacción abierta antes de
+            # devolver la conexión al pool. Una transacción idle in transaction
+            # hereda su estado al siguiente usuario y bloquea otras queries.
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             _pool.putconn(self._conn)
 
 
@@ -255,6 +262,9 @@ def create_tables(conn: _CompatConn):
         relay_active           INTEGER DEFAULT 0,
         pipeline_pressure      REAL    DEFAULT NULL,
         pipeline_flow          REAL    DEFAULT NULL,
+        pipeline_source        TEXT    DEFAULT NULL,
+        pipeline_pressure_ok   BOOLEAN DEFAULT NULL,
+        pipeline_flow_ok       BOOLEAN DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
         dew_point              REAL    DEFAULT NULL,
         heat_index             REAL    DEFAULT NULL,
@@ -265,18 +275,30 @@ def create_tables(conn: _CompatConn):
     );
     """)
 
-    # Migraciones ligeras para instalaciones ya existentes.
-    for ddl in [
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS temperature_source TEXT DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS pressure_source TEXT DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_ok BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_temperature REAL DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS bmp280_pressure REAL DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS dew_point    REAL DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS heat_index   REAL DEFAULT NULL",
-        "ALTER TABLE home_weather_station ADD COLUMN IF NOT EXISTS abs_humidity REAL DEFAULT NULL",
+    # Migraciones ligeras: comprobamos primero qué columnas ya existen para
+    # NO ejecutar ALTER TABLE si no hace falta. ALTER TABLE en una hypertable
+    # adquiere AccessExclusiveLock en todos los chunks aunque use IF NOT EXISTS,
+    # lo que provoca esperas de 50+ s y deadlocks si hay procesos concurrentes.
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'home_weather_station' AND table_schema = 'public'
+    """)
+    _hws_cols = {row[0] for row in cur.fetchall()}
+    for _col, _ddl in [
+        ("temperature_source", "ALTER TABLE home_weather_station ADD COLUMN temperature_source TEXT DEFAULT NULL"),
+        ("pressure_source",    "ALTER TABLE home_weather_station ADD COLUMN pressure_source TEXT DEFAULT NULL"),
+        ("bmp280_ok",          "ALTER TABLE home_weather_station ADD COLUMN bmp280_ok BOOLEAN DEFAULT FALSE"),
+        ("bmp280_temperature", "ALTER TABLE home_weather_station ADD COLUMN bmp280_temperature REAL DEFAULT NULL"),
+        ("bmp280_pressure",    "ALTER TABLE home_weather_station ADD COLUMN bmp280_pressure REAL DEFAULT NULL"),
+        ("dew_point",            "ALTER TABLE home_weather_station ADD COLUMN dew_point REAL DEFAULT NULL"),
+        ("heat_index",           "ALTER TABLE home_weather_station ADD COLUMN heat_index REAL DEFAULT NULL"),
+        ("abs_humidity",         "ALTER TABLE home_weather_station ADD COLUMN abs_humidity REAL DEFAULT NULL"),
+        ("pipeline_source",      "ALTER TABLE home_weather_station ADD COLUMN pipeline_source TEXT DEFAULT NULL"),
+        ("pipeline_pressure_ok", "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure_ok BOOLEAN DEFAULT NULL"),
+        ("pipeline_flow_ok",     "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow_ok BOOLEAN DEFAULT NULL"),
     ]:
-        cur.execute(ddl)
+        if _col not in _hws_cols:
+            cur.execute(_ddl)
 
     # Índices estándar (TimescaleDB añade los suyos propios sobre timestamp)
     cur.execute("""
@@ -292,17 +314,23 @@ def create_tables(conn: _CompatConn):
     raw.commit()
 
     # ── TimescaleDB hypertable ────────────────────────────────────────────────
-    # Particionado automático por tiempo (chunks de 7 días).
-    # Si TimescaleDB no está instalado, continúa como tabla PostgreSQL normal.
+    # Solo llama a create_hypertable si la tabla aún no es una hypertable.
+    # Evitar migrate_data en cada arranque (escanea la tabla entera y es lento).
     try:
         cur.execute("""
-        SELECT create_hypertable(
-            'home_weather_station', 'timestamp',
-            if_not_exists => TRUE,
-            migrate_data   => TRUE
-        );
+            SELECT 1 FROM timescaledb_information.hypertables
+            WHERE hypertable_name = 'home_weather_station'
         """)
-        raw.commit()
+        already_hypertable = cur.fetchone() is not None
+        if not already_hypertable:
+            cur.execute("""
+            SELECT create_hypertable(
+                'home_weather_station', 'timestamp',
+                if_not_exists => TRUE,
+                migrate_data   => TRUE
+            );
+            """)
+            raw.commit()
         logger.info("TimescaleDB hypertable activa en home_weather_station")
     except Exception as e:
         logger.warning("TimescaleDB no disponible — usando tabla PostgreSQL normal: %s", e)
@@ -440,19 +468,19 @@ def create_tables(conn: _CompatConn):
         ON user_devices(user_id);
     """)
 
-    # ── Migraciones sobre tablas existentes ──────────────────────────────────
-    # ALTER TABLE IF NOT EXISTS COLUMN es idempotente en PostgreSQL.
-    migrations = [
-        "ALTER TABLE device_info ADD COLUMN IF NOT EXISTS firmware_version TEXT DEFAULT NULL",
-        "ALTER TABLE device_info ADD COLUMN IF NOT EXISTS device_profile   TEXT DEFAULT NULL",
-    ]
-    for sql in migrations:
-        try:
-            cur.execute(sql)
-        except Exception as e:
-            logger.warning("Migración ignorada (%s): %s", sql[:60], e)
-            raw.rollback()
-            cur = raw.cursor()
+    # ── Migraciones sobre device_info ────────────────────────────────────────
+    # Mismo patrón: verificamos information_schema antes de ALTER TABLE.
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'device_info' AND table_schema = 'public'
+    """)
+    _di_cols = {row[0] for row in cur.fetchall()}
+    for _col, _ddl in [
+        ("firmware_version", "ALTER TABLE device_info ADD COLUMN firmware_version TEXT DEFAULT NULL"),
+        ("device_profile",   "ALTER TABLE device_info ADD COLUMN device_profile TEXT DEFAULT NULL"),
+    ]:
+        if _col not in _di_cols:
+            cur.execute(_ddl)
 
     raw.commit()
     cur.close()

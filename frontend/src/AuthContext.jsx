@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 
 const AuthContext = createContext(null)
 
@@ -7,6 +7,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('aq_user')) } catch { return null }
   })
+  const tokenRef = useRef(token)
+  useEffect(() => { tokenRef.current = token }, [token])
 
   const login = useCallback(async (email, password) => {
     const res = await fetch('/api/auth/login', {
@@ -43,10 +45,11 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
-  // Wrapper de fetch que incluye el token y hace logout automático si expira
+  // Wrapper de fetch que incluye el token y hace logout automático si expira.
+  // authFetch es estable (deps vacíos): no causa re-renders en cascada al cambiar el token.
   const authFetch = useCallback(async (url, opts = {}) => {
     const headers = { ...(opts.headers || {}) }
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (tokenRef.current) headers['Authorization'] = `Bearer ${tokenRef.current}`
     const res = await fetch(url, { ...opts, headers })
     if (res.status === 401) {
       localStorage.removeItem('aq_token')
@@ -55,7 +58,7 @@ export function AuthProvider({ children }) {
       setUser(null)
     }
     return res
-  }, [token])
+  }, [])
 
   return (
     <AuthContext.Provider value={{ token, user, login, register, logout, authFetch }}>

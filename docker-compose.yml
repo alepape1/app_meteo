@@ -45,7 +45,7 @@ services:
       # Genera con: openssl rand -hex 32
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?Falta JWT_SECRET_KEY en .env}"
       # Orígenes permitidos para CORS (separados por coma si son varios)
-      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:5173}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:?Define ALLOWED_ORIGINS en .env para producción}"
     volumes:
       - backend_data:/app/data
     ports:

@@ -40,6 +40,8 @@ app = Flask(__name__)
 # ── CORS restringido por origen (VULN-004) ───────────────────────────────────
 _raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173")
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+if "*" in _allowed_origins:
+    raise RuntimeError("ALLOWED_ORIGINS=* no está permitido en producción")
 CORS(app, origins=_allowed_origins, supports_credentials=False)
 
 # ── JWT: clave obligatoria, TTL reducido (VULN-001, VULN-005) ───────────────
@@ -114,9 +116,8 @@ def _verify_device_auth(req) -> tuple[str | None, bool]:
     ).fetchone()
 
     if not row:
-        # Dispositivo sin credenciales registradas: permitido con aviso
-        logger.warning("Device auth: MAC %s sin credenciales registradas (acceso permitido temporalmente)", mac)
-        return mac, True
+        logger.warning("Device auth: MAC %s sin credenciales registradas — acceso denegado", mac)
+        return None, False
 
     if not token:
         logger.warning("Device auth: MAC %s tiene credenciales pero no envió X-Device-Token", mac)
@@ -485,6 +486,9 @@ def rows_to_dict(rows):
         "relay_active": [r["relay_active"] for r in rows],
         "pipeline_pressure": [r["pipeline_pressure"] for r in rows],
         "pipeline_flow": [r["pipeline_flow"] for r in rows],
+        "pipeline_source": [r.get("pipeline_source") for r in rows],
+        "pipeline_pressure_ok": [r.get("pipeline_pressure_ok") for r in rows],
+        "pipeline_flow_ok": [r.get("pipeline_flow_ok") for r in rows],
         "soil_moisture": [r["soil_moisture"] for r in rows],
         "dew_point": [r.get("dew_point") for r in rows],
         "heat_index": [r.get("heat_index") for r in rows],
@@ -652,22 +656,57 @@ def filtrar_datos_api():
 
     db = get_db()
     cursor = db.cursor()
-    # Decimación temporal: selecciona 1 de cada N filas para no devolver miles de puntos.
-    # Siempre incluye el primer y último punto del rango.
-    # GREATEST(1, ...) evita división por cero cuando total <= max_points.
+    # Decimación por time_bucket: evita COUNT(*) OVER() que fuerza full scan.
+    # Calcula el tamaño del bucket a partir del rango temporal y los puntos deseados.
+    # Un tick del ESP32 es ~20s; estimamos al menos max_points buckets en el rango.
+    try:
+        from datetime import datetime, timezone
+        def _parse_ts(s):
+            s = str(s).replace('Z', '+00:00')
+            return datetime.fromisoformat(s)
+        dur_s = max(1, int(abs((_parse_ts(end_date) - _parse_ts(start_date)).total_seconds())))
+    except Exception:
+        dur_s = 86400
+    bucket_s = max(1, dur_s // max_points)
     cursor.execute("""
-        WITH ranked AS (
-            SELECT *,
-                   ROW_NUMBER() OVER (ORDER BY timestamp) AS rn,
-                   COUNT(*)     OVER ()                   AS total
-            FROM home_weather_station
-            WHERE timestamp BETWEEN ? AND ? AND device_mac=?
-        )
-        SELECT * FROM ranked
-        WHERE MOD(rn - 1, GREATEST(1, (total / ?)::int)) = 0
-           OR rn = total
-        ORDER BY timestamp ASC
-    """, (start_date, end_date, mac, max_points))
+        SELECT
+            time_bucket('1 second'::interval * %s, timestamp) AS timestamp,
+            first(temperature,           timestamp) AS temperature,
+            first(temperature_barometer, timestamp) AS temperature_barometer,
+            first(humidity,              timestamp) AS humidity,
+            first(pressure,              timestamp) AS pressure,
+            first(temperature_source,    timestamp) AS temperature_source,
+            first(pressure_source,       timestamp) AS pressure_source,
+            first(bmp280_ok,             timestamp) AS bmp280_ok,
+            first(bmp280_temperature,    timestamp) AS bmp280_temperature,
+            first(bmp280_pressure,       timestamp) AS bmp280_pressure,
+            first(dht_temperature,       timestamp) AS dht_temperature,
+            first(dht_humidity,          timestamp) AS dht_humidity,
+            first(windSpeed,             timestamp) AS windSpeed,
+            first(windDirection,         timestamp) AS windDirection,
+            first(windSpeedFiltered,     timestamp) AS windSpeedFiltered,
+            first(windDirectionFiltered, timestamp) AS windDirectionFiltered,
+            first(light,                 timestamp) AS light,
+            first(rssi,                  timestamp) AS rssi,
+            first(free_heap,             timestamp) AS free_heap,
+            first(uptime_s,              timestamp) AS uptime_s,
+            first(relay_active,          timestamp) AS relay_active,
+            first(pipeline_pressure,     timestamp) AS pipeline_pressure,
+            first(pipeline_flow,         timestamp) AS pipeline_flow,
+            first(pipeline_source,       timestamp) AS pipeline_source,
+            first(pipeline_pressure_ok,  timestamp) AS pipeline_pressure_ok,
+            first(pipeline_flow_ok,      timestamp) AS pipeline_flow_ok,
+            first(soil_moisture,         timestamp) AS soil_moisture,
+            first(dew_point,             timestamp) AS dew_point,
+            first(heat_index,            timestamp) AS heat_index,
+            first(abs_humidity,          timestamp) AS abs_humidity,
+            first(device_mac,            timestamp) AS device_mac
+        FROM home_weather_station
+        WHERE timestamp BETWEEN %s AND %s AND device_mac = %s
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT %s
+    """, (bucket_s, start_date, end_date, mac, max_points))
     rows = cursor.fetchall()
     cursor.close()
 
@@ -687,16 +726,18 @@ def api_muestras(n):
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute(
-        "SELECT COUNT(*) FROM home_weather_station WHERE device_mac=?",
-        (mac,)
-    )
-    total = cursor.fetchone()[0]
-    offset = max(0, total - n)
+    # Usar subquery DESC LIMIT para que TimescaleDB lea solo el chunk más reciente.
+    # Evita el patrón COUNT(*) + OFFSET que fuerza full scan y tarda minutos
+    # en hypertables grandes.
     cursor.execute("""
-        SELECT * FROM home_weather_station WHERE device_mac=?
-        ORDER BY timestamp ASC LIMIT ? OFFSET ?
-    """, (mac, n, offset))
+        SELECT * FROM (
+            SELECT * FROM home_weather_station
+            WHERE device_mac = %s
+            ORDER BY timestamp DESC
+            LIMIT %s
+        ) sub
+        ORDER BY timestamp ASC
+    """, (mac, n))
     rows = cursor.fetchall()
     cursor.close()
     return jsonify(rows_to_dict(rows))
@@ -1018,15 +1059,12 @@ def irrigation_history():
     flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
     interval_s = 20
 
-    if period == 'month':
-        group_expr = "to_char(timestamp, 'YYYY-MM')"
-        offset = "-12 months"
-    elif period == 'week':
-        group_expr = "to_char(timestamp, 'YYYY-\"W\"WW')"
-        offset = "-16 weeks"
-    else:
-        group_expr = "to_char(timestamp, 'YYYY-MM-DD')"
-        offset = "-30 days"
+    _PERIOD_MAP = {
+        'month': ("to_char(timestamp, 'YYYY-MM')",       "-12 months"),
+        'week':  ("to_char(timestamp, 'YYYY-\"W\"WW')",  "-16 weeks"),
+        'day':   ("to_char(timestamp, 'YYYY-MM-DD')",    "-30 days"),
+    }
+    group_expr, offset = _PERIOD_MAP.get(period, _PERIOD_MAP['day'])
 
     rows = get_db().execute(f"""
         SELECT {group_expr} AS period_key, COUNT(*) AS cnt
@@ -1124,6 +1162,9 @@ def _db_rows_to_pipeline(rows, scenario):
             "scenario": scenario,
             "pressure_bar": row["pipeline_pressure"],
             "flow_lpm": row["pipeline_flow"],
+            "pipeline_source": row.get("pipeline_source"),
+            "pipeline_flow_ok": row.get("pipeline_flow_ok"),
+            "pipeline_pressure_ok": row.get("pipeline_pressure_ok"),
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -1148,10 +1189,14 @@ def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
 
     order = "ASC" if (from_dt and to_dt) else "DESC"
     query = f"""
-        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
+        SELECT timestamp, relay_active,
+               pipeline_pressure, pipeline_flow,
+               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
         FROM (
             SELECT DISTINCT ON (timestamp)
-                   id, timestamp, relay_active, pipeline_pressure, pipeline_flow
+                   id, timestamp, relay_active,
+                   pipeline_pressure, pipeline_flow,
+                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
             FROM home_weather_station
             WHERE {' AND '.join(where)}
             ORDER BY timestamp, id DESC
@@ -1469,9 +1514,24 @@ def api_alerts():
 @app.route("/api/alerts/<int:alert_id>/ack", methods=["POST"])
 def api_alert_ack(alert_id):
     """Marca una alerta como resuelta."""
+    user_id = int(get_jwt_identity())
     db = get_db()
+
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+
+    alert_row = db.execute(
+        "SELECT device_mac FROM alerts WHERE id=%s", (alert_id,)
+    ).fetchone()
+    if not alert_row or alert_row["device_mac"] not in user_macs:
+        return jsonify({"error": "Acceso denegado"}), 403
+
     db.execute(
-        "UPDATE alerts SET acked=1, acked_at=CURRENT_TIMESTAMP WHERE id=?",
+        "UPDATE alerts SET acked=1, acked_at=CURRENT_TIMESTAMP WHERE id=%s",
         (alert_id,)
     )
     db.commit()

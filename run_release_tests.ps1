@@ -5,7 +5,7 @@
 # Requisitos previos:
 #   - Docker Desktop corriendo con la infraestructura dev activa
 #     (docker compose -f docker-compose.dev.yml up -d)
-#   - El .venv del proyecto debe existir en la raíz del workspace
+#   - El .venv del proyecto debe existir en c:\repos\app_meteo\.venv
 
 param(
     [string]$Version = ""
@@ -13,7 +13,7 @@ param(
 
 $Root        = $PSScriptRoot
 $Backend     = Join-Path $Root "backend"
-$Pytest      = Join-Path $Root "..\.venv\Scripts\pytest.exe"
+$Pytest      = Join-Path $Root ".venv\Scripts\pytest.exe"
 $ReportsDir  = Join-Path $Backend "tests\reports"
 $Timestamp   = Get-Date -Format "yyyy-MM-dd_HH-mm"
 $Tag         = if ($Version) { $Version } else { $Timestamp }

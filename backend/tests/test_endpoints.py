@@ -67,6 +67,7 @@ def flask_app(test_db_pool):
         "TESTING": True,
         "JWT_SECRET_KEY": "test-secret-for-pytest-at-least-32-bytes",
         "JWT_ACCESS_TOKEN_EXPIRES": False,
+        "RATELIMIT_ENABLED": False,
     })
     yield flask_module.app
 
@@ -81,6 +82,10 @@ def client(flask_app):
 @pytest.fixture(autouse=True)
 def clean_tables(test_db_pool):
     """Elimina datos de usuario tras cada test para garantizar aislamiento."""
+    try:
+        flask_module.limiter._storage.reset()
+    except Exception:
+        pass
     yield
     conn = database.get_db_connection()
     # El orden importa: respetar la FK user_devices → users

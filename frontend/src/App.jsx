@@ -76,11 +76,16 @@ function AppInner({ user, logout }) {
   const [unackedAlerts, setUnackedAlerts] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // Ref estable para authFetch: evita que el effect de polling de alertas
+  // se destruya y recree cada vez que cambia la referencia de authFetch.
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
   // Polling ligero del contador de alertas no resueltas (cada 60s)
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const res = await authFetch('/api/alerts?acked=0')
+        const res = await authFetchRef.current('/api/alerts?acked=0')
         if (!res.ok) return
         const data = await res.json()
         setUnackedAlerts(data.length)
@@ -91,7 +96,7 @@ function AppInner({ user, logout }) {
     fetchCount()
     const id = setInterval(fetchCount, 60000)
     return () => clearInterval(id)
-  }, [authFetch])
+  }, [])
 
   const handleViewChange = (view) => {
     setActiveView(view)
