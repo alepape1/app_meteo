@@ -324,6 +324,11 @@ function PipelineChart({ readings, mode, histLoading }) {
     },
     xaxis: {
       type: 'datetime',
+      ...(mode === 'live' && samples.length > 0 && (() => {
+        const LIVE_WINDOW_MS = 60 * 60 * 1000 // última hora
+        const latestMs = samples.at(-1).x
+        return { min: latestMs - LIVE_WINDOW_MS, max: latestMs + 30_000 }
+      })()),
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
