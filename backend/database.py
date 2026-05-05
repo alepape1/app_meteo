@@ -379,6 +379,8 @@ def create_tables(conn: _CompatConn):
         ('station_name',          'Aquantia'),
         ('station_location',      'Lanzarote'),
         ('pipeline_scenario',     'normal'),
+        ('irrigation_type',       'sprinkler'),
+        ('leak_detect_trained',   'false'),
         ('min_firmware_version',  '0.1.0-beta.3'),
     ]:
         cur.execute(

@@ -42,7 +42,11 @@
       "WebFetch(domain:www.hivemq.com)",
       "WebFetch(domain:mosquitto.org)",
       "WebFetch(domain:www.agriculturaliot.com)",
-      "WebFetch(domain:itp.nyu.edu)"
+      "WebFetch(domain:itp.nyu.edu)",
+      "PowerShell(Remove-Item \"c:\\\\repos\\\\pressure_sensor_diag\\\\pressure_sensor_diag\" -Recurse -Force -Confirm:$false)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Initial release: XGZP6847D Arduino library v1.0.0 *)",
+      "Bash(git commit -m 'fix\\(pressure_sensor\\): correct I2C address, trigger protocol and fullscale *)"
     ]
   }
 }

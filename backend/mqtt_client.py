@@ -161,6 +161,36 @@ def _handle_telemetry(finca_id: str, payload: dict):
                     (actual, device_mac, i),
                 )
 
+        # Sincronizar campos de configuración reportados en la telemetría del firmware.
+        _VALID_IRRIG = {'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'}
+        irrig   = payload.get("irrigation_type")
+        trained = payload.get("leak_detect_trained")
+        pipe_sc = payload.get("pipeline_scenario")
+
+        if irrig in _VALID_IRRIG:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('irrigation_type', irrig),
+            )
+        if trained is not None:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('leak_detect_trained', 'true' if trained else 'false'),
+            )
+        # En modo real, el scenario es auto-detectado por el firmware — actualizar.
+        if pipe_sc in ('normal', 'leak', 'burst', 'obstruction'):
+            mode_row = db.execute(
+                "SELECT value FROM app_settings WHERE key='pipeline_mode'"
+            ).fetchone()
+            if mode_row and mode_row['value'] == 'real':
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('pipeline_scenario', pipe_sc),
+                )
+
         db.commit()
         logger.info("Telemetría insertada: finca_id=%s mac=%s", finca_id, device_mac)
     finally:

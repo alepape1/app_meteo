@@ -415,9 +415,13 @@ def _resolve_user_mac(user_id, requested_mac=None):
     return row['mac_address'] if row else None
 
 
+_VALID_IRRIG = frozenset({'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'})
+
+
 def _publish_pipeline_config(
         mac, scenario=None, mode=None, telemetry_interval_s=None,
-        config_sync_interval_s=None, display_timeout_s=None):
+        config_sync_interval_s=None, display_timeout_s=None,
+        irrigation_type=None):
     """Envía la configuración de pipeline por MQTT al dispositivo indicado."""
     if not mac:
         return False
@@ -433,7 +437,7 @@ def _publish_pipeline_config(
         "type": "pipeline_config",
         "mac": mac,
     }
-    if scenario in ('normal', 'leak', 'burst'):
+    if scenario in ('normal', 'leak', 'burst', 'obstruction'):
         payload["pipeline_scenario"] = scenario
     if mode in ('sim', 'real'):
         payload["pipeline_mode"] = mode
@@ -443,6 +447,8 @@ def _publish_pipeline_config(
         payload["config_sync_interval_s"] = int(config_sync_interval_s)
     if display_timeout_s is not None:
         payload["display_timeout_s"] = int(display_timeout_s)
+    if irrigation_type in _VALID_IRRIG:
+        payload["irrigation_type"] = irrigation_type
 
     if len(payload) <= 2:
         return False
@@ -1267,6 +1273,8 @@ def pipeline_status():
                 cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
             "display_timeout_s": _get_int_setting(
                 cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+            "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+            "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
         },
     })
 
@@ -1325,6 +1333,8 @@ def get_pipeline_config():
             cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
         "display_timeout_s": _get_int_setting(
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+        "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+        "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
     })
 
 
@@ -1339,20 +1349,25 @@ def get_pipeline_scenario():
 def set_pipeline_config():
     """Actualiza la configuración de simulación/lectura del pipeline.
 
-    Body JSON: {"scenario": "normal"|"leak"|"burst", "mode": "sim"|"real", "mac": "..."}
+    Body JSON: {"scenario": "normal"|"leak"|"burst"|"obstruction", "mode": "sim"|"real",
+                "irrigation_type": "sprinkler"|"drip"|"drip_tape"|"micro_sprinkler", "mac": "..."}
     """
     payload = request.get_json(silent=True) or {}
     if not payload:
         return jsonify({"error": "JSON requerido"}), 400
 
-    scenario = payload.get('scenario')
-    mode = payload.get('mode')
+    scenario       = payload.get('scenario')
+    mode           = payload.get('mode')
+    irrigation_type = payload.get('irrigation_type')
 
     if scenario is not None and scenario not in ('normal', 'leak', 'burst', 'obstruction'):
         return jsonify(
             {"error": "Escenario inválido. Use: normal, leak, burst, obstruction"}), 400
     if mode is not None and mode not in ('sim', 'real'):
         return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
+    if irrigation_type is not None and irrigation_type not in _VALID_IRRIG:
+        return jsonify(
+            {"error": "irrigation_type inválido. Use: sprinkler, drip, drip_tape, micro_sprinkler"}), 400
 
     def _parse_int_field(name, min_value, max_value):
         raw = payload.get(name)
@@ -1385,9 +1400,9 @@ def set_pipeline_config():
 
     if all(v is None for v in (
             scenario, mode, telemetry_interval_s,
-            config_sync_interval_s, display_timeout_s)):
+            config_sync_interval_s, display_timeout_s, irrigation_type)):
         return jsonify({
-            "error": "Debe enviar scenario, mode o un ajuste del dispositivo"
+            "error": "Debe enviar scenario, mode, irrigation_type o un ajuste del dispositivo"
         }), 400
 
     user_id = int(get_jwt_identity())
@@ -1425,6 +1440,12 @@ def set_pipeline_config():
             " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (str(display_timeout_s),)
         )
+    if irrigation_type is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('irrigation_type', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (irrigation_type,)
+        )
     db.commit()
 
     dispatched = _publish_pipeline_config(
@@ -1434,12 +1455,14 @@ def set_pipeline_config():
         telemetry_interval_s=telemetry_interval_s,
         config_sync_interval_s=config_sync_interval_s,
         display_timeout_s=display_timeout_s,
+        irrigation_type=irrigation_type,
     ) if mac else False
     cfg = _get_settings()
     logger.info(
-        "Pipeline config → scenario=%s mode=%s telemetry=%ss sync=%ss display=%ss mac=%s mqtt=%s",
+        "Pipeline config → scenario=%s mode=%s irrig=%s telemetry=%ss sync=%ss display=%ss mac=%s mqtt=%s",
         cfg.get('pipeline_scenario', 'normal'),
         cfg.get('pipeline_mode', 'sim'),
+        cfg.get('irrigation_type', 'sprinkler'),
         cfg.get('telemetry_interval_s', '20'),
         cfg.get('config_sync_interval_s', '20'),
         cfg.get('display_timeout_s', '60'),
@@ -1455,6 +1478,8 @@ def set_pipeline_config():
             cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
         "display_timeout_s": _get_int_setting(
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+        "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+        "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })
