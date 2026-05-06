@@ -630,25 +630,27 @@ function getChartMinWidth(count, periodId = 'default') {
   return Math.max(base, count * perItem)
 }
 
-function ConsumptionChart() {
+function ConsumptionChart({ selectedMac }) {
   const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
   const [sessions, setSessions] = useState([])
 
+  const macParam = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
+
   useEffect(() => {
     if (period === 'session') {
-      authFetch('/api/irrigation/sessions')
+      authFetch(`/api/irrigation/sessions${selectedMac ? `?mac=${encodeURIComponent(selectedMac)}` : ''}`)
         .then(r => r.json())
         .then(setSessions)
         .catch(() => {})
     } else {
-      authFetch(`/api/irrigation/history?period=${period}`)
+      authFetch(`/api/irrigation/history?period=${period}${macParam}`)
         .then(r => r.json())
         .then(setHistory)
         .catch(() => {})
     }
-  }, [period])
+  }, [period, selectedMac])
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
 
@@ -962,9 +964,12 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
 
   const relayCount = deviceInfo?.relay_count ?? 1
 
-  const loadStats = useCallback(() =>
-    authFetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
-  [])
+  const loadStats = useCallback(() => {
+    const url = selectedMac
+      ? `/api/irrigation/stats?mac=${encodeURIComponent(selectedMac)}`
+      : '/api/irrigation/stats'
+    return authFetch(url).then(r => r.json()).then(setStats).catch(() => {})
+  }, [selectedMac])
 
   useEffect(() => {
     authFetch('/api/settings')
@@ -1097,7 +1102,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
                 <span className="text-navy-300 font-normal text-xs">L este mes</span>
               </p>
               <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-                <p className="text-xs text-navy-300">Caudal nominal: 5 L/min</p>
+                <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
                 {stats.monthly_seconds > 0 && (
                   <p className="text-xs text-navy-300">
                     {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
@@ -1119,7 +1124,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
       </div>
 
       {/* ── Gráfico de consumo diario ── */}
-      <ConsumptionChart />
+      <ConsumptionChart selectedMac={selectedMac} />
 
       {/* ── Sectores de riego ── */}
       <div>

@@ -972,15 +972,31 @@ def irrigation_reset():
 def irrigation_stats():
     """Estadísticas de consumo y ahorro de riego del mes actual.
 
-    Cada registro con relay_active=1 representa ~20s de válvula abierta.
-    Caudal nominal: 5 L/min → 5/60 L/s.
+    Cada registro con relay_active>0 representa ~20s de válvula abierta.
+    El volumen se calcula con el caudal REAL del sensor (pipeline_flow);
+    si no hay sensor de caudal se usa el caudal nominal configurado (flow_lpm).
     Baseline de ahorro: 15 L/día de riego manual diario.
     Solo cuenta registros posteriores al último reset manual (si existe).
     """
     cfg = _get_settings()
-    FLOW_LPS = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    NOMINAL_FLOW_LPM = float(cfg.get('flow_lpm', '5.0'))
     INTERVAL_S = 20
     BASELINE_DAILY_L = float(cfg.get('baseline_daily_l', '15.0'))
+
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        days_elapsed = datetime.date.today().day
+        return jsonify({
+            "monthly_seconds": 0, "monthly_liters": 0.0,
+            "today_seconds": 0, "today_liters": 0.0,
+            "baseline_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
+            "savings_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
+            "days_elapsed": days_elapsed, "daily": [],
+        })
 
     db = get_db()
     cursor = db.cursor()
@@ -993,41 +1009,51 @@ def irrigation_stats():
     """)
     since = cursor.fetchone()["since"]
 
-    # Registros con relay activo desde el último reset, agrupados por día
-    # relay_active es bitmask: >0 significa al menos una válvula abierta
+    # Consumo diario usando caudal real cuando está disponible
     cursor.execute("""
-        SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
+        SELECT DATE(timestamp) AS day,
+               COUNT(*) AS cnt,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= ?
+          AND device_mac = %s
+          AND timestamp >= %s
         GROUP BY DATE(timestamp)
         ORDER BY day ASC
-    """, (since,))
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     daily_rows = cursor.fetchall()
 
-    # Total registros con relay activo desde el último reset
+    # Total mensual con caudal real
     cursor.execute("""
-        SELECT COUNT(*) FROM home_weather_station
+        SELECT COUNT(*) AS total_active,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS total_liters
+        FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= ?
-    """, (since,))
-    total_active = cursor.fetchone()[0]
+          AND device_mac = %s
+          AND timestamp >= %s
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
+    monthly_row = cursor.fetchone()
 
-    # Total registros con relay activo hoy
+    # Total hoy con caudal real
     cursor.execute("""
-        SELECT COUNT(*) FROM home_weather_station
+        SELECT COUNT(*) AS today_active,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS today_liters
+        FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND DATE(timestamp) = CURRENT_DATE
-          AND timestamp >= ?
-    """, (since,))
-    today_active = cursor.fetchone()[0]
+          AND timestamp >= %s
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
+    today_row = cursor.fetchone()
 
     cursor.close()
 
+    total_active = int(monthly_row["total_active"] or 0)
+    monthly_liters = round(float(monthly_row["total_liters"] or 0), 1)
+    today_active = int(today_row["today_active"] or 0)
+    today_liters = round(float(today_row["today_liters"] or 0), 1)
     monthly_seconds = total_active * INTERVAL_S
-    monthly_liters = round(monthly_seconds * FLOW_LPS, 1)
     today_seconds = today_active * INTERVAL_S
-    today_liters = round(today_seconds * FLOW_LPS, 1)
 
     days_elapsed = datetime.date.today().day
     baseline_liters = round(days_elapsed * BASELINE_DAILY_L, 1)
@@ -1036,8 +1062,8 @@ def irrigation_stats():
     daily = [
         {
             "date": row["day"],
-            "seconds": row["cnt"] * INTERVAL_S,
-            "liters": round(row["cnt"] * INTERVAL_S * FLOW_LPS, 1),
+            "seconds": int(row["cnt"]) * INTERVAL_S,
+            "liters": round(float(row["liters"] or 0), 1),
         }
         for row in daily_rows
     ]
@@ -1056,14 +1082,26 @@ def irrigation_stats():
 
 @app.route("/api/irrigation/history")
 def irrigation_history():
-    """Consumo agrupado por periodo (day/week/month) para el gráfico de barras."""
+    """Consumo agrupado por periodo (day/week/month) para el gráfico de barras.
+
+    Usa el caudal REAL del sensor (pipeline_flow) cuando está disponible;
+    si no, cae al caudal nominal configurado (flow_lpm).
+    """
     period = request.args.get('period', 'day')
     if period not in ('day', 'week', 'month'):
         period = 'day'
 
     cfg = _get_settings()
-    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    nominal_flow_lpm = float(cfg.get('flow_lpm', '5.0'))
     interval_s = 20
+
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify([])
 
     _PERIOD_MAP = {
         'month': ("to_char(timestamp, 'YYYY-MM')",       "-12 months"),
@@ -1073,19 +1111,22 @@ def irrigation_history():
     group_expr, offset = _PERIOD_MAP.get(period, _PERIOD_MAP['day'])
 
     rows = get_db().execute(f"""
-        SELECT {group_expr} AS period_key, COUNT(*) AS cnt
+        SELECT {group_expr} AS period_key,
+               COUNT(*) AS cnt,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND timestamp >= now() + interval %s
         GROUP BY {group_expr}
         ORDER BY period_key ASC
-    """, (offset,)).fetchall()
+    """, (nominal_flow_lpm, interval_s, mac, offset)).fetchall()
 
     return jsonify([
         {
             "period": r["period_key"],
-            "liters": round(r["cnt"] * interval_s * flow_lps, 1),
-            "seconds": r["cnt"] * interval_s,
+            "liters": round(float(r["liters"] or 0), 1),
+            "seconds": int(r["cnt"]) * interval_s,
         }
         for r in rows
     ])
@@ -1095,21 +1136,32 @@ def irrigation_history():
 def irrigation_sessions():
     """Sesiones individuales de riego.
 
-    Agrupa registros consecutivos relay_active=1 con gaps < gap_s segundos.
+    Agrupa registros consecutivos relay_active>0 con gaps < gap_s segundos.
+    El volumen por sesión usa el caudal REAL del sensor (pipeline_flow);
+    si no hay sensor de caudal se usa el nominal configurado (flow_lpm).
     Devuelve las 60 sesiones más recientes en orden descendente.
     """
     cfg = _get_settings()
-    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    nominal_flow_lpm = float(cfg.get('flow_lpm', '5.0'))
     interval_s = 20
     gap_s = 60  # salto > 60s entre registros activos → nueva sesión
 
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify([])
+
     rows = get_db().execute("""
-        SELECT timestamp
+        SELECT timestamp, COALESCE(pipeline_flow, %s) AS flow_lpm
         FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND timestamp >= now() - INTERVAL '180 days'
         ORDER BY timestamp ASC
-    """).fetchall()
+    """, (nominal_flow_lpm, mac)).fetchall()
 
     sessions = []
     if not rows:
@@ -1118,6 +1170,7 @@ def irrigation_sessions():
     session_start = None
     session_end = None
     session_count = 0
+    session_liters = 0.0
     prev_ts = None
 
     def _parse(ts_str):
@@ -1129,15 +1182,18 @@ def irrigation_sessions():
             "start": str(session_start).replace(' ', 'T'),
             "end": str(session_end).replace(' ', 'T'),
             "duration_s": session_count * interval_s,
-            "liters": round(session_count * interval_s * flow_lps, 1),
+            "liters": round(session_liters, 1),
         })
 
     for row in rows:
         ts = _parse(row["timestamp"])
+        flow = float(row["flow_lpm"] or nominal_flow_lpm)
+        row_liters = flow / 60.0 * interval_s
         if prev_ts is None:
             session_start = ts
             session_end = ts
             session_count = 1
+            session_liters = row_liters
         else:
             gap = (ts - prev_ts).total_seconds()
             if gap > gap_s:
@@ -1145,9 +1201,11 @@ def irrigation_sessions():
                 session_start = ts
                 session_end = ts
                 session_count = 1
+                session_liters = row_liters
             else:
                 session_end = ts
                 session_count += 1
+                session_liters += row_liters
         prev_ts = ts
 
     if session_start is not None:
