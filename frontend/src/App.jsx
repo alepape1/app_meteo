@@ -14,7 +14,7 @@ import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
-import BrandLogo from './components/BrandLogo'
+import logoutLogo from './assets/logo_shutdown.png'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -187,7 +187,7 @@ function AppInner({ user, logout }) {
                 className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:bg-red-50 active:bg-red-100"
               >
                 <span className="relative inline-flex items-center justify-center">
-                  <BrandLogo size="sm" showText={false} className="justify-start" />
+                  <img src={logoutLogo} alt="Salir" className="w-[42px] h-auto object-contain shrink-0" />
                   <span className="absolute -right-1 -bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 shadow-sm transition-all group-hover:scale-110 group-hover:bg-red-600 group-hover:text-white group-active:bg-red-600 group-active:text-white">
                     <Power size={11} />
                   </span>
