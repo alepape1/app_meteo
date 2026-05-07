@@ -1,14 +1,18 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Cpu, Wifi, WifiOff, Trash2, PackagePlus, RefreshCw, Server } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
 function isOnline(ts) {
   if (!ts) return false
-  return (Date.now() - new Date(ts.replace(' ', 'T')).getTime()) < 90000
+  const parsed = Date.parse(String(ts).trim())
+  if (Number.isNaN(parsed)) return false
+  return (Date.now() - parsed) < 90000
 }
 
 export default function DevicesView({ onNavigate }) {
   const { authFetch } = useAuth()
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
   const [devices, setDevices] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirmMac, setConfirmMac] = useState(null)
@@ -16,17 +20,17 @@ export default function DevicesView({ onNavigate }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await authFetch('/api/devices/mine')
+      const res = await authFetchRef.current('/api/devices/mine')
       if (res.ok) setDevices(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [authFetch])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
   const release = async (mac) => {
-    const res = await authFetch(`/api/devices/${encodeURIComponent(mac)}`, { method: 'DELETE' })
+    const res = await authFetchRef.current(`/api/devices/${encodeURIComponent(mac)}`, { method: 'DELETE' })
     if (res.ok) setDevices(prev => prev.filter(d => d.mac_address !== mac))
     setConfirmMac(null)
   }
@@ -103,9 +107,22 @@ export default function DevicesView({ onNavigate }) {
                         <p className="text-sm font-bold text-navy-900">
                           {d.nickname || d.serial_number || mac.slice(-8)}
                         </p>
-                        <p className={`text-xs font-medium mt-0.5 ${online ? 'text-emerald-600' : 'text-navy-400'}`}>
-                          {online ? 'Online' : 'Offline'}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className={`text-xs font-medium ${online ? 'text-emerald-600' : 'text-navy-400'}`}>
+                            {online ? 'Online' : 'Offline'}
+                          </p>
+                          {d.device_profile && (
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                              d.device_profile === 'AGROMETEO'
+                                ? 'bg-green-100 text-green-700'
+                                : d.device_profile === 'IRRIGATION'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {d.device_profile}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

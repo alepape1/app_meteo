@@ -25,24 +25,23 @@ logger = logging.getLogger(__name__)
 
 # ── Configuración de conexión ─────────────────────────────────────────────────
 
-PG_HOST = os.environ.get("PG_HOST", "localhost")
-PG_PORT = int(os.environ.get("PG_PORT", 5432))
-PG_DB   = os.environ.get("PG_DB",   "aquantia")
-PG_USER = os.environ.get("PG_USER", "aquantia")
-PG_PASS = os.environ.get("PG_PASS", "aquantia")
-
 _pool: psycopg2.pool.ThreadedConnectionPool = None
 
 
 def init_pool():
     """Inicializa el pool de conexiones. Llamar una vez al arrancar la app."""
     global _pool
+    pg_host = os.environ.get("PG_HOST", "localhost")
+    pg_port = int(os.environ.get("PG_PORT", 5432))
+    pg_db   = os.environ.get("PG_DB",   "aquantia")
+    pg_user = os.environ.get("PG_USER", "aquantia")
+    pg_pass = os.environ.get("PG_PASS", "aquantia")
     _pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=2, maxconn=20,
-        host=PG_HOST, port=PG_PORT,
-        dbname=PG_DB, user=PG_USER, password=PG_PASS
+        host=pg_host, port=pg_port,
+        dbname=pg_db, user=pg_user, password=pg_pass
     )
-    logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", PG_HOST, PG_PORT, PG_DB)
+    logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", pg_host, pg_port, pg_db)
 
 
 # ── Capa de compatibilidad sqlite3 → psycopg2 ─────────────────────────────────
@@ -60,18 +59,25 @@ _INSERT_OR_IGNORE = re.compile(
     r'\bINSERT\s+OR\s+IGNORE\s+INTO\b', re.IGNORECASE
 )
 
-# Patrones de INSERT OR REPLACE necesitan tratamiento especial por tabla
+_SQL_PARAM = r'(?:%s|\?)'
+
+# Patrones de INSERT OR REPLACE necesitan tratamiento especial por tabla.
+# Deben aceptar tanto placeholders SQLite (?) como PostgreSQL (%s).
 _UPSERT_PATTERNS = {
     'app_settings': (
-        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+app_settings\s*\(key,\s*value\)\s*VALUES\s*\(%s,\s*%s\)",
-                   re.IGNORECASE),
+        re.compile(
+            rf"INSERT\s+OR\s+REPLACE\s+INTO\s+app_settings\s*\(key,\s*value\)\s*VALUES\s*\({_SQL_PARAM},\s*{_SQL_PARAM}\)",
+            re.IGNORECASE,
+        ),
         "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
         " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
     ),
     'device_credentials': (
-        re.compile(r"INSERT\s+OR\s+REPLACE\s+INTO\s+device_credentials"
-                   r"\s*\(mac,\s*token_hash,\s*serial_number\)\s*VALUES\s*\(%s,\s*%s,\s*%s\)",
-                   re.IGNORECASE),
+        re.compile(
+            rf"INSERT\s+OR\s+REPLACE\s+INTO\s+device_credentials"
+            rf"\s*\(mac,\s*token_hash,\s*serial_number\)\s*VALUES\s*\({_SQL_PARAM},\s*{_SQL_PARAM},\s*{_SQL_PARAM}\)",
+            re.IGNORECASE,
+        ),
         "INSERT INTO device_credentials(mac, token_hash, serial_number) VALUES (%s, %s, %s)"
         " ON CONFLICT (mac) DO UPDATE SET token_hash = EXCLUDED.token_hash,"
         " serial_number = EXCLUDED.serial_number"
@@ -205,6 +211,13 @@ class _CompatConn:
     def close(self):
         """Devuelve la conexión al pool en lugar de cerrarla."""
         if _pool and self._conn:
+            # Asegurarse de que no queda ninguna transacción abierta antes de
+            # devolver la conexión al pool. Una transacción idle in transaction
+            # hereda su estado al siguiente usuario y bloquea otras queries.
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             _pool.putconn(self._conn)
 
 
@@ -231,6 +244,11 @@ def create_tables(conn: _CompatConn):
         temperature_barometer  REAL,
         humidity               REAL,
         pressure               REAL,
+        temperature_source     TEXT    DEFAULT NULL,
+        pressure_source        TEXT    DEFAULT NULL,
+        bmp280_ok              BOOLEAN DEFAULT FALSE,
+        bmp280_temperature     REAL    DEFAULT NULL,
+        bmp280_pressure        REAL    DEFAULT NULL,
         windSpeed              REAL,
         windDirection          REAL,
         windSpeedFiltered      REAL,
@@ -244,12 +262,43 @@ def create_tables(conn: _CompatConn):
         relay_active           INTEGER DEFAULT 0,
         pipeline_pressure      REAL    DEFAULT NULL,
         pipeline_flow          REAL    DEFAULT NULL,
+        pipeline_source        TEXT    DEFAULT NULL,
+        pipeline_pressure_ok   BOOLEAN DEFAULT NULL,
+        pipeline_flow_ok       BOOLEAN DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
+        dew_point              REAL    DEFAULT NULL,
+        heat_index             REAL    DEFAULT NULL,
+        abs_humidity           REAL    DEFAULT NULL,
         device_mac             TEXT    DEFAULT NULL,
         timestamp              TIMESTAMPTZ DEFAULT NOW(),
         PRIMARY KEY (id, timestamp)
     );
     """)
+
+    # Migraciones ligeras: comprobamos primero qué columnas ya existen para
+    # NO ejecutar ALTER TABLE si no hace falta. ALTER TABLE en una hypertable
+    # adquiere AccessExclusiveLock en todos los chunks aunque use IF NOT EXISTS,
+    # lo que provoca esperas de 50+ s y deadlocks si hay procesos concurrentes.
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'home_weather_station' AND table_schema = 'public'
+    """)
+    _hws_cols = {row[0] for row in cur.fetchall()}
+    for _col, _ddl in [
+        ("temperature_source", "ALTER TABLE home_weather_station ADD COLUMN temperature_source TEXT DEFAULT NULL"),
+        ("pressure_source",    "ALTER TABLE home_weather_station ADD COLUMN pressure_source TEXT DEFAULT NULL"),
+        ("bmp280_ok",          "ALTER TABLE home_weather_station ADD COLUMN bmp280_ok BOOLEAN DEFAULT FALSE"),
+        ("bmp280_temperature", "ALTER TABLE home_weather_station ADD COLUMN bmp280_temperature REAL DEFAULT NULL"),
+        ("bmp280_pressure",    "ALTER TABLE home_weather_station ADD COLUMN bmp280_pressure REAL DEFAULT NULL"),
+        ("dew_point",            "ALTER TABLE home_weather_station ADD COLUMN dew_point REAL DEFAULT NULL"),
+        ("heat_index",           "ALTER TABLE home_weather_station ADD COLUMN heat_index REAL DEFAULT NULL"),
+        ("abs_humidity",         "ALTER TABLE home_weather_station ADD COLUMN abs_humidity REAL DEFAULT NULL"),
+        ("pipeline_source",      "ALTER TABLE home_weather_station ADD COLUMN pipeline_source TEXT DEFAULT NULL"),
+        ("pipeline_pressure_ok", "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure_ok BOOLEAN DEFAULT NULL"),
+        ("pipeline_flow_ok",     "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow_ok BOOLEAN DEFAULT NULL"),
+    ]:
+        if _col not in _hws_cols:
+            cur.execute(_ddl)
 
     # Índices estándar (TimescaleDB añade los suyos propios sobre timestamp)
     cur.execute("""
@@ -265,17 +314,23 @@ def create_tables(conn: _CompatConn):
     raw.commit()
 
     # ── TimescaleDB hypertable ────────────────────────────────────────────────
-    # Particionado automático por tiempo (chunks de 7 días).
-    # Si TimescaleDB no está instalado, continúa como tabla PostgreSQL normal.
+    # Solo llama a create_hypertable si la tabla aún no es una hypertable.
+    # Evitar migrate_data en cada arranque (escanea la tabla entera y es lento).
     try:
         cur.execute("""
-        SELECT create_hypertable(
-            'home_weather_station', 'timestamp',
-            if_not_exists => TRUE,
-            migrate_data   => TRUE
-        );
+            SELECT 1 FROM timescaledb_information.hypertables
+            WHERE hypertable_name = 'home_weather_station'
         """)
-        raw.commit()
+        already_hypertable = cur.fetchone() is not None
+        if not already_hypertable:
+            cur.execute("""
+            SELECT create_hypertable(
+                'home_weather_station', 'timestamp',
+                if_not_exists => TRUE,
+                migrate_data   => TRUE
+            );
+            """)
+            raw.commit()
         logger.info("TimescaleDB hypertable activa en home_weather_station")
     except Exception as e:
         logger.warning("TimescaleDB no disponible — usando tabla PostgreSQL normal: %s", e)
@@ -295,10 +350,12 @@ def create_tables(conn: _CompatConn):
         sdk_version    TEXT,
         mac_address    TEXT UNIQUE,
         ip_address     TEXT,
-        relay_count    INTEGER DEFAULT 1,
-        serial_number  TEXT    DEFAULT NULL,
-        claimed_at     TIMESTAMPTZ DEFAULT NULL,
-        last_seen      TIMESTAMPTZ DEFAULT NOW()
+        relay_count       INTEGER DEFAULT 1,
+        serial_number     TEXT    DEFAULT NULL,
+        firmware_version  TEXT    DEFAULT NULL,
+        device_profile    TEXT    DEFAULT NULL,
+        claimed_at        TIMESTAMPTZ DEFAULT NULL,
+        last_seen         TIMESTAMPTZ DEFAULT NOW()
     );
     """)
     cur.execute("""
@@ -317,11 +374,14 @@ def create_tables(conn: _CompatConn):
     );
     """)
     for key, value in [
-        ('flow_lpm',          '5.0'),
-        ('baseline_daily_l',  '15.0'),
-        ('station_name',      'Aquantia'),
-        ('station_location',  'Lanzarote'),
-        ('pipeline_scenario', 'normal'),
+        ('flow_lpm',              '5.0'),
+        ('baseline_daily_l',      '15.0'),
+        ('station_name',          'Aquantia'),
+        ('station_location',      'Lanzarote'),
+        ('pipeline_scenario',     'normal'),
+        ('irrigation_type',       'sprinkler'),
+        ('leak_detect_trained',   'false'),
+        ('min_firmware_version',  '0.1.0-beta.3'),
     ]:
         cur.execute(
             "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
@@ -409,6 +469,20 @@ def create_tables(conn: _CompatConn):
     CREATE INDEX IF NOT EXISTS idx_user_devices_user
         ON user_devices(user_id);
     """)
+
+    # ── Migraciones sobre device_info ────────────────────────────────────────
+    # Mismo patrón: verificamos information_schema antes de ALTER TABLE.
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'device_info' AND table_schema = 'public'
+    """)
+    _di_cols = {row[0] for row in cur.fetchall()}
+    for _col, _ddl in [
+        ("firmware_version", "ALTER TABLE device_info ADD COLUMN firmware_version TEXT DEFAULT NULL"),
+        ("device_profile",   "ALTER TABLE device_info ADD COLUMN device_profile TEXT DEFAULT NULL"),
+    ]:
+        if _col not in _di_cols:
+            cur.execute(_ddl)
 
     raw.commit()
     cur.close()

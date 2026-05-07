@@ -1,0 +1,23 @@
+{
+  "normal_valve_open": {
+    "status": "NORMAL",
+    "confidence": 0.0,
+    "alert_count": 0,
+    "ewma_pressure": 2.797,
+    "ewma_flow": 11.999
+  },
+  "leak_valve_closed": {
+    "status": "LEAK",
+    "confidence": 0.58,
+    "alert_count": 1,
+    "ewma_pressure": 2.8,
+    "ewma_flow": 0.299
+  },
+  "burst_valve_open": {
+    "status": "BURST",
+    "confidence": 0.911,
+    "alert_count": 1,
+    "ewma_pressure": 0.249,
+    "ewma_flow": 0.972
+  }
+}

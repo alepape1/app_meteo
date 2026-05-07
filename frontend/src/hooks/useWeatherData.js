@@ -1,103 +1,234 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../AuthContext'
 
 const EMPTY = {
   timestamp: [], temperature: [], temperature_bar: [], humidity: [],
-  pressure: [], windSpeed: [], windDirection: [], windSpeedFiltered: [],
+  pressure: [], temperature_source: [], pressure_source: [],
+  bmp280_ok: [], bmp280_temperature: [], bmp280_pressure: [],
+  windSpeed: [], windDirection: [], windSpeedFiltered: [],
   windDirectionFiltered: [], light: [],
   dht_temperature: [], dht_humidity: [],
   rssi: [], free_heap: [], uptime_s: [], relay_active: [],
   soil_moisture: [],
+  pipeline_flow: [], pipeline_pressure: [],
+  dew_point: [], heat_index: [], abs_humidity: [],
+}
+
+const AUTO_REFRESH_MS = 15000
+const MAX_POINTS = 150
+// Puntos objetivo para datos filtrados según el rango temporal (ms → puntos)
+const FILTER_POINTS_BY_RANGE = [
+  { ms: 2  * 60 * 60 * 1000,  points: 120 },  // ≤2h  → 1 pt/min
+  { ms: 12 * 60 * 60 * 1000,  points: 180 },  // ≤12h → 1 pt/5min
+  { ms: 2  * 24 * 60 * 60 * 1000, points: 288 }, // ≤2d → 1 pt/10min
+  { ms: 7  * 24 * 60 * 60 * 1000, points: 336 }, // ≤7d → 1 pt/30min
+]
+const MAX_FILTERED_POINTS_DEFAULT = 500 // rangos >7d o desconocidos
+
+function calcFilterPoints(startDate, endDate) {
+  const ms = new Date(endDate).getTime() - new Date(startDate).getTime()
+  if (isNaN(ms) || ms <= 0) return MAX_FILTERED_POINTS_DEFAULT
+  const entry = FILTER_POINTS_BY_RANGE.find(e => ms <= e.ms)
+  return entry ? entry.points : MAX_FILTERED_POINTS_DEFAULT
 }
 
 export function useWeatherData() {
   const { authFetch } = useAuth()
+  // Ref estable: evita que los useCallback dependan de authFetch como valor
+  // y causen un cascade de re-renders / rebuilds de interval cuando el token
+  // no ha cambiado realmente.
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
   const [data, setData] = useState(EMPTY)
   const [loading, setLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
-  const [deviceLastSeen, setDeviceLastSeen] = useState(null)
   const [devices, setDevices] = useState([])
+  const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
+  // Guarda los parámetros del último fetchFiltered activo.
+  // Cuando no es null, el polling re-ejecuta ese filtro en lugar de fetchSamples/fetchLatest.
+  const activeFilterRef = useRef(null)
 
-  const applyData = (json) => {
-    setData(json)
+  const applyData = useCallback((json, mode = 'replace', maxPoints = MAX_POINTS) => {
+    const normalized = { ...EMPTY, ...(json || {}) }
+
+    setData(prev => {
+      if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
+        const replaced = {}
+        Object.keys(EMPTY).forEach((key) => {
+          replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-maxPoints) : []
+        })
+        return replaced
+      }
+
+      const prevTimestamps = prev.timestamp.map(v => String(v))
+      const incomingTimestamps = Array.isArray(normalized.timestamp)
+        ? normalized.timestamp.map(v => String(v))
+        : []
+
+      const seen = new Set(prevTimestamps)
+      const appendIndexes = []
+      incomingTimestamps.forEach((ts, index) => {
+        if (!seen.has(ts)) appendIndexes.push(index)
+      })
+
+      const merged = {}
+      Object.keys(EMPTY).forEach((key) => {
+        const prevArr = Array.isArray(prev[key]) ? prev[key] : []
+        const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
+
+        if (appendIndexes.length > 0) {
+          merged[key] = [
+            ...prevArr,
+            ...appendIndexes.map(i => (i < nextArr.length ? nextArr[i] : null)),
+          ].slice(-MAX_POINTS)
+          return
+        }
+
+        if (incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1) && prevArr.length > 0) {
+          const updated = prevArr.slice()
+          updated[updated.length - 1] = nextArr.at(-1) ?? updated.at(-1)
+          merged[key] = updated
+          return
+        }
+
+        merged[key] = prevArr
+      })
+
+      return merged
+    })
+
     setLastUpdate(new Date().toLocaleTimeString('es-ES'))
     setError(null)
-    if (json.timestamp?.length > 0) setDeviceLastSeen(json.timestamp.at(-1))
-  }
+  }, [])
 
-  const fetchSamples = useCallback(async (n = 100) => {
+  // Ref al AbortController activo para peticiones de muestras/latest/filtrar.
+  // Se cancela si selectedMac cambia antes de que llegue la respuesta.
+  const abortRef = useRef(null)
+  // Refs para cancelar fetchLatest y fetchDeviceInfo si el poller dispara uno nuevo
+  // antes de que el anterior haya respondido.
+  const latestAbortRef = useRef(null)
+  const deviceInfoAbortRef = useRef(null)
+
+  const fetchSamples = useCallback(async (n = MAX_POINTS) => {
+    if (!selectedMac) {
+      setData(EMPTY)
+      return
+    }
+    // Cancelar petición anterior si sigue en vuelo
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    // Salir del modo filtro: el usuario quiere datos recientes
+    activeFilterRef.current = null
     setLoading(true)
     try {
-      const url = selectedMac
-        ? `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
-        : `/api/muestras/${n}`
-      const res = await authFetch(url)
+      const url = `/api/muestras/${n}?mac=${encodeURIComponent(selectedMac)}`
+      const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       applyData(await res.json())
     } catch (e) {
-      setError('No se pudo conectar al servidor Flask')
+      if (e.name !== 'AbortError') setError('No se pudo conectar al servidor Flask')
     } finally {
       setLoading(false)
     }
-  }, [selectedMac])
+  }, [selectedMac, applyData])
+
+  const fetchLatest = useCallback(async () => {
+    if (!selectedMac) return
+    // Cancelar la petición anterior si sigue en vuelo
+    if (latestAbortRef.current) latestAbortRef.current.abort()
+    const controller = new AbortController()
+    latestAbortRef.current = controller
+    try {
+      const url = `/api/latest?mac=${encodeURIComponent(selectedMac)}`
+      const res = await authFetchRef.current(url, { signal: controller.signal })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      applyData(await res.json(), 'append')
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar errores transitorios del refresco */ }
+    }
+  }, [selectedMac, applyData])
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
+    if (!selectedMac) return
+    // Guardar parámetros para que el polling sepa que hay un rango activo
+    activeFilterRef.current = { startDate, endDate }
+    // Cancelar petición anterior si sigue en vuelo (mismo patrón que fetchSamples)
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const maxPoints = calcFilterPoints(startDate, endDate)
     setLoading(true)
     try {
-      const body = { start_date: startDate, end_date: endDate }
-      if (selectedMac) body.mac = selectedMac
-      const res = await authFetch('/api/filtrar', {
+      const body = { start_date: startDate, end_date: endDate, mac: selectedMac, max_points: maxPoints }
+      const res = await authFetchRef.current('/api/filtrar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      applyData(await res.json())
+      applyData(await res.json(), 'replace', maxPoints)
     } catch (e) {
-      setError('Error al filtrar datos')
+      if (e.name !== 'AbortError') setError('Error al filtrar datos')
     } finally {
       setLoading(false)
     }
-  }, [selectedMac])
-
-  const refresh = useCallback(async () => {
-    try {
-      const url = selectedMac
-        ? `/api/latest?mac=${encodeURIComponent(selectedMac)}`
-        : '/api/latest'
-      const res = await authFetch(url)
-      if (!res.ok) return
-      const json = await res.json()
-      if (json.timestamp?.length > 0) {
-        setLastUpdate(new Date().toLocaleTimeString('es-ES'))
-        setError(null)
-        setDeviceLastSeen(json.timestamp.at(-1))
-      }
-    } catch (_) {}
-  }, [selectedMac])
+  }, [selectedMac, applyData])
 
   const fetchDeviceInfo = useCallback(async () => {
+    if (!selectedMac) {
+      setDeviceInfo(null)
+      return
+    }
+    // Cancelar la petición anterior si sigue en vuelo
+    if (deviceInfoAbortRef.current) deviceInfoAbortRef.current.abort()
+    const controller = new AbortController()
+    deviceInfoAbortRef.current = controller
     try {
-      const url = selectedMac
-        ? `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
-        : '/api/device_info'
-      const res = await authFetch(url)
+      const url = `/api/device_info?mac=${encodeURIComponent(selectedMac)}`
+      const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) return
       const json = await res.json()
       if (Object.keys(json).length > 0) setDeviceInfo(json)
-    } catch (_) {}
+      else setDeviceInfo(null)
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar errores transitorios de device_info */ }
+    }
   }, [selectedMac])
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await authFetch('/api/devices')
+      const res = await authFetchRef.current('/api/devices/mine')
       if (!res.ok) return
-      setDevices(await res.json())
-    } catch (_) {}
+      const json = await res.json()
+      setDevices(json)
+      setSelectedMac(current => (
+        current && json.some(device => device.mac_address === current)
+          ? current
+          : (json[0]?.mac_address ?? null)
+      ))
+    } catch {
+      // Ignorar errores transitorios de la lista de dispositivos.
+    } finally {
+      setDevicesLoaded(true)
+    }
   }, [])
+
+  // Limpiar datos obsoletos al cambiar de dispositivo y cancelar requests en vuelo
+  useEffect(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+    setData(EMPTY)
+    setDeviceInfo(null)
+    activeFilterRef.current = null
+  }, [selectedMac])
 
   // Carga inicial y recarga al cambiar dispositivo
   useEffect(() => { fetchSamples(150) }, [fetchSamples])
@@ -105,38 +236,96 @@ export function useWeatherData() {
   // Fetch de dispositivos una vez al montar
   useEffect(() => { fetchDevices() }, [fetchDevices])
 
-  // Auto-refresco cada 60s — actualiza gráficos y lista de dispositivos
+  // Auto-refresco incremental: añade solo puntos nuevos y hace resincronización periódica.
   useEffect(() => {
-    const id = setInterval(() => { fetchSamples(150); fetchDevices() }, 60000)
-    return () => clearInterval(id)
-  }, [fetchSamples, fetchDevices])
+    let tick = 0
+
+    const refreshAll = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+
+      // Si hay un filtro activo, solo añadir el punto más reciente con fetchLatest
+      // (rápido, una fila). Re-ejecutar fetchFiltered completo solo cuando el
+      // usuario cambia el rango explícitamente — no en cada tick del poller.
+      tick += 1
+      if (activeFilterRef.current) {
+        fetchLatest()
+        if (tick % 8 === 0) fetchDevices()
+        fetchDeviceInfo()
+        return
+      }
+      if (tick % 4 === 0) fetchSamples(MAX_POINTS)
+      else fetchLatest()
+
+      // fetchDevices cada 8 ticks (~2 min): la lista de dispositivos no cambia
+      // frecuentemente y llamarla en cada tick causaba re-renders masivos.
+      if (tick % 8 === 0) fetchDevices()
+      fetchDeviceInfo()
+    }
+
+    const handleVisibility = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        if (activeFilterRef.current) {
+          const { startDate, endDate } = activeFilterRef.current
+          fetchFiltered(startDate, endDate)
+        } else {
+          fetchSamples(MAX_POINTS)
+        }
+        fetchDeviceInfo()
+      }
+    }
+
+    const id = setInterval(refreshAll, AUTO_REFRESH_MS)
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility)
+    }
+    // Nota: NO se añade listener de 'focus' en window — visibilitychange ya
+    // cubre la vuelta al tab. El handler de focus causaba doble burst de
+    // peticiones al volver a la ventana.
+
+    return () => {
+      clearInterval(id)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility)
+      }
+    }
+  }, [fetchLatest, fetchSamples, fetchFiltered, fetchDevices, fetchDeviceInfo])
 
   const latest = {
-    temperature:     data.temperature.at(-1),
-    temperature_bar: data.temperature_bar.at(-1),
-    humidity:        data.humidity.at(-1),
-    pressure:        data.pressure.at(-1),
-    windSpeed:       data.windSpeed.at(-1),
-    windDirection:   data.windDirection.at(-1),
-    rssi:            data.rssi.at(-1),
-    free_heap:       data.free_heap.at(-1),
-    uptime_s:        data.uptime_s.at(-1),
-    relay_active:    data.relay_active.at(-1) ?? 0,
-    soil_moisture:   data.soil_moisture.at(-1),
+    temperature:        data.temperature.at(-1),
+    temperature_bar:    data.temperature_bar.at(-1),
+    humidity:           data.humidity.at(-1),
+    pressure:           data.pressure.at(-1),
+    temperature_source: data.temperature_source.at(-1),
+    pressure_source:    data.pressure_source.at(-1),
+    bmp280_ok:          data.bmp280_ok.at(-1),
+    bmp280_temperature: data.bmp280_temperature.at(-1),
+    bmp280_pressure:    data.bmp280_pressure.at(-1),
+    windSpeed:          data.windSpeed.at(-1),
+    windDirection:      data.windDirection.at(-1),
+    rssi:               data.rssi.at(-1),
+    free_heap:          data.free_heap.at(-1),
+    uptime_s:           data.uptime_s.at(-1),
+    relay_active:       data.relay_active.at(-1) ?? 0,
+    soil_moisture:      data.soil_moisture.at(-1),
+    pipeline_flow:      data.pipeline_flow.at(-1),
+    pipeline_pressure:  data.pipeline_pressure.at(-1),
+    dew_point:          data.dew_point.at(-1),
+    heat_index:         data.heat_index.at(-1),
+    abs_humidity:       data.abs_humidity.at(-1),
   }
 
-  const setRelay = useCallback(async (state) => {
-    await authFetch('/api/relay', {
+  const setRelay = useCallback(async (state, index = 0) => {
+    await authFetchRef.current('/api/relay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({ mac: selectedMac, state, index }),
     })
-  }, [])
+  }, [selectedMac])
 
   return {
     data, latest, loading, lastUpdate, error,
-    deviceInfo, deviceLastSeen,
-    devices, selectedMac, setSelectedMac,
-    fetchSamples, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
+    deviceInfo,
+    devices, devicesLoaded, selectedMac, setSelectedMac,
+    fetchSamples, fetchLatest, fetchFiltered, fetchDeviceInfo, fetchDevices, setRelay,
   }
 }

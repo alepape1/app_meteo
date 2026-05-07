@@ -72,18 +72,28 @@ def _handle_telemetry(finca_id: str, payload: dict):
         db.execute("""
             INSERT INTO home_weather_station(
                 temperature, pressure, temperature_barometer, humidity,
+                temperature_source, pressure_source,
+                bmp280_ok, bmp280_temperature, bmp280_pressure,
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
-                pipeline_pressure, pipeline_flow, soil_moisture, device_mac,
-                timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      COALESCE(?, NOW()))
+                pipeline_pressure, pipeline_flow,
+                pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                soil_moisture,
+                dew_point, heat_index, abs_humidity,
+                device_mac, timestamp
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
             payload.get("temperature_barometer"),
             payload.get("humidity"),
+            payload.get("temperature_source"),
+            payload.get("pressure_source"),
+            payload.get("bmp280_ok"),
+            payload.get("bmp280_temperature"),
+            payload.get("bmp280_pressure"),
             payload.get("windSpeed"),
             payload.get("windDirection"),
             payload.get("windSpeedFiltered"),
@@ -97,27 +107,88 @@ def _handle_telemetry(finca_id: str, payload: dict):
             int(payload.get("relay_active", 0)),
             payload.get("pipeline_pressure"),
             payload.get("pipeline_flow"),
+            payload.get("pipeline_source"),
+            payload.get("pipeline_pressure_ok"),
+            payload.get("pipeline_flow_ok"),
             payload.get("soil_moisture"),
+            payload.get("dew_point"),
+            payload.get("heat_index"),
+            payload.get("abs_humidity"),
             device_mac,
             ts_dt,
         ))
-        # Actualizar relay_state.actual desde el bitmask relay_active
+        # Actualizar device_info y relay_state desde la telemetría MQTT.
         if device_mac:
             relay_mask = int(payload.get("relay_active", 0))
+            try:
+                payload_relay_count = max(0, int(payload.get("relay_count", 1) or 0))
+            except (TypeError, ValueError):
+                payload_relay_count = 1
+
             row = db.execute(
                 "SELECT relay_count FROM device_info WHERE mac_address=?", (device_mac,)
             ).fetchone()
-            relay_count = row["relay_count"] if row else 1
+            existing_relay_count = int(row["relay_count"]) if row and row["relay_count"] else 0
+            relay_count = max(existing_relay_count, payload_relay_count)
+
+            db.execute("""
+                INSERT INTO device_info(
+                    finca_id, mac_address, ip_address, relay_count, firmware_version, last_seen
+                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(mac_address) DO UPDATE SET
+                    finca_id         = excluded.finca_id,
+                    ip_address       = COALESCE(excluded.ip_address, device_info.ip_address),
+                    relay_count      = GREATEST(COALESCE(device_info.relay_count, 0), excluded.relay_count),
+                    firmware_version = COALESCE(excluded.firmware_version, device_info.firmware_version),
+                    last_seen        = CURRENT_TIMESTAMP
+            """, (
+                finca_id,
+                device_mac,
+                payload.get("ip_address"),
+                relay_count,
+                payload.get("firmware_version"),
+            ))
+
             for i in range(relay_count):
                 actual = 1 if (relay_mask & (1 << i)) else 0
                 db.execute(
-                    "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
-                    " VALUES (?, ?, 0, ?)",
+                    "INSERT INTO relay_state(device_mac, relay_index, desired, actual)"
+                    " VALUES (?, ?, 0, ?) ON CONFLICT DO NOTHING",
                     (device_mac, i, actual),
                 )
                 db.execute(
                     "UPDATE relay_state SET actual=? WHERE device_mac=? AND relay_index=?",
                     (actual, device_mac, i),
+                )
+
+        # Sincronizar campos de configuración reportados en la telemetría del firmware.
+        _VALID_IRRIG = {'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'}
+        irrig   = payload.get("irrigation_type")
+        trained = payload.get("leak_detect_trained")
+        pipe_sc = payload.get("pipeline_scenario")
+
+        if irrig in _VALID_IRRIG:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('irrigation_type', irrig),
+            )
+        if trained is not None:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('leak_detect_trained', 'true' if trained else 'false'),
+            )
+        # En modo real, el scenario es auto-detectado por el firmware — actualizar.
+        if pipe_sc in ('normal', 'leak', 'burst', 'obstruction'):
+            mode_row = db.execute(
+                "SELECT value FROM app_settings WHERE key='pipeline_mode'"
+            ).fetchone()
+            if mode_row and mode_row['value'] == 'real':
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('pipeline_scenario', pipe_sc),
                 )
 
         db.commit()
@@ -154,18 +225,21 @@ def _handle_register(finca_id: str, payload: dict):
         db.execute("""
             INSERT INTO device_info(
                 finca_id, chip_model, chip_revision, cpu_freq_mhz, flash_size_mb,
-                sdk_version, mac_address, ip_address, relay_count, last_seen
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                sdk_version, mac_address, ip_address, relay_count, firmware_version,
+                device_profile, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(mac_address) DO UPDATE SET
-                finca_id      = excluded.finca_id,
-                chip_model    = excluded.chip_model,
-                chip_revision = excluded.chip_revision,
-                cpu_freq_mhz  = excluded.cpu_freq_mhz,
-                flash_size_mb = excluded.flash_size_mb,
-                sdk_version   = excluded.sdk_version,
-                ip_address    = excluded.ip_address,
-                relay_count   = excluded.relay_count,
-                last_seen     = CURRENT_TIMESTAMP
+                finca_id         = excluded.finca_id,
+                chip_model       = excluded.chip_model,
+                chip_revision    = excluded.chip_revision,
+                cpu_freq_mhz     = excluded.cpu_freq_mhz,
+                flash_size_mb    = excluded.flash_size_mb,
+                sdk_version      = excluded.sdk_version,
+                ip_address       = excluded.ip_address,
+                relay_count      = excluded.relay_count,
+                firmware_version = excluded.firmware_version,
+                device_profile   = COALESCE(excluded.device_profile, device_info.device_profile),
+                last_seen        = CURRENT_TIMESTAMP
         """, (
             finca_id,
             payload.get("chip_model"),
@@ -176,6 +250,8 @@ def _handle_register(finca_id: str, payload: dict):
             payload.get("mac_address"),
             payload.get("ip_address"),
             int(payload.get("relay_count", 1)),
+            payload.get("firmware_version"),
+            payload.get("device_profile"),
         ))
         db.commit()
         logger.info("Dispositivo MQTT registrado: finca_id=%s mac=%s",
@@ -184,17 +260,17 @@ def _handle_register(finca_id: str, payload: dict):
         db.close()
 
 
-def _on_connect(client, userdata, flags, rc):
-    if rc == 0:
+def _on_connect(client, userdata, flags, reason_code, properties):
+    if reason_code == 0:
         logger.info("MQTT conectado a %s:%d", MQTT_HOST, MQTT_PORT)
         client.subscribe("aquantia/+/telemetry")
         client.subscribe("aquantia/+/alerts")
         client.subscribe("aquantia/+/register")
     else:
-        logger.error("MQTT error de conexión: rc=%d", rc)
+        logger.error("MQTT error de conexión: reason_code=%s", reason_code)
 
 
-def _on_message(client, userdata, msg):
+def _on_message(client, userdata, msg):  # firma compatible con API v1 y v2
     try:
         finca_id = _finca_id_from_topic(msg.topic)
         if not finca_id:
@@ -242,7 +318,11 @@ def start():
         if _client is not None:
             return
 
-    client = mqtt.Client(client_id=f"aquantia-backend-{os.getpid()}", clean_session=True)
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"aquantia-backend-{os.getpid()}",
+        clean_session=True,
+    )
 
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASSWORD)

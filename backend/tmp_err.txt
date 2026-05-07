@@ -1,0 +1,26 @@
+2026-05-01 05:45:20,322 INFO Pool PostgreSQL inicializado (localhost:5432/aquantia)
+2026-05-01 05:45:20,364 INFO TimescaleDB hypertable activa en home_weather_station
+2026-05-01 05:45:20,380 INFO Schema PostgreSQL listo
+2026-05-01 05:45:20,380 INFO MQTT cliente iniciado (hilo daemon) \u2192 localhost:1883
+2026-05-01 05:45:20,393 INFO [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:7000
+ * Running on http://192.168.1.7:7000
+2026-05-01 05:45:20,393 INFO [33mPress CTRL+C to quit[0m
+2026-05-01 05:45:25,390 INFO MQTT conectado a localhost:1883
+2026-05-01 05:45:25,933 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:45:40,918 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:45:55,925 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:46:10,934 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:46:25,942 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:46:40,948 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:46:55,943 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:47:10,946 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:47:25,950 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:47:40,954 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:47:55,956 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:48:10,962 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:48:25,972 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:48:40,960 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:48:55,972 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58
+2026-05-01 05:49:10,977 INFO Telemetría insertada: finca_id=finca-ale mac=68:FE:71:0C:F4:58

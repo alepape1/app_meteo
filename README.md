@@ -120,7 +120,7 @@ app_meteo/
 │   │   ├── App.jsx                  # Layout, navegación, guard de autenticación
 │   │   ├── AuthContext.jsx          # JWT: login, logout, authFetch
 │   │   ├── hooks/
-│   │   │   └── useWeatherData.js    # Fetching, estado y auto-refresco (60s)
+│   │       └── useWeatherData.js    # Fetching, estado y auto-refresco incremental (15s)
 │   │   └── components/
 │   │       ├── LoginView.jsx        # Pantalla de login
 │   │       ├── Sidebar.jsx          # Navegación + filtros de fecha + selector ECU
@@ -174,7 +174,7 @@ app_meteo/
 |-------|-------------|
 | **Meteorología** | Gráficos históricos de temperatura (MCP9808, HTU2x, DHT11), humedad, presión, viento (velocidad + dirección), luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
 | **Riego** | Control de electroválvulas (relays). Selector de zonas para PROFILE_IRRIGATION. |
-| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario simulado. |
+| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario y modo `sim`/`hardware`. |
 | **Nodos LoRa** | Preparada para nodos remotos de riego (pendiente de hardware). |
 | **Alertas** | Panel de alertas MQTT: badge con contador de no resueltas, severidad (critical/warning/info), botón acknowledge, filtro pendientes/todas. |
 | **ESP32** | Estado del dispositivo seleccionado: WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
@@ -649,7 +649,7 @@ La vista **Pipeline** monitoriza presión de tubería y caudal para detectar ano
 | dP/dt consecutivo | Caída > 20% entre dos muestras con válvula abierta | `BURST` |
 | EWMA (λ=0.15) | Deriva estadística > 2.5σ en presión o caudal | `LEAK_SUSPECTED` |
 
-Los datos actuales los genera el simulador integrado en el ESP32 (ruido determinista). Cuando se instalen sensores físicos de presión y caudal, solo hay que sustituir las lecturas simuladas; el sistema de detección no requiere cambios.
+Los datos actuales los genera el simulador integrado en el ESP32 (ruido determinista). En la beta.2 el dashboard ya puede cambiar tanto el escenario como el modo `sim`/`real`, con envío inmediato por MQTT al dispositivo seleccionado y fallback por lectura HTTP desde el firmware.
 
 ### Escenarios de simulación
 
@@ -660,8 +660,95 @@ Los datos actuales los genera el simulador integrado en el ESP32 (ruido determin
 | `burst` | Rotura — caída brusca de presión |
 
 ```bash
-# Cambiar escenario via API
-curl -X POST https://meteo.aquantialab.com/api/pipeline/scenario \
+# Lectura pública para el ESP32 (fallback HTTP)
+curl http://127.0.0.1:7000/api/pipeline/config
+
+# Cambio autenticado desde dashboard/API
+curl -X POST http://127.0.0.1:7000/api/pipeline/config \
+  -H "Authorization: Bearer <JWT>" \
   -H "Content-Type: application/json" \
-  -d '{"scenario": "leak"}'
+  -d '{"mac": "88:13:BF:FD:A2:38", "mode": "sim", "scenario": "leak"}'
 ```
+
+---
+
+## Versionado y flujo de trabajo
+
+### Estructura de ramas
+
+```
+main              ← producción (solo merges de release/* o hotfix/*)
+develop           ← integración continua
+feature/*         ← nueva funcionalidad (sale de develop, merge a develop)
+release/vX.Y.Z    ← congelado para pruebas (sale de develop)
+hotfix/*          ← parche urgente sobre main
+```
+
+**Regla principal:** nunca se trabaja directamente en `main`. Todo cambio pasa por `develop` y, cuando llega a producción, lo hace a través de una rama `release/`.
+
+### Versionado semántico (SemVer)
+
+El backend sigue `MAJOR.MINOR.PATCH[-prerelease]`:
+
+| Incremento | Cuándo |
+|------------|--------|
+| `PATCH` | Corrección de bug sin cambio de API |
+| `MINOR` | Nuevo endpoint o campo, compatible con firmware anterior |
+| `MAJOR` | Cambio de protocolo MQTT o HTTP incompatible con firmware |
+
+Ejemplos de ciclo: `v0.1.0-beta.1` → `v0.1.0-rc.1` → `v0.1.0` → `v0.1.1` → `v0.2.0`
+
+### Proceso de release
+
+```bash
+# 1. Crear rama de release desde develop
+git checkout develop && git pull
+git checkout -b release/v0.2.0
+
+# 2. Actualizar CHANGELOG.md con los cambios
+
+# 3. Commit de cierre de release
+git add CHANGELOG.md
+git commit -m "chore: bump backend to v0.2.0-rc.1"
+
+# 4. Etiquetar
+git tag -a v0.2.0-rc.1 -m "Release candidate v0.2.0-rc.1"
+git push origin release/v0.2.0 --tags
+
+# 5. Tras validación, merge a main y develop
+git checkout main && git merge --no-ff release/v0.2.0
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin main --tags
+git checkout develop && git merge --no-ff release/v0.2.0
+git push origin develop
+```
+
+### Compatibilidad firmware ↔ backend
+
+Ambos repositorios (`app_meteo` y `weather-station-ESP`) se versionan de forma independiente pero coordinada. El backend almacena en la tabla `app_settings` la clave `min_firmware_version` con la versión mínima de firmware aceptada:
+
+```sql
+SELECT value FROM app_settings WHERE key = 'min_firmware_version';
+-- → '0.1.0-beta.3'
+```
+
+Para actualizar el mínimo aceptado al introducir un cambio incompatible:
+
+```bash
+curl -X POST https://meteo.aquantialab.com/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "min_firmware_version", "value": "0.2.0"}'
+```
+
+| Firmware | Backend app_meteo | Estado |
+|----------|-------------------|--------|
+| `v0.1.x` | `v0.1.x` | Compatible |
+| `v0.2.0` | `v0.1.x` | Puede no funcionar — revisar CHANGELOG |
+
+### Versión del firmware en el dashboard
+
+El firmware envía su versión (`FIRMWARE_VERSION` definido en el `.ino`) al registrarse vía MQTT y HTTP. El backend la almacena en `device_info.firmware_version` y la muestra como badge en la vista **Estado del Dispositivo** del dashboard.
+
+### Historial de cambios
+
+Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo de versiones y [weather-station-ESP/CHANGELOG.md](../../weather-station-ESP/CHANGELOG.md) para el historial del firmware.

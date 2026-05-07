@@ -1,4 +1,4 @@
-import { Wifi, HardDrive, Clock, Server, CircuitBoard } from 'lucide-react'
+import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu } from 'lucide-react'
 import WeatherChart from './WeatherChart'
 
 function SignalBars({ rssi }) {
@@ -88,6 +88,16 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
           <InfoRow label="CPU"       value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
           <InfoRow label="Flash"     value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
           <InfoRow label="SDK"       value={deviceInfo?.sdk_version} />
+          {deviceInfo?.firmware_version && (
+            <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
+              <span className="flex items-center gap-1 text-xs text-navy-300">
+                <Cpu size={11} />Firmware
+              </span>
+              <span className="text-xs font-medium font-mono px-1.5 py-0.5 rounded bg-brand-50 text-brand-600">
+                v{deviceInfo.firmware_version}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">

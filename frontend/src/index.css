@@ -7,3 +7,60 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; }
 #root { height: 100vh; }
+
+.apexcharts-canvas .apexcharts-gridline,
+.apexcharts-canvas .apexcharts-xcrosshairs,
+.apexcharts-canvas .apexcharts-ycrosshairs {
+  filter: none !important;
+}
+
+/* ── Tooltip glassmorphism ───────────────────────────────────────────────────── */
+.apexcharts-tooltip {
+  background: rgba(10, 18, 35, 0.72) !important;
+  backdrop-filter: blur(14px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255,255,255,0.06) inset !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  min-width: 160px !important;
+}
+
+.apexcharts-tooltip-title {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  color: rgba(148, 163, 184, 0.9) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  padding: 6px 12px !important;
+  text-transform: uppercase !important;
+}
+
+.apexcharts-tooltip-series-group {
+  background: transparent !important;
+  padding: 5px 12px !important;
+}
+
+.apexcharts-tooltip-series-group:last-child {
+  padding-bottom: 8px !important;
+}
+
+.apexcharts-tooltip-text-y-label {
+  color: rgba(148, 163, 184, 0.75) !important;
+  font-size: 11px !important;
+}
+
+.apexcharts-tooltip-text-y-value {
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.apexcharts-tooltip-marker {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  margin-right: 6px !important;
+}

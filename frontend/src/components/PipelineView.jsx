@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { createElement, useState, useEffect, useCallback, useRef } from 'react'
 import ReactApexChart from 'react-apexcharts'
 import { useAuth } from '../AuthContext'
 import {
@@ -10,7 +10,12 @@ import {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toMs(t) {
   if (t == null) return null
-  return new Date(String(t).replace(' ', 'T')).getTime()
+  if (typeof t === 'number') return Number.isNaN(t) ? null : t
+  const raw = String(t).trim()
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) return parsed
+  const ms = new Date(raw.includes(',') ? raw : raw.replace(' ', 'T')).getTime()
+  return Number.isNaN(ms) ? null : ms
 }
 
 const pad = n => String(n).padStart(2, '0')
@@ -20,13 +25,21 @@ const toQueryStr = d => {
   return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
+const clampInput = (value, min, max) => {
+  const n = Number.parseInt(value, 10)
+  if (!Number.isFinite(n)) return min
+  return Math.min(max, Math.max(min, n))
+}
+
 // ── Configuración de estados de detección ─────────────────────────────────────
 const STATUS_CFG = {
-  NORMAL:         { label: 'Sistema normal',          color: 'emerald', Icon: CheckCircle },
-  LEAK_SUSPECTED: { label: 'Fuga sospechada (EWMA)',  color: 'amber',   Icon: AlertTriangle },
-  LEAK:           { label: 'Fuga detectada',          color: 'orange',  Icon: AlertTriangle },
-  BURST:          { label: 'Rotura detectada',        color: 'red',     Icon: Zap },
-  NO_DATA:        { label: 'Sin datos suficientes',   color: 'navy',    Icon: Info },
+  NORMAL:                { label: 'Sistema normal',             color: 'emerald', Icon: CheckCircle },
+  LEAK_SUSPECTED:        { label: 'Fuga sospechada (EWMA)',     color: 'amber',   Icon: AlertTriangle },
+  LEAK:                  { label: 'Fuga detectada',             color: 'orange',  Icon: AlertTriangle },
+  BURST:                 { label: 'Rotura detectada',           color: 'red',     Icon: Zap },
+  OBSTRUCTION_SUSPECTED: { label: 'Obstrucción parcial (EWMA)', color: 'purple',  Icon: AlertTriangle },
+  OBSTRUCTION:           { label: 'Obstrucción detectada',      color: 'purple',  Icon: Search },
+  NO_DATA:               { label: 'Sin datos suficientes',      color: 'navy',    Icon: Info },
 }
 
 const COLOR = {
@@ -34,23 +47,37 @@ const COLOR = {
   amber:   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   bar: 'bg-amber-400' },
   orange:  { bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200',  bar: 'bg-orange-500' },
   red:     { bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     bar: 'bg-red-500' },
+  purple:  { bg: 'bg-purple-50',  text: 'text-purple-700',  border: 'border-purple-200',  bar: 'bg-purple-500' },
   navy:    { bg: 'bg-navy-50',    text: 'text-navy-500',    border: 'border-navy-100',    bar: 'bg-navy-300' },
 }
 
 const SCENARIOS = [
-  { id: 'normal', label: 'Normal',   hint: 'Sin anomalías' },
-  { id: 'leak',   label: 'Fuga',     hint: '~0.3 L/min fuga' },
-  { id: 'burst',  label: 'Rotura',   hint: 'Presión colapsa' },
+  { id: 'normal',      label: 'Normal',      hint: 'Sin anomalías' },
+  { id: 'leak',        label: 'Fuga',        hint: '~0.3 L/min fuga' },
+  { id: 'burst',       label: 'Rotura',      hint: 'Presión colapsa' },
+  { id: 'obstruction', label: 'Obstrucción', hint: 'Presión alta, caudal ~0' },
+]
+
+const PIPELINE_MODES = [
+  { id: 'sim', label: 'Simulación', hint: 'Usa el simulador del firmware' },
+  { id: 'real', label: 'Hardware', hint: 'Preparado para sensor físico' },
+]
+
+const IRRIGATION_TYPES = [
+  { id: 'sprinkler',       label: 'Aspersión',       hint: '2.8 bar · 5 L/min' },
+  { id: 'drip',            label: 'Goteo',            hint: '1.5 bar · 2 L/min' },
+  { id: 'drip_tape',       label: 'Cinta de goteo',   hint: '0.8 bar · 0.8 L/min' },
+  { id: 'micro_sprinkler', label: 'Microaspersión',   hint: '2.2 bar · 3.5 L/min' },
 ]
 
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
 
-function ReadingCard({ title, icon: Icon, value, unit, sub }) {
+function ReadingCard({ title, icon, value, unit, sub }) {
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="bg-brand-50 p-1.5 rounded-lg">
-          <Icon size={14} className="text-brand-500" />
+          {icon && createElement(icon, { size: 14, className: 'text-brand-500' })}
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">{title}</p>
       </div>
@@ -113,7 +140,13 @@ function StatusBanner({ detection }) {
   )
 }
 
-function ScenarioSelector({ current, onSelect, busy }) {
+function ScenarioSelector({
+  current, onSelect, busy, mode, onModeChange,
+  irrigationType, onIrrigationChange, leakDetectTrained,
+}) {
+  const isReal = mode === 'real'
+  const currentIrrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
+
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -121,36 +154,120 @@ function ScenarioSelector({ current, onSelect, busy }) {
           <FlaskConical size={14} className="text-navy-400" />
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Escenario simulado
+          Configuración pipeline
         </p>
       </div>
-      <div className="flex flex-col gap-1.5">
-        {SCENARIOS.map(sc => (
-          <button
-            key={sc.id}
-            onClick={() => onSelect(sc.id)}
-            disabled={busy || current === sc.id}
-            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
-              ${current === sc.id
-                ? 'bg-brand-500 text-white cursor-default'
-                : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
-          >
-            <span>{sc.label}</span>
-            <span className={`${current === sc.id ? 'text-brand-100' : 'text-navy-300'}`}>
-              {sc.hint}
-            </span>
-          </button>
-        ))}
+
+      {/* ── Modo ── */}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Modo
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {PIPELINE_MODES.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onModeChange(item.id)}
+              disabled={busy || mode === item.id}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                ${mode === item.id
+                  ? 'bg-navy-700 text-white cursor-default'
+                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+            >
+              <span>{item.label}</span>
+              <span className={`${mode === item.id ? 'text-navy-100' : 'text-navy-300'}`}>
+                {item.hint}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
-      <p className="text-xs text-navy-200 mt-2.5 leading-relaxed">
-        Cambia el escenario para probar los algoritmos de detección.
+
+      {/* ── Tipo de riego ── */}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Tipo de riego
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {IRRIGATION_TYPES.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onIrrigationChange(item.id)}
+              disabled={busy || irrigationType === item.id}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                ${irrigationType === item.id
+                  ? 'bg-brand-500 text-white cursor-default'
+                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+            >
+              <span>{item.label}</span>
+              <span className={`${irrigationType === item.id ? 'text-brand-100' : 'text-navy-300'}`}>
+                {item.hint}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Estado baseline (solo modo real) ── */}
+      {isReal && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs mb-3 border
+          ${leakDetectTrained
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+          {leakDetectTrained
+            ? <CheckCircle size={12} className="shrink-0" />
+            : <RefreshCw size={12} className="shrink-0 animate-spin" />}
+          <span>
+            {leakDetectTrained
+              ? `Detección activa · Perfil: ${currentIrrigLabel}`
+              : 'Calibrando baseline… (esperando 20 muestras con válvula abierta)'}
+          </span>
+        </div>
+      )}
+
+      {/* ── Escenario ── */}
+      <div>
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Escenario
+        </p>
+        {isReal ? (
+          <div className="px-3 py-2 rounded-xl bg-navy-50 text-xs text-navy-400">
+            Auto-detectado por firmware ·{' '}
+            <span className="font-semibold text-navy-700 capitalize">{current}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {SCENARIOS.map(sc => (
+              <button
+                key={sc.id}
+                onClick={() => onSelect(sc.id)}
+                disabled={busy || current === sc.id}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                  ${current === sc.id
+                    ? 'bg-brand-500 text-white cursor-default'
+                    : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+              >
+                <span>{sc.label}</span>
+                <span className={`${current === sc.id ? 'text-brand-100' : 'text-navy-300'}`}>
+                  {sc.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-navy-200 mt-3 leading-relaxed">
+        Los intervalos del equipo se ajustan ahora desde la pantalla de Configuración.
       </p>
     </div>
   )
 }
 
-function DetectionStats({ detection }) {
+function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   if (!detection || detection.status === 'NO_DATA') return null
+
+  const irrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
 
   const rows = [
     ['Presión EWMA',   detection.ewma_pressure     != null ? `${detection.ewma_pressure} bar`    : '—'],
@@ -159,6 +276,8 @@ function DetectionStats({ detection }) {
     ['Base caudal',    detection.baseline_flow      != null ? `${detection.baseline_flow} L/min`   : '—'],
     ['σ presión',      detection.std_pressure       != null ? `±${detection.std_pressure} bar`     : '—'],
     ['σ caudal',       detection.std_flow           != null ? `±${detection.std_flow} L/min`       : '—'],
+    ['Perfil riego',   irrigLabel ?? '—'],
+    ['Baseline HW',    leakDetectTrained ? 'Activo' : 'Calibrando…'],
   ]
 
   return (
@@ -194,54 +313,138 @@ function DetectionStats({ detection }) {
 }
 
 function PipelineChart({ readings, mode, histLoading }) {
-  const ts       = readings.map(r => toMs(r.timestamp))
-  const pressure = readings.map((r, i) => ({ x: ts[i], y: r.pressure_bar }))
-  const flow     = readings.map((r, i) => ({ x: ts[i], y: r.flow_lpm }))
+  const deduped = new Map()
+  readings.forEach((r) => {
+    const x = toMs(r.timestamp)
+    if (!Number.isFinite(x)) return
+
+    const current = deduped.get(x) || { x, pressure: null, flow: null }
+    const pressure = Number(r.pressure_bar)
+    const flow = Number(r.flow_lpm)
+
+    if (Number.isFinite(pressure)) current.pressure = pressure
+    if (Number.isFinite(flow)) current.flow = flow
+
+    deduped.set(x, current)
+  })
+
+  const samples = Array.from(deduped.values())
+    .filter(p => Number.isFinite(p.x) && (Number.isFinite(p.pressure) || Number.isFinite(p.flow)))
+    .sort((a, b) => a.x - b.x)
+
+  const pressure = samples
+    .filter(p => Number.isFinite(p.pressure))
+    .map(p => ({ x: p.x, y: p.pressure }))
+
+  const flow = samples
+    .filter(p => Number.isFinite(p.flow))
+    .map(p => ({ x: p.x, y: p.flow }))
+
+  const pressureValues = pressure.map(p => p.y)
+  const flowValues = flow.map(p => p.y)
+
+  const buildAxisRange = (values, fallbackMax) => {
+    if (!values.length) return { min: 0, max: fallbackMax }
+    const minVal = Math.min(...values)
+    const maxVal = Math.max(...values)
+    const span = Math.max(maxVal - minVal, fallbackMax * 0.08, 0.02)
+    return {
+      min: Math.max(0, minVal - span * 0.35),
+      max: maxVal + span * 0.35,
+    }
+  }
+
+  const pressureAxis = buildAxisRange(pressureValues, 4)
+  const flowAxis = buildAxisRange(flowValues, 0.2)
 
   const series = [
-    { name: 'Presión (bar)',   data: pressure },
+    { name: 'Presión (bar)', data: pressure },
     { name: 'Caudal (L/min)', data: flow },
   ]
+
+  const hasAnyPoint = pressure.length > 0 || flow.length > 0
+  const hasVisibleSeries = pressure.length > 1 || flow.length > 1
+  const chartKey = `${mode}-${samples.length}-${samples.at(-1)?.x ?? 'empty'}`
 
   const options = {
     chart: {
       type: 'line',
       toolbar: { show: false },
+      zoom: { enabled: false },
       animations: { enabled: false },
-      background: 'transparent',
+      background: '#ffffff',
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
-    colors: ['#0c8ecc', '#10b981'],
-    stroke: { curve: 'smooth', width: [2.5, 2.5] },
+    colors: ['#0d9488', '#2563eb'],
+    stroke: {
+      show: true,
+      curve: 'smooth',
+      lineCap: 'round',
+      width: [3.6, 3.6],
+    },
+    markers: {
+      size: 2,
+      colors: ['#14b8a6', '#3b82f6'],
+      strokeColors: ['#0d9488', '#2563eb'],
+      strokeWidth: 0.8,
+      hover: { size: 4.5 },
+    },
     fill: {
-      type: 'gradient',
-      gradient: { shadeIntensity: 1, opacityFrom: 0.25, opacityTo: 0.02, stops: [0, 100] },
+      type: 'solid',
+      opacity: 0.16,
     },
     xaxis: {
       type: 'datetime',
+      ...(mode === 'live' && samples.length > 0 && (() => {
+        const LIVE_WINDOW_MS = 60 * 60 * 1000 // última hora
+        const latestMs = samples.at(-1).x
+        return { min: latestMs - LIVE_WINDOW_MS, max: latestMs + 30_000 }
+      })()),
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
+        formatter: (val) => {
+          if (val == null) return ''
+          const ms = typeof val === 'number' ? val : toMs(val)
+          if (ms == null) return ''
+          const d = new Date(ms)
+          if (Number.isNaN(d.getTime())) return ''
+          return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        },
       },
       axisBorder: { show: false },
       axisTicks:  { show: false },
     },
     yaxis: [
       {
-        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0c8ecc', fontFamily: '"DM Sans"' } },
-        min: 0,
+        seriesName: 'Presión (bar)',
+        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#14b8a6', fontFamily: '"DM Sans"' } },
+        min: pressureAxis.min,
+        max: pressureAxis.max,
+        forceNiceScale: true,
+        decimalsInFloat: 2,
         labels: {
-          style: { colors: '#0c8ecc', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => v != null ? `${v.toFixed(2)}` : '',
+          style: { colors: '#14b8a6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          formatter: v => {
+            const n = Number(v)
+            return Number.isFinite(n) ? `${n.toFixed(2)}` : ''
+          },
         },
       },
       {
+        seriesName: 'Caudal (L/min)',
         opposite: true,
-        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#10b981', fontFamily: '"DM Sans"' } },
-        min: 0,
+        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#3b82f6', fontFamily: '"DM Sans"' } },
+        min: flowAxis.min,
+        max: flowAxis.max,
+        forceNiceScale: true,
+        decimalsInFloat: 1,
         labels: {
-          style: { colors: '#10b981', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => v != null ? `${v.toFixed(1)}` : '',
+          style: { colors: '#3b82f6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          formatter: v => {
+            const n = Number(v)
+            return Number.isFinite(n) ? `${n.toFixed(1)}` : ''
+          },
         },
       },
     ],
@@ -261,16 +464,17 @@ function PipelineChart({ readings, mode, histLoading }) {
       intersect: false,
       x: { format: 'dd MMM HH:mm:ss' },
       y: [
-        { formatter: v => v != null ? `${v.toFixed(3)} bar` : '—' },
-        { formatter: v => v != null ? `${v.toFixed(2)} L/min` : '—' },
+        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(3)} bar` : '—' },
+        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)} L/min` : '—' },
       ],
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
     grid: {
-      borderColor: '#f3f3ef',
+      borderColor: '#e8eef5',
       strokeDashArray: 3,
-      xaxis: { lines: { show: false } },
-      padding: { left: 4, right: 8 },
+      xaxis: { lines: { show: true } },
+      yaxis: { lines: { show: true } },
+      padding: { left: 6, right: 10 },
     },
     dataLabels: { enabled: false },
   }
@@ -278,7 +482,7 @@ function PipelineChart({ readings, mode, histLoading }) {
   const title = mode === 'live' ? 'Presión y Caudal — En vivo' : 'Presión y Caudal — Histórico'
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+    <div className="pipeline-chart bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-5 pt-4 pb-1">
         <Activity size={15} className="text-navy-300 shrink-0" />
         <h3 className="text-sm font-semibold text-navy-900">{title}</h3>
@@ -286,11 +490,17 @@ function PipelineChart({ readings, mode, histLoading }) {
           {histLoading ? 'Cargando…' : `${readings.length} muestras`}
         </span>
       </div>
-      {readings.length > 0 ? (
-        <ReactApexChart options={options} series={series} type="line" height={260} />
+      {hasVisibleSeries ? (
+        <div className="px-2 pb-2">
+          <ReactApexChart key={chartKey} options={options} series={series} type="line" height={320} />
+        </div>
       ) : (
-        <div className="flex items-center justify-center text-navy-200 text-sm" style={{ height: 260 }}>
-          {histLoading ? 'Cargando datos…' : 'Sin datos en este rango'}
+        <div className="flex items-center justify-center text-navy-300 text-sm text-center px-6" style={{ height: 260 }}>
+          {histLoading
+            ? 'Cargando datos…'
+            : hasAnyPoint
+              ? 'Aún no hay suficientes muestras válidas para dibujar una línea continua.'
+              : 'No se están recibiendo datos válidos de presión y caudal.'}
         </div>
       )}
     </div>
@@ -299,14 +509,21 @@ function PipelineChart({ readings, mode, histLoading }) {
 
 // ── Vista principal ────────────────────────────────────────────────────────────
 
-export default function PipelineView() {
+export default function PipelineView({ selectedMac }) {
   const { authFetch } = useAuth()
-  const [status,   setStatus]   = useState(null)
-  const [readings, setReadings] = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [scenario, setScenario] = useState('normal')
-  const [applyBusy, setApplyBusy] = useState(false)
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
+  const [status,            setStatus]            = useState(null)
+  const [readings,          setReadings]          = useState([])
+  const [loading,           setLoading]           = useState(true)
+  const [scenario,          setScenario]          = useState('normal')
+  const [pipelineMode,      setPipelineMode]      = useState('sim')
+  const [irrigationType,    setIrrigationType]    = useState('sprinkler')
+  const [leakDetectTrained, setLeakDetectTrained] = useState(false)
+  const [applyBusy,         setApplyBusy]         = useState(false)
   const timerRef = useRef(null)
+  const liveAbortRef = useRef(null)
 
   // Historical mode
   const [mode, setMode] = useState('live')  // 'live' | 'history'
@@ -318,18 +535,35 @@ export default function PipelineView() {
   const [histReadings, setHistReadings] = useState([])
 
   const fetchLive = useCallback(async () => {
+    // Cancelar la petición anterior si sigue en vuelo
+    if (liveAbortRef.current) liveAbortRef.current.abort()
+    const controller = new AbortController()
+    liveAbortRef.current = controller
+    const signal = controller.signal
     try {
+      const statusUrl = selectedMac
+        ? `/api/pipeline/status?mac=${encodeURIComponent(selectedMac)}`
+        : '/api/pipeline/status'
+      const readingsUrl = selectedMac
+        ? `/api/pipeline/readings?n=90&mac=${encodeURIComponent(selectedMac)}`
+        : '/api/pipeline/readings?n=90'
+
       const [sRes, rRes] = await Promise.all([
-        authFetch('/api/pipeline/status'),
-        authFetch('/api/pipeline/readings?n=90'),
+        authFetchRef.current(statusUrl, { signal }),
+        authFetchRef.current(readingsUrl, { signal }),
       ])
       const [s, r] = await Promise.all([sRes.json(), rRes.json()])
       setStatus(s)
       setReadings(Array.isArray(r) ? r : [])
       if (s.config?.scenario) setScenario(s.config.scenario)
-    } catch (_) {}
+      if (s.config?.mode) setPipelineMode(s.config.mode)
+      if (s.config?.irrigation_type) setIrrigationType(s.config.irrigation_type)
+      if (s.config?.leak_detect_trained != null) setLeakDetectTrained(Boolean(s.config.leak_detect_trained))
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar fallos transitorios del pipeline */ }
+    }
     finally { setLoading(false) }
-  }, [])
+  }, [selectedMac])
 
   // Live auto-refresh
   useEffect(() => {
@@ -356,26 +590,41 @@ export default function PipelineView() {
     try {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
-      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
+      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
-    } catch (_) {}
+    } catch {
+      // Ignorar fallos transitorios al cargar histórico.
+    }
     finally { setHistLoading(false) }
   }
 
-  const applyScenario = async (sc) => {
+  const applyConfig = async (patch) => {
     setApplyBusy(true)
     try {
-      await authFetch('/api/pipeline/scenario', {
+      const res = await authFetchRef.current('/api/pipeline/config', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ scenario: sc }),
+        body:    JSON.stringify({ ...patch, mac: selectedMac }),
       })
-      setScenario(sc)
+      if (res.ok) {
+        const cfg = await res.json()
+        if (cfg.scenario) setScenario(cfg.scenario)
+        if (cfg.mode) setPipelineMode(cfg.mode)
+        if (cfg.irrigation_type) setIrrigationType(cfg.irrigation_type)
+        if (cfg.leak_detect_trained != null) setLeakDetectTrained(Boolean(cfg.leak_detect_trained))
+      }
       if (mode === 'live') await fetchLive()
-    } catch (_) {}
+    } catch {
+      // Ignorar fallos transitorios al aplicar configuración del pipeline.
+    }
     finally { setApplyBusy(false) }
   }
+
+  const applyScenario      = async (sc)   => applyConfig({ scenario: sc })
+  const applyMode          = async (m)    => applyConfig({ mode: m })
+  const applyIrrigationType = async (type) => applyConfig({ irrigation_type: type })
 
   const cur = status?.current
   const det = status?.detection
@@ -433,6 +682,11 @@ export default function PipelineView() {
             current={scenario}
             onSelect={applyScenario}
             busy={applyBusy}
+            mode={pipelineMode}
+            onModeChange={applyMode}
+            irrigationType={irrigationType}
+            onIrrigationChange={applyIrrigationType}
+            leakDetectTrained={leakDetectTrained}
           />
         </div>
       )}
@@ -508,11 +762,17 @@ export default function PipelineView() {
       <PipelineChart readings={chartReadings} mode={mode} histLoading={histLoading} />
 
       {/* ── Estadísticos de detección (solo en vivo) ── */}
-      {mode === 'live' && <DetectionStats detection={det} />}
+      {mode === 'live' && (
+        <DetectionStats
+          detection={det}
+          irrigationType={irrigationType}
+          leakDetectTrained={leakDetectTrained}
+        />
+      )}
 
       {/* ── Nota ── */}
       <p className="text-xs text-navy-200 text-center pb-2">
-        Valores simulados — caudalímetro y sensor de presión pendientes de instalación física
+        Modo activo: {pipelineMode === 'real' ? 'hardware' : 'simulación'} · Fuente: {cfg?.source ?? '—'}
       </p>
 
     </main>

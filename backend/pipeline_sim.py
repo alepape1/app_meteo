@@ -38,10 +38,12 @@ LEAK_PRESSURE_DROP   = 0.18   # bar   — caída de presión asociada a la fuga
 BURST_PRESSURE       = 0.25   # bar   — presión residual tras rotura
 
 # ── Parámetros de detección ───────────────────────────────────────────────────
-LEAK_FLOW_THRESHOLD  = 0.10   # L/min — umbral mínimo para alerta con válvula cerrada
-BURST_DROP_RATIO     = 0.20   # caída relativa (20 %) en 2 muestras consecutivas → rotura
-EWMA_LAMBDA          = 0.15   # factor de suavizado EWMA
-EWMA_SIGMA_THRESHOLD = 2.5    # σ a partir del cual la EWMA emite alerta
+LEAK_FLOW_THRESHOLD        = 0.10   # L/min — umbral mínimo para alerta con válvula cerrada
+BURST_DROP_RATIO           = 0.20   # caída relativa (20 %) en 2 muestras consecutivas → rotura
+EWMA_LAMBDA                = 0.15   # factor de suavizado EWMA
+EWMA_SIGMA_THRESHOLD       = 2.5    # σ a partir del cual la EWMA emite alerta
+OBSTRUCTION_FLOW_MAX       = 0.05   # L/min — caudal máximo aceptable con válvula abierta (obstrucción)
+OBSTRUCTION_PRESSURE_RATIO = 0.85   # fracción de P_static mínima que confirma obstrucción
 
 
 # ── Generador de ruido determinista ──────────────────────────────────────────
@@ -87,6 +89,17 @@ def simulate_reading(
     if scenario == 'burst':
         pressure = max(0.0, BURST_PRESSURE + p_noise * 0.4)
         flow     = max(0.0, nominal_flow_lpm * 0.08 + abs(q_noise) * 0.3) if valve_open else 0.0
+
+    elif scenario == 'obstruction':
+        if valve_open:
+            # Tubería bloqueada: la presión no cae (permanece cerca de la estática)
+            # porque no hay flujo que genere pérdida hidráulica.
+            pressure = max(0.0, STATIC_PRESSURE_BAR + p_noise * 0.5)
+            flow     = max(0.0, abs(q_noise) * 0.04)   # ruido de sensor, no caudal real
+        else:
+            # Válvula cerrada: comportamiento idéntico al escenario normal
+            pressure = max(0.0, STATIC_PRESSURE_BAR + p_noise)
+            flow     = max(0.0, abs(q_noise) * 0.05)
 
     elif scenario == 'leak':
         if valve_open:
@@ -306,6 +319,53 @@ def detect_leaks(readings: list) -> dict:
         if c > confidence:
             confidence = c
             status = "LEAK_SUSPECTED"
+
+    # ── Método 4: detección de obstrucción ───────────────────────────────────
+    # Firma: válvula abierta + presión permanece cerca de P_static + caudal ≈ 0.
+    # Físicamente: la tubería está bloqueada → no cae la presión al abrir la válvula.
+    if open_rdgs:
+        recent_open = open_rdgs[-6:]  # últimas 6 lecturas con válvula abierta (~2 min)
+        avg_open_flow = sum(r["flow_lpm"]     for r in recent_open) / len(recent_open)
+        avg_open_pres = sum(r["pressure_bar"] for r in recent_open) / len(recent_open)
+
+        pressure_elevated = avg_open_pres >= STATIC_PRESSURE_BAR * OBSTRUCTION_PRESSURE_RATIO
+        flow_blocked      = avg_open_flow < OBSTRUCTION_FLOW_MAX
+
+        if pressure_elevated and flow_blocked and status not in ("BURST",):
+            severity = "CRITICAL" if avg_open_flow < OBSTRUCTION_FLOW_MAX * 0.5 else "HIGH"
+            c = min(1.0, 0.5 + 0.5 * (1.0 - avg_open_flow / max(OBSTRUCTION_FLOW_MAX, 1e-9)))
+            alerts.append({
+                "method":   "obstruction",
+                "severity": severity,
+                "message":  (
+                    f"Posible obstrucción: presión {avg_open_pres:.2f} bar con válvula "
+                    f"abierta (esperado ≈{DYNAMIC_PRESSURE_BAR:.2f} bar), "
+                    f"caudal {avg_open_flow:.3f} L/min"
+                ),
+            })
+            if c > confidence:
+                confidence = c
+                status = "OBSTRUCTION"
+
+        # EWMA de caudal muy bajo con válvula abierta → obstrucción parcial o gradual
+        elif (
+            status == "NORMAL"
+            and ewma_q < OBSTRUCTION_FLOW_MAX * 3
+            and ewma_p >= STATIC_PRESSURE_BAR * OBSTRUCTION_PRESSURE_RATIO
+            and len(open_rdgs) >= 3
+        ):
+            c = min(1.0, 0.4 + 0.3 * (1.0 - ewma_q / max(OBSTRUCTION_FLOW_MAX * 3, 1e-9)))
+            alerts.append({
+                "method":   "obstruction_ewma",
+                "severity": "MEDIUM",
+                "message":  (
+                    f"Posible obstrucción parcial (EWMA): "
+                    f"P={ewma_p:.3f} bar, Q={ewma_q:.3f} L/min"
+                ),
+            })
+            if c > confidence:
+                confidence = c
+                status = "OBSTRUCTION_SUSPECTED"
 
     return {
         "status":             status,
