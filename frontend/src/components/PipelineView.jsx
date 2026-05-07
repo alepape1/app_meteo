@@ -63,6 +63,13 @@ const PIPELINE_MODES = [
   { id: 'real', label: 'Hardware', hint: 'Preparado para sensor físico' },
 ]
 
+const IRRIGATION_TYPES = [
+  { id: 'sprinkler',       label: 'Aspersión',       hint: '2.8 bar · 5 L/min' },
+  { id: 'drip',            label: 'Goteo',            hint: '1.5 bar · 2 L/min' },
+  { id: 'drip_tape',       label: 'Cinta de goteo',   hint: '0.8 bar · 0.8 L/min' },
+  { id: 'micro_sprinkler', label: 'Microaspersión',   hint: '2.2 bar · 3.5 L/min' },
+]
+
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
 
 function ReadingCard({ title, icon, value, unit, sub }) {
@@ -135,7 +142,11 @@ function StatusBanner({ detection }) {
 
 function ScenarioSelector({
   current, onSelect, busy, mode, onModeChange,
+  irrigationType, onIrrigationChange, leakDetectTrained,
 }) {
+  const isReal = mode === 'real'
+  const currentIrrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
+
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -147,6 +158,7 @@ function ScenarioSelector({
         </p>
       </div>
 
+      {/* ── Modo ── */}
       <div className="mb-3">
         <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
           Modo
@@ -171,23 +183,78 @@ function ScenarioSelector({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        {SCENARIOS.map(sc => (
-          <button
-            key={sc.id}
-            onClick={() => onSelect(sc.id)}
-            disabled={busy || current === sc.id}
-            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
-              ${current === sc.id
-                ? 'bg-brand-500 text-white cursor-default'
-                : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
-          >
-            <span>{sc.label}</span>
-            <span className={`${current === sc.id ? 'text-brand-100' : 'text-navy-300'}`}>
-              {sc.hint}
-            </span>
-          </button>
-        ))}
+      {/* ── Tipo de riego ── */}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Tipo de riego
+        </p>
+        <div className="flex flex-col gap-1.5">
+          {IRRIGATION_TYPES.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onIrrigationChange(item.id)}
+              disabled={busy || irrigationType === item.id}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                ${irrigationType === item.id
+                  ? 'bg-brand-500 text-white cursor-default'
+                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+            >
+              <span>{item.label}</span>
+              <span className={`${irrigationType === item.id ? 'text-brand-100' : 'text-navy-300'}`}>
+                {item.hint}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Estado baseline (solo modo real) ── */}
+      {isReal && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs mb-3 border
+          ${leakDetectTrained
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+          {leakDetectTrained
+            ? <CheckCircle size={12} className="shrink-0" />
+            : <RefreshCw size={12} className="shrink-0 animate-spin" />}
+          <span>
+            {leakDetectTrained
+              ? `Detección activa · Perfil: ${currentIrrigLabel}`
+              : 'Calibrando baseline… (esperando 20 muestras con válvula abierta)'}
+          </span>
+        </div>
+      )}
+
+      {/* ── Escenario ── */}
+      <div>
+        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
+          Escenario
+        </p>
+        {isReal ? (
+          <div className="px-3 py-2 rounded-xl bg-navy-50 text-xs text-navy-400">
+            Auto-detectado por firmware ·{' '}
+            <span className="font-semibold text-navy-700 capitalize">{current}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {SCENARIOS.map(sc => (
+              <button
+                key={sc.id}
+                onClick={() => onSelect(sc.id)}
+                disabled={busy || current === sc.id}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
+                  ${current === sc.id
+                    ? 'bg-brand-500 text-white cursor-default'
+                    : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
+              >
+                <span>{sc.label}</span>
+                <span className={`${current === sc.id ? 'text-brand-100' : 'text-navy-300'}`}>
+                  {sc.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <p className="text-xs text-navy-200 mt-3 leading-relaxed">
@@ -197,8 +264,10 @@ function ScenarioSelector({
   )
 }
 
-function DetectionStats({ detection }) {
+function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   if (!detection || detection.status === 'NO_DATA') return null
+
+  const irrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
 
   const rows = [
     ['Presión EWMA',   detection.ewma_pressure     != null ? `${detection.ewma_pressure} bar`    : '—'],
@@ -207,6 +276,8 @@ function DetectionStats({ detection }) {
     ['Base caudal',    detection.baseline_flow      != null ? `${detection.baseline_flow} L/min`   : '—'],
     ['σ presión',      detection.std_pressure       != null ? `±${detection.std_pressure} bar`     : '—'],
     ['σ caudal',       detection.std_flow           != null ? `±${detection.std_flow} L/min`       : '—'],
+    ['Perfil riego',   irrigLabel ?? '—'],
+    ['Baseline HW',    leakDetectTrained ? 'Activo' : 'Calibrando…'],
   ]
 
   return (
@@ -324,6 +395,11 @@ function PipelineChart({ readings, mode, histLoading }) {
     },
     xaxis: {
       type: 'datetime',
+      ...(mode === 'live' && samples.length > 0 && (() => {
+        const LIVE_WINDOW_MS = 60 * 60 * 1000 // última hora
+        const latestMs = samples.at(-1).x
+        return { min: latestMs - LIVE_WINDOW_MS, max: latestMs + 30_000 }
+      })()),
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
@@ -435,13 +511,19 @@ function PipelineChart({ readings, mode, histLoading }) {
 
 export default function PipelineView({ selectedMac }) {
   const { authFetch } = useAuth()
-  const [status,   setStatus]   = useState(null)
-  const [readings, setReadings] = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [scenario, setScenario] = useState('normal')
-  const [pipelineMode, setPipelineMode] = useState('sim')
-  const [applyBusy, setApplyBusy] = useState(false)
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
+
+  const [status,            setStatus]            = useState(null)
+  const [readings,          setReadings]          = useState([])
+  const [loading,           setLoading]           = useState(true)
+  const [scenario,          setScenario]          = useState('normal')
+  const [pipelineMode,      setPipelineMode]      = useState('sim')
+  const [irrigationType,    setIrrigationType]    = useState('sprinkler')
+  const [leakDetectTrained, setLeakDetectTrained] = useState(false)
+  const [applyBusy,         setApplyBusy]         = useState(false)
   const timerRef = useRef(null)
+  const liveAbortRef = useRef(null)
 
   // Historical mode
   const [mode, setMode] = useState('live')  // 'live' | 'history'
@@ -453,6 +535,11 @@ export default function PipelineView({ selectedMac }) {
   const [histReadings, setHistReadings] = useState([])
 
   const fetchLive = useCallback(async () => {
+    // Cancelar la petición anterior si sigue en vuelo
+    if (liveAbortRef.current) liveAbortRef.current.abort()
+    const controller = new AbortController()
+    liveAbortRef.current = controller
+    const signal = controller.signal
     try {
       const statusUrl = selectedMac
         ? `/api/pipeline/status?mac=${encodeURIComponent(selectedMac)}`
@@ -462,19 +549,21 @@ export default function PipelineView({ selectedMac }) {
         : '/api/pipeline/readings?n=90'
 
       const [sRes, rRes] = await Promise.all([
-        authFetch(statusUrl),
-        authFetch(readingsUrl),
+        authFetchRef.current(statusUrl, { signal }),
+        authFetchRef.current(readingsUrl, { signal }),
       ])
       const [s, r] = await Promise.all([sRes.json(), rRes.json()])
       setStatus(s)
       setReadings(Array.isArray(r) ? r : [])
       if (s.config?.scenario) setScenario(s.config.scenario)
       if (s.config?.mode) setPipelineMode(s.config.mode)
-    } catch {
-      // Ignorar fallos transitorios del pipeline en vivo.
+      if (s.config?.irrigation_type) setIrrigationType(s.config.irrigation_type)
+      if (s.config?.leak_detect_trained != null) setLeakDetectTrained(Boolean(s.config.leak_detect_trained))
+    } catch (e) {
+      if (e.name !== 'AbortError') { /* ignorar fallos transitorios del pipeline */ }
     }
     finally { setLoading(false) }
-  }, [authFetch, selectedMac])
+  }, [selectedMac])
 
   // Live auto-refresh
   useEffect(() => {
@@ -502,7 +591,7 @@ export default function PipelineView({ selectedMac }) {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
       const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
-      const res  = await authFetch(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
+      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch {
@@ -514,7 +603,7 @@ export default function PipelineView({ selectedMac }) {
   const applyConfig = async (patch) => {
     setApplyBusy(true)
     try {
-      const res = await authFetch('/api/pipeline/config', {
+      const res = await authFetchRef.current('/api/pipeline/config', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ ...patch, mac: selectedMac }),
@@ -523,6 +612,8 @@ export default function PipelineView({ selectedMac }) {
         const cfg = await res.json()
         if (cfg.scenario) setScenario(cfg.scenario)
         if (cfg.mode) setPipelineMode(cfg.mode)
+        if (cfg.irrigation_type) setIrrigationType(cfg.irrigation_type)
+        if (cfg.leak_detect_trained != null) setLeakDetectTrained(Boolean(cfg.leak_detect_trained))
       }
       if (mode === 'live') await fetchLive()
     } catch {
@@ -531,8 +622,9 @@ export default function PipelineView({ selectedMac }) {
     finally { setApplyBusy(false) }
   }
 
-  const applyScenario = async (sc) => applyConfig({ scenario: sc })
-  const applyMode = async (nextMode) => applyConfig({ mode: nextMode })
+  const applyScenario      = async (sc)   => applyConfig({ scenario: sc })
+  const applyMode          = async (m)    => applyConfig({ mode: m })
+  const applyIrrigationType = async (type) => applyConfig({ irrigation_type: type })
 
   const cur = status?.current
   const det = status?.detection
@@ -592,6 +684,9 @@ export default function PipelineView({ selectedMac }) {
             busy={applyBusy}
             mode={pipelineMode}
             onModeChange={applyMode}
+            irrigationType={irrigationType}
+            onIrrigationChange={applyIrrigationType}
+            leakDetectTrained={leakDetectTrained}
           />
         </div>
       )}
@@ -667,7 +762,13 @@ export default function PipelineView({ selectedMac }) {
       <PipelineChart readings={chartReadings} mode={mode} histLoading={histLoading} />
 
       {/* ── Estadísticos de detección (solo en vivo) ── */}
-      {mode === 'live' && <DetectionStats detection={det} />}
+      {mode === 'live' && (
+        <DetectionStats
+          detection={det}
+          irrigationType={irrigationType}
+          leakDetectTrained={leakDetectTrained}
+        />
+      )}
 
       {/* ── Nota ── */}
       <p className="text-xs text-navy-200 text-center pb-2">

@@ -28,7 +28,7 @@
       "type": "shell",
       "command": "docker compose -f docker-compose.dev.yml up -d",
       "options": {
-        "cwd": "${workspaceFolder}/app_meteo"
+        "cwd": "${workspaceFolder}"
       },
       "dependsOn": ["Dev: Arrancar Docker Desktop"],
       "presentation": {
@@ -45,10 +45,10 @@
       "type": "shell",
       "command": "& \"${workspaceFolder}\\.venv\\Scripts\\python.exe\" -u app.py",
       "options": {
-        "cwd": "${workspaceFolder}/app_meteo/backend",
+        "cwd": "${workspaceFolder}/backend",
         "env": {
           "FLASK_ENV": "development",
-          "FLASK_DEBUG": "0",
+          "FLASK_DEBUG": "1",
           "PYTHONUNBUFFERED": "1"
         }
       },
@@ -78,7 +78,7 @@
       "type": "shell",
       "command": "npm run dev",
       "options": {
-        "cwd": "${workspaceFolder}/app_meteo/frontend"
+        "cwd": "${workspaceFolder}/frontend"
       },
       "presentation": {
         "reveal": "silent",

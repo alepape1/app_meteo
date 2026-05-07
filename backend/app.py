@@ -19,6 +19,8 @@ load_dotenv(override=True)
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pipeline_sim import (
     DYNAMIC_PRESSURE_BAR,
     STATIC_PRESSURE_BAR,
@@ -34,14 +36,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
 
-app.config["JWT_SECRET_KEY"] = os.environ.get(
-    "JWT_SECRET_KEY",
-    "cambia_esto_en_produccion",
-)
-app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(days=30)
+# ── CORS restringido por origen (VULN-004) ───────────────────────────────────
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+if "*" in _allowed_origins:
+    raise RuntimeError("ALLOWED_ORIGINS=* no está permitido en producción")
+CORS(app, origins=_allowed_origins, supports_credentials=False)
+
+# ── JWT: clave obligatoria, TTL reducido (VULN-001, VULN-005) ───────────────
+_jwt_secret = os.environ.get("JWT_SECRET_KEY", "")
+if not _jwt_secret:
+    raise RuntimeError(
+        "JWT_SECRET_KEY no está definida. "
+        "Genera una con: openssl rand -hex 32"
+    )
+app.config["JWT_SECRET_KEY"] = _jwt_secret
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(hours=8)
 jwt = JWTManager(app)
+
+# ── Rate limiter (VULN-006) ──────────────────────────────────────────────────
+# IMPORTANTE: memory:// no es efectivo con Gunicorn multi-worker.
+# En producción agrega Redis al docker-compose y cambia a:
+#   storage_uri = "redis://redis:6379"
+# y env var RATELIMIT_STORAGE_URI=redis://redis:6379
+_limiter_uri = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri=_limiter_uri,
+)
 
 TEMPLATE_FILE = "index.html"
 
@@ -54,6 +79,55 @@ def get_db():
     if 'db' not in g:
         g.db = get_db_connection()
     return g.db
+
+
+# ── Autenticación de dispositivos ESP32 (VULN-002) ──────────────────────────
+def _verify_device_auth(req) -> tuple[str | None, bool]:
+    """Verifica la identidad de un dispositivo ESP32.
+
+    Extrae MAC de X-Device-MAC (header) o 'mac' (query/body).
+    Extrae token de X-Device-Token (header).
+
+    Política:
+    - Si la MAC tiene credenciales registradas en device_credentials
+      → el token es obligatorio y debe coincidir (bcrypt).
+    - Si la MAC NO tiene credenciales aún (dispositivo recién fabricado
+      que aún no completó el registro factory) → se permite sin token
+      pero se registra en el log para auditoría.
+
+    Devuelve (mac, ok): mac puede ser None si no se proporcionó.
+    """
+    mac = (
+        req.headers.get("X-Device-MAC")
+        or req.args.get("mac")
+        or (req.get_json(silent=True) or {}).get("mac_address")
+    )
+    if mac:
+        mac = str(mac).strip().upper()
+
+    token = req.headers.get("X-Device-Token", "")
+
+    if not mac:
+        return None, True  # sin MAC → endpoints legacy, pasar (sin permisos extra)
+
+    db = get_db()
+    row = db.execute(
+        "SELECT token_hash FROM device_credentials WHERE mac=%s", (mac,)
+    ).fetchone()
+
+    if not row:
+        logger.warning("Device auth: MAC %s sin credenciales registradas — acceso denegado", mac)
+        return None, False
+
+    if not token:
+        logger.warning("Device auth: MAC %s tiene credenciales pero no envió X-Device-Token", mac)
+        return mac, False
+
+    if not bcrypt.checkpw(token.encode(), row["token_hash"].encode()):
+        logger.warning("Device auth: token inválido para MAC %s", mac)
+        return mac, False
+
+    return mac, True
 
 
 # ── Estado del relay persistido en SQLite ────────────────────────────────────
@@ -124,6 +198,7 @@ def _relay_set_actual(mac, index, state):
 # ── Autenticación ────────────────────────────────────────────────────────────
 
 @app.route("/api/auth/register", methods=["POST"])
+@limiter.limit("5 per minute; 20 per hour")
 def auth_register():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
@@ -160,6 +235,7 @@ def auth_register():
 
 
 @app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute; 30 per hour")
 def auth_login():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
@@ -285,6 +361,31 @@ def api_set_settings():
     return jsonify(_get_settings())
 
 
+@app.after_request
+def set_security_headers(response):
+    """Cabeceras de seguridad HTTP en todas las respuestas."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # CSP restrictiva: solo recursos propios; ajusta si usas CDNs (NUEVA-002)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    # HSTS: solo en producción (cuando hay TLS)
+    if os.environ.get("FLASK_ENV") == "production":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains; preload"
+        )
+    return response
+
+
 @app.teardown_appcontext
 def close_connection(exception):
     """Cierra la conexión a la DB al terminar la petición."""
@@ -314,9 +415,13 @@ def _resolve_user_mac(user_id, requested_mac=None):
     return row['mac_address'] if row else None
 
 
+_VALID_IRRIG = frozenset({'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'})
+
+
 def _publish_pipeline_config(
         mac, scenario=None, mode=None, telemetry_interval_s=None,
-        config_sync_interval_s=None, display_timeout_s=None):
+        config_sync_interval_s=None, display_timeout_s=None,
+        irrigation_type=None):
     """Envía la configuración de pipeline por MQTT al dispositivo indicado."""
     if not mac:
         return False
@@ -332,7 +437,7 @@ def _publish_pipeline_config(
         "type": "pipeline_config",
         "mac": mac,
     }
-    if scenario in ('normal', 'leak', 'burst'):
+    if scenario in ('normal', 'leak', 'burst', 'obstruction'):
         payload["pipeline_scenario"] = scenario
     if mode in ('sim', 'real'):
         payload["pipeline_mode"] = mode
@@ -342,6 +447,8 @@ def _publish_pipeline_config(
         payload["config_sync_interval_s"] = int(config_sync_interval_s)
     if display_timeout_s is not None:
         payload["display_timeout_s"] = int(display_timeout_s)
+    if irrigation_type in _VALID_IRRIG:
+        payload["irrigation_type"] = irrigation_type
 
     if len(payload) <= 2:
         return False
@@ -385,6 +492,9 @@ def rows_to_dict(rows):
         "relay_active": [r["relay_active"] for r in rows],
         "pipeline_pressure": [r["pipeline_pressure"] for r in rows],
         "pipeline_flow": [r["pipeline_flow"] for r in rows],
+        "pipeline_source": [r.get("pipeline_source") for r in rows],
+        "pipeline_pressure_ok": [r.get("pipeline_pressure_ok") for r in rows],
+        "pipeline_flow_ok": [r.get("pipeline_flow_ok") for r in rows],
         "soil_moisture": [r["soil_moisture"] for r in rows],
         "dew_point": [r.get("dew_point") for r in rows],
         "heat_index": [r.get("heat_index") for r in rows],
@@ -423,7 +533,11 @@ def descargar_muestras(cantidad_muestras):
 
 
 @app.route("/send_message", methods=["POST"])
+@limiter.limit("120 per minute")
 def send_message():
+    _, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     message = request.get_data().decode("utf-8")
     logger.info("Datos recibidos del ESP32: %s", message)
 
@@ -548,22 +662,57 @@ def filtrar_datos_api():
 
     db = get_db()
     cursor = db.cursor()
-    # Decimación temporal: selecciona 1 de cada N filas para no devolver miles de puntos.
-    # Siempre incluye el primer y último punto del rango.
-    # GREATEST(1, ...) evita división por cero cuando total <= max_points.
+    # Decimación por time_bucket: evita COUNT(*) OVER() que fuerza full scan.
+    # Calcula el tamaño del bucket a partir del rango temporal y los puntos deseados.
+    # Un tick del ESP32 es ~20s; estimamos al menos max_points buckets en el rango.
+    try:
+        from datetime import datetime, timezone
+        def _parse_ts(s):
+            s = str(s).replace('Z', '+00:00')
+            return datetime.fromisoformat(s)
+        dur_s = max(1, int(abs((_parse_ts(end_date) - _parse_ts(start_date)).total_seconds())))
+    except Exception:
+        dur_s = 86400
+    bucket_s = max(1, dur_s // max_points)
     cursor.execute("""
-        WITH ranked AS (
-            SELECT *,
-                   ROW_NUMBER() OVER (ORDER BY timestamp) AS rn,
-                   COUNT(*)     OVER ()                   AS total
-            FROM home_weather_station
-            WHERE timestamp BETWEEN ? AND ? AND device_mac=?
-        )
-        SELECT * FROM ranked
-        WHERE MOD(rn - 1, GREATEST(1, (total / ?)::int)) = 0
-           OR rn = total
-        ORDER BY timestamp ASC
-    """, (start_date, end_date, mac, max_points))
+        SELECT
+            time_bucket('1 second'::interval * %s, timestamp) AS timestamp,
+            first(temperature,           timestamp) AS temperature,
+            first(temperature_barometer, timestamp) AS temperature_barometer,
+            first(humidity,              timestamp) AS humidity,
+            first(pressure,              timestamp) AS pressure,
+            first(temperature_source,    timestamp) AS temperature_source,
+            first(pressure_source,       timestamp) AS pressure_source,
+            first(bmp280_ok,             timestamp) AS bmp280_ok,
+            first(bmp280_temperature,    timestamp) AS bmp280_temperature,
+            first(bmp280_pressure,       timestamp) AS bmp280_pressure,
+            first(dht_temperature,       timestamp) AS dht_temperature,
+            first(dht_humidity,          timestamp) AS dht_humidity,
+            first(windSpeed,             timestamp) AS windSpeed,
+            first(windDirection,         timestamp) AS windDirection,
+            first(windSpeedFiltered,     timestamp) AS windSpeedFiltered,
+            first(windDirectionFiltered, timestamp) AS windDirectionFiltered,
+            first(light,                 timestamp) AS light,
+            first(rssi,                  timestamp) AS rssi,
+            first(free_heap,             timestamp) AS free_heap,
+            first(uptime_s,              timestamp) AS uptime_s,
+            first(relay_active,          timestamp) AS relay_active,
+            first(pipeline_pressure,     timestamp) AS pipeline_pressure,
+            first(pipeline_flow,         timestamp) AS pipeline_flow,
+            first(pipeline_source,       timestamp) AS pipeline_source,
+            first(pipeline_pressure_ok,  timestamp) AS pipeline_pressure_ok,
+            first(pipeline_flow_ok,      timestamp) AS pipeline_flow_ok,
+            first(soil_moisture,         timestamp) AS soil_moisture,
+            first(dew_point,             timestamp) AS dew_point,
+            first(heat_index,            timestamp) AS heat_index,
+            first(abs_humidity,          timestamp) AS abs_humidity,
+            first(device_mac,            timestamp) AS device_mac
+        FROM home_weather_station
+        WHERE timestamp BETWEEN %s AND %s AND device_mac = %s
+        GROUP BY 1
+        ORDER BY 1 ASC
+        LIMIT %s
+    """, (bucket_s, start_date, end_date, mac, max_points))
     rows = cursor.fetchall()
     cursor.close()
 
@@ -583,23 +732,29 @@ def api_muestras(n):
 
     db = get_db()
     cursor = db.cursor()
-    cursor.execute(
-        "SELECT COUNT(*) FROM home_weather_station WHERE device_mac=?",
-        (mac,)
-    )
-    total = cursor.fetchone()[0]
-    offset = max(0, total - n)
+    # Usar subquery DESC LIMIT para que TimescaleDB lea solo el chunk más reciente.
+    # Evita el patrón COUNT(*) + OFFSET que fuerza full scan y tarda minutos
+    # en hypertables grandes.
     cursor.execute("""
-        SELECT * FROM home_weather_station WHERE device_mac=?
-        ORDER BY timestamp ASC LIMIT ? OFFSET ?
-    """, (mac, n, offset))
+        SELECT * FROM (
+            SELECT * FROM home_weather_station
+            WHERE device_mac = %s
+            ORDER BY timestamp DESC
+            LIMIT %s
+        ) sub
+        ORDER BY timestamp ASC
+    """, (mac, n))
     rows = cursor.fetchall()
     cursor.close()
     return jsonify(rows_to_dict(rows))
 
 
 @app.route("/api/device_info", methods=["POST"])
+@limiter.limit("30 per minute")
 def post_device_info():
+    _, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     payload = request.get_json(silent=True)
     if not payload:
         return "JSON inválido", 400
@@ -709,10 +864,13 @@ def api_latest():
 
 
 @app.route("/api/relay/command")
+@limiter.limit("120 per minute")
 def relay_command():
     """El ESP32 consulta el estado deseado de sus relays.
     Devuelve bitmask en texto plano: bit 0 = relay 0, bit 1 = relay 1, etc."""
-    mac = request.args.get('mac')
+    mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     if mac:
         _relay_ensure(mac)
     states = _relay_get(mac)
@@ -774,9 +932,13 @@ def set_relay():
 
 
 @app.route("/api/relay/ack", methods=["POST"])
+@limiter.limit("120 per minute")
 def relay_ack():
     """El ESP32 confirma el estado real de sus relays (bitmask)."""
-    mac = request.headers.get('X-Device-MAC') or request.args.get('mac')
+    mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
+    mac = mac or request.headers.get('X-Device-MAC') or request.args.get('mac')
     body = request.get_data(as_text=True).strip()
     try:
         bitmask = int(body)
@@ -810,15 +972,31 @@ def irrigation_reset():
 def irrigation_stats():
     """Estadísticas de consumo y ahorro de riego del mes actual.
 
-    Cada registro con relay_active=1 representa ~20s de válvula abierta.
-    Caudal nominal: 5 L/min → 5/60 L/s.
+    Cada registro con relay_active>0 representa ~20s de válvula abierta.
+    El volumen se calcula con el caudal REAL del sensor (pipeline_flow);
+    si no hay sensor de caudal se usa el caudal nominal configurado (flow_lpm).
     Baseline de ahorro: 15 L/día de riego manual diario.
     Solo cuenta registros posteriores al último reset manual (si existe).
     """
     cfg = _get_settings()
-    FLOW_LPS = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    NOMINAL_FLOW_LPM = float(cfg.get('flow_lpm', '5.0'))
     INTERVAL_S = 20
     BASELINE_DAILY_L = float(cfg.get('baseline_daily_l', '15.0'))
+
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        days_elapsed = datetime.date.today().day
+        return jsonify({
+            "monthly_seconds": 0, "monthly_liters": 0.0,
+            "today_seconds": 0, "today_liters": 0.0,
+            "baseline_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
+            "savings_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
+            "days_elapsed": days_elapsed, "daily": [],
+        })
 
     db = get_db()
     cursor = db.cursor()
@@ -831,41 +1009,51 @@ def irrigation_stats():
     """)
     since = cursor.fetchone()["since"]
 
-    # Registros con relay activo desde el último reset, agrupados por día
-    # relay_active es bitmask: >0 significa al menos una válvula abierta
+    # Consumo diario usando caudal real cuando está disponible
     cursor.execute("""
-        SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
+        SELECT DATE(timestamp) AS day,
+               COUNT(*) AS cnt,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= ?
+          AND device_mac = %s
+          AND timestamp >= %s
         GROUP BY DATE(timestamp)
         ORDER BY day ASC
-    """, (since,))
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     daily_rows = cursor.fetchall()
 
-    # Total registros con relay activo desde el último reset
+    # Total mensual con caudal real
     cursor.execute("""
-        SELECT COUNT(*) FROM home_weather_station
+        SELECT COUNT(*) AS total_active,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS total_liters
+        FROM home_weather_station
         WHERE relay_active > 0
-          AND timestamp >= ?
-    """, (since,))
-    total_active = cursor.fetchone()[0]
+          AND device_mac = %s
+          AND timestamp >= %s
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
+    monthly_row = cursor.fetchone()
 
-    # Total registros con relay activo hoy
+    # Total hoy con caudal real
     cursor.execute("""
-        SELECT COUNT(*) FROM home_weather_station
+        SELECT COUNT(*) AS today_active,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS today_liters
+        FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND DATE(timestamp) = CURRENT_DATE
-          AND timestamp >= ?
-    """, (since,))
-    today_active = cursor.fetchone()[0]
+          AND timestamp >= %s
+    """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
+    today_row = cursor.fetchone()
 
     cursor.close()
 
+    total_active = int(monthly_row["total_active"] or 0)
+    monthly_liters = round(float(monthly_row["total_liters"] or 0), 1)
+    today_active = int(today_row["today_active"] or 0)
+    today_liters = round(float(today_row["today_liters"] or 0), 1)
     monthly_seconds = total_active * INTERVAL_S
-    monthly_liters = round(monthly_seconds * FLOW_LPS, 1)
     today_seconds = today_active * INTERVAL_S
-    today_liters = round(today_seconds * FLOW_LPS, 1)
 
     days_elapsed = datetime.date.today().day
     baseline_liters = round(days_elapsed * BASELINE_DAILY_L, 1)
@@ -874,8 +1062,8 @@ def irrigation_stats():
     daily = [
         {
             "date": row["day"],
-            "seconds": row["cnt"] * INTERVAL_S,
-            "liters": round(row["cnt"] * INTERVAL_S * FLOW_LPS, 1),
+            "seconds": int(row["cnt"]) * INTERVAL_S,
+            "liters": round(float(row["liters"] or 0), 1),
         }
         for row in daily_rows
     ]
@@ -894,39 +1082,51 @@ def irrigation_stats():
 
 @app.route("/api/irrigation/history")
 def irrigation_history():
-    """Consumo agrupado por periodo (day/week/month) para el gráfico de barras."""
+    """Consumo agrupado por periodo (day/week/month) para el gráfico de barras.
+
+    Usa el caudal REAL del sensor (pipeline_flow) cuando está disponible;
+    si no, cae al caudal nominal configurado (flow_lpm).
+    """
     period = request.args.get('period', 'day')
     if period not in ('day', 'week', 'month'):
         period = 'day'
 
     cfg = _get_settings()
-    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    nominal_flow_lpm = float(cfg.get('flow_lpm', '5.0'))
     interval_s = 20
 
-    if period == 'month':
-        group_expr = "to_char(timestamp, 'YYYY-MM')"
-        offset = "-12 months"
-    elif period == 'week':
-        group_expr = "to_char(timestamp, 'YYYY-\"W\"WW')"
-        offset = "-16 weeks"
-    else:
-        group_expr = "to_char(timestamp, 'YYYY-MM-DD')"
-        offset = "-30 days"
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify([])
+
+    _PERIOD_MAP = {
+        'month': ("to_char(timestamp, 'YYYY-MM')",       "-12 months"),
+        'week':  ("to_char(timestamp, 'YYYY-\"W\"WW')",  "-16 weeks"),
+        'day':   ("to_char(timestamp, 'YYYY-MM-DD')",    "-30 days"),
+    }
+    group_expr, offset = _PERIOD_MAP.get(period, _PERIOD_MAP['day'])
 
     rows = get_db().execute(f"""
-        SELECT {group_expr} AS period_key, COUNT(*) AS cnt
+        SELECT {group_expr} AS period_key,
+               COUNT(*) AS cnt,
+               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND timestamp >= now() + interval %s
         GROUP BY {group_expr}
         ORDER BY period_key ASC
-    """, (offset,)).fetchall()
+    """, (nominal_flow_lpm, interval_s, mac, offset)).fetchall()
 
     return jsonify([
         {
             "period": r["period_key"],
-            "liters": round(r["cnt"] * interval_s * flow_lps, 1),
-            "seconds": r["cnt"] * interval_s,
+            "liters": round(float(r["liters"] or 0), 1),
+            "seconds": int(r["cnt"]) * interval_s,
         }
         for r in rows
     ])
@@ -936,21 +1136,32 @@ def irrigation_history():
 def irrigation_sessions():
     """Sesiones individuales de riego.
 
-    Agrupa registros consecutivos relay_active=1 con gaps < gap_s segundos.
+    Agrupa registros consecutivos relay_active>0 con gaps < gap_s segundos.
+    El volumen por sesión usa el caudal REAL del sensor (pipeline_flow);
+    si no hay sensor de caudal se usa el nominal configurado (flow_lpm).
     Devuelve las 60 sesiones más recientes en orden descendente.
     """
     cfg = _get_settings()
-    flow_lps = float(cfg.get('flow_lpm', '5.0')) / 60.0
+    nominal_flow_lpm = float(cfg.get('flow_lpm', '5.0'))
     interval_s = 20
     gap_s = 60  # salto > 60s entre registros activos → nueva sesión
 
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
+    mac = _resolve_user_mac(user_id, requested_mac)
+    if requested_mac and not mac:
+        return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+    if not mac:
+        return jsonify([])
+
     rows = get_db().execute("""
-        SELECT timestamp
+        SELECT timestamp, COALESCE(pipeline_flow, %s) AS flow_lpm
         FROM home_weather_station
         WHERE relay_active > 0
+          AND device_mac = %s
           AND timestamp >= now() - INTERVAL '180 days'
         ORDER BY timestamp ASC
-    """).fetchall()
+    """, (nominal_flow_lpm, mac)).fetchall()
 
     sessions = []
     if not rows:
@@ -959,6 +1170,7 @@ def irrigation_sessions():
     session_start = None
     session_end = None
     session_count = 0
+    session_liters = 0.0
     prev_ts = None
 
     def _parse(ts_str):
@@ -970,15 +1182,18 @@ def irrigation_sessions():
             "start": str(session_start).replace(' ', 'T'),
             "end": str(session_end).replace(' ', 'T'),
             "duration_s": session_count * interval_s,
-            "liters": round(session_count * interval_s * flow_lps, 1),
+            "liters": round(session_liters, 1),
         })
 
     for row in rows:
         ts = _parse(row["timestamp"])
+        flow = float(row["flow_lpm"] or nominal_flow_lpm)
+        row_liters = flow / 60.0 * interval_s
         if prev_ts is None:
             session_start = ts
             session_end = ts
             session_count = 1
+            session_liters = row_liters
         else:
             gap = (ts - prev_ts).total_seconds()
             if gap > gap_s:
@@ -986,9 +1201,11 @@ def irrigation_sessions():
                 session_start = ts
                 session_end = ts
                 session_count = 1
+                session_liters = row_liters
             else:
                 session_end = ts
                 session_count += 1
+                session_liters += row_liters
         prev_ts = ts
 
     if session_start is not None:
@@ -1009,6 +1226,9 @@ def _db_rows_to_pipeline(rows, scenario):
             "scenario": scenario,
             "pressure_bar": row["pipeline_pressure"],
             "flow_lpm": row["pipeline_flow"],
+            "pipeline_source": row.get("pipeline_source"),
+            "pipeline_flow_ok": row.get("pipeline_flow_ok"),
+            "pipeline_pressure_ok": row.get("pipeline_pressure_ok"),
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -1033,10 +1253,14 @@ def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
 
     order = "ASC" if (from_dt and to_dt) else "DESC"
     query = f"""
-        SELECT timestamp, relay_active, pipeline_pressure, pipeline_flow
+        SELECT timestamp, relay_active,
+               pipeline_pressure, pipeline_flow,
+               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
         FROM (
             SELECT DISTINCT ON (timestamp)
-                   id, timestamp, relay_active, pipeline_pressure, pipeline_flow
+                   id, timestamp, relay_active,
+                   pipeline_pressure, pipeline_flow,
+                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
             FROM home_weather_station
             WHERE {' AND '.join(where)}
             ORDER BY timestamp, id DESC
@@ -1107,6 +1331,8 @@ def pipeline_status():
                 cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
             "display_timeout_s": _get_int_setting(
                 cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+            "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+            "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
         },
     })
 
@@ -1165,6 +1391,8 @@ def get_pipeline_config():
             cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
         "display_timeout_s": _get_int_setting(
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+        "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+        "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
     })
 
 
@@ -1179,20 +1407,25 @@ def get_pipeline_scenario():
 def set_pipeline_config():
     """Actualiza la configuración de simulación/lectura del pipeline.
 
-    Body JSON: {"scenario": "normal"|"leak"|"burst", "mode": "sim"|"real", "mac": "..."}
+    Body JSON: {"scenario": "normal"|"leak"|"burst"|"obstruction", "mode": "sim"|"real",
+                "irrigation_type": "sprinkler"|"drip"|"drip_tape"|"micro_sprinkler", "mac": "..."}
     """
     payload = request.get_json(silent=True) or {}
     if not payload:
         return jsonify({"error": "JSON requerido"}), 400
 
-    scenario = payload.get('scenario')
-    mode = payload.get('mode')
+    scenario       = payload.get('scenario')
+    mode           = payload.get('mode')
+    irrigation_type = payload.get('irrigation_type')
 
     if scenario is not None and scenario not in ('normal', 'leak', 'burst', 'obstruction'):
         return jsonify(
             {"error": "Escenario inválido. Use: normal, leak, burst, obstruction"}), 400
     if mode is not None and mode not in ('sim', 'real'):
         return jsonify({"error": "Modo inválido. Use: sim, real"}), 400
+    if irrigation_type is not None and irrigation_type not in _VALID_IRRIG:
+        return jsonify(
+            {"error": "irrigation_type inválido. Use: sprinkler, drip, drip_tape, micro_sprinkler"}), 400
 
     def _parse_int_field(name, min_value, max_value):
         raw = payload.get(name)
@@ -1225,9 +1458,9 @@ def set_pipeline_config():
 
     if all(v is None for v in (
             scenario, mode, telemetry_interval_s,
-            config_sync_interval_s, display_timeout_s)):
+            config_sync_interval_s, display_timeout_s, irrigation_type)):
         return jsonify({
-            "error": "Debe enviar scenario, mode o un ajuste del dispositivo"
+            "error": "Debe enviar scenario, mode, irrigation_type o un ajuste del dispositivo"
         }), 400
 
     user_id = int(get_jwt_identity())
@@ -1265,6 +1498,12 @@ def set_pipeline_config():
             " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (str(display_timeout_s),)
         )
+    if irrigation_type is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('irrigation_type', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (irrigation_type,)
+        )
     db.commit()
 
     dispatched = _publish_pipeline_config(
@@ -1274,12 +1513,14 @@ def set_pipeline_config():
         telemetry_interval_s=telemetry_interval_s,
         config_sync_interval_s=config_sync_interval_s,
         display_timeout_s=display_timeout_s,
+        irrigation_type=irrigation_type,
     ) if mac else False
     cfg = _get_settings()
     logger.info(
-        "Pipeline config → scenario=%s mode=%s telemetry=%ss sync=%ss display=%ss mac=%s mqtt=%s",
+        "Pipeline config → scenario=%s mode=%s irrig=%s telemetry=%ss sync=%ss display=%ss mac=%s mqtt=%s",
         cfg.get('pipeline_scenario', 'normal'),
         cfg.get('pipeline_mode', 'sim'),
+        cfg.get('irrigation_type', 'sprinkler'),
         cfg.get('telemetry_interval_s', '20'),
         cfg.get('config_sync_interval_s', '20'),
         cfg.get('display_timeout_s', '60'),
@@ -1295,6 +1536,8 @@ def set_pipeline_config():
             cfg, 'config_sync_interval_s', 20, min_value=5, max_value=3600),
         "display_timeout_s": _get_int_setting(
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
+        "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
+        "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })
@@ -1311,36 +1554,67 @@ def set_pipeline_scenario():
 
 @app.route("/api/alerts")
 def api_alerts():
-    """Lista alertas recientes (últimas 100). Filtros opcionales: mac, finca_id, acked."""
-    mac = request.args.get('mac')
-    finca_id = request.args.get('finca_id')
-    # "0" solo no acks, "1" solo acks, None = todas
+    """Lista alertas recientes (últimas 100) de los dispositivos del usuario.
+    Filtros opcionales: mac, acked. IDOR corregido: solo MACs propias (NUEVA-005).
+    """
+    user_id = int(get_jwt_identity())
+    requested_mac = request.args.get('mac')
     acked = request.args.get('acked')
 
-    query = "SELECT * FROM alerts WHERE 1=1"
-    params = []
-    if mac:
-        query += " AND device_mac=?"
-        params.append(mac)
-    if finca_id:
-        query += " AND finca_id=?"
-        params.append(finca_id)
+    # Obtener MACs del usuario autenticado
+    db = get_db()
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+    if not user_macs:
+        return jsonify([])
+
+    # Si se solicita una MAC concreta, verificar que pertenece al usuario
+    if requested_mac:
+        if requested_mac.upper() not in [m.upper() for m in user_macs]:
+            return jsonify({"error": "Acceso denegado al dispositivo"}), 403
+        filter_macs = [requested_mac.upper()]
+    else:
+        filter_macs = user_macs
+
+    placeholders = ",".join(["%s"] * len(filter_macs))
+    query = f"SELECT * FROM alerts WHERE device_mac IN ({placeholders})"
+    params = list(filter_macs)
+
     if acked == "0":
         query += " AND acked=0"
     elif acked == "1":
         query += " AND acked=1"
     query += " ORDER BY created_at DESC LIMIT 100"
 
-    rows = get_db().execute(query, params).fetchall()
+    rows = db.execute(query, params).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
 @app.route("/api/alerts/<int:alert_id>/ack", methods=["POST"])
 def api_alert_ack(alert_id):
     """Marca una alerta como resuelta."""
+    user_id = int(get_jwt_identity())
     db = get_db()
+
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+
+    alert_row = db.execute(
+        "SELECT device_mac FROM alerts WHERE id=%s", (alert_id,)
+    ).fetchone()
+    if not alert_row or alert_row["device_mac"] not in user_macs:
+        return jsonify({"error": "Acceso denegado"}), 403
+
     db.execute(
-        "UPDATE alerts SET acked=1, acked_at=CURRENT_TIMESTAMP WHERE id=?",
+        "UPDATE alerts SET acked=1, acked_at=CURRENT_TIMESTAMP WHERE id=%s",
         (alert_id,)
     )
     db.commit()
@@ -1383,9 +1657,81 @@ def mqtt_auth():
 
 @app.route("/api/mqtt/acl", methods=["POST"])
 def mqtt_acl():
-    """Llamado por mosquitto-go-auth para validar permisos de topic.
-    Por ahora permisivo para todos los usuarios autenticados.
+    """Llamado por mosquitto-go-auth para validar permisos de topic (VULN-003).
+
+    Política:
+    - 'backend' (usuario interno Flask) → acceso total.
+    - Dispositivos (MAC como username):
+        * Solo pueden publicar en aquantia/<su_finca_id>/{telemetry,alerts,register}
+        * Solo pueden suscribirse a aquantia/<su_finca_id>/cmd
+        * No pueden acceder a topics de otras fincas.
+
+    acc: 1=suscribir, 2=publicar, 3=leer (superuser check).
     """
+    data = request.get_json(silent=True, force=True) or {}
+    username = data.get("username", "")
+    topic    = data.get("topic", "")
+    acc      = int(data.get("acc", 1))
+
+    if not username or not topic:
+        return jsonify({"error": "missing"}), 401
+
+    # Usuario interno del backend: acceso total
+    if username == "backend":
+        return jsonify({"ok": True}), 200
+
+    # Dispositivos: username = MAC address
+    # Formato esperado: aquantia/<finca_id>/<subtopic>
+    parts = topic.split("/")
+    if len(parts) < 3 or parts[0] != "aquantia":
+        app.logger.warning("[mqtt/acl] topic malformado: %s (user=%s)", topic, username)
+        return jsonify({"error": "forbidden"}), 401
+
+    topic_finca_id = parts[1]
+    subtopic       = parts[2]
+
+    # Resolver el finca_id asociado a esta MAC
+    db = get_db()
+    cred_row = db.execute(
+        "SELECT claimed_by_finca_id FROM device_credentials WHERE mac=%s", (username,)
+    ).fetchone()
+    device_finca_id = cred_row["claimed_by_finca_id"] if cred_row else None
+
+    if not device_finca_id:
+        # Fallback: usar device_info.finca_id si el dispositivo ya envió telemetría
+        info_row = db.execute(
+            "SELECT finca_id FROM device_info WHERE mac_address=%s", (username,)
+        ).fetchone()
+        device_finca_id = info_row["finca_id"] if info_row else None
+
+    if not device_finca_id:
+        # Dispositivo sin finca asignada: solo puede publicar en register
+        if subtopic == "register" and acc == 2:
+            return jsonify({"ok": True}), 200
+        app.logger.warning("[mqtt/acl] MAC %s sin finca, topic denegado: %s", username, topic)
+        return jsonify({"error": "forbidden"}), 401
+
+    # El finca_id del topic debe coincidir con el del dispositivo
+    if topic_finca_id != device_finca_id:
+        app.logger.warning(
+            "[mqtt/acl] MAC %s (finca=%s) intentó acceder a finca %s — denegado",
+            username, device_finca_id, topic_finca_id,
+        )
+        return jsonify({"error": "forbidden"}), 401
+
+    # Permisos por subtopic
+    # acc=1 → suscribir, acc=2 → publicar, acc=3 → superuser/read
+    ALLOWED_PUB = {"telemetry", "alerts", "register"}
+    ALLOWED_SUB = {"cmd"}
+
+    if acc == 2:  # publicar
+        if subtopic not in ALLOWED_PUB:
+            return jsonify({"error": "forbidden"}), 401
+    elif acc == 1:  # suscribir
+        if subtopic not in ALLOWED_SUB:
+            return jsonify({"error": "forbidden"}), 401
+    # acc=3 (superuser check) → permitir si la finca coincide
+
     return jsonify({"ok": True}), 200
 
 
@@ -1466,14 +1812,22 @@ def claim_device():
 @app.route("/api/devices/register_factory", methods=["POST"])
 def register_factory():
     """Llamado por el script de fábrica para registrar un dispositivo nuevo."""
-    allowed = ("127.0.0.1", "::1")
+    import ipaddress
+    _FACTORY_ALLOWED_NETWORKS = [
+        ipaddress.ip_network("127.0.0.0/8"),    # loopback
+        ipaddress.ip_network("::1/128"),          # loopback IPv6
+        ipaddress.ip_network("10.0.0.0/8"),       # red privada clase A
+        ipaddress.ip_network("172.16.0.0/12"),    # red privada Docker (172.16–172.31)
+        ipaddress.ip_network("192.168.0.0/16"),   # red privada clase C
+    ]
     addr = request.remote_addr or ""
-    # Permitir también redes internas Docker (172.16-31.x.x, 10.x.x.x,
-    # 192.168.x.x)
-    if addr not in allowed and not (
-        addr.startswith("172.") or addr.startswith(
-            "10.") or addr.startswith("192.168.")
-    ):
+    try:
+        remote_ip = ipaddress.ip_address(addr)
+        allowed = any(remote_ip in net for net in _FACTORY_ALLOWED_NETWORKS)
+    except ValueError:
+        allowed = False
+    if not allowed:
+        logger.warning("register_factory: acceso denegado desde %s", addr)
         return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
     mac = (data.get("mac") or "").upper()

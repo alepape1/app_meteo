@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Cpu, Wifi, WifiOff, Trash2, PackagePlus, RefreshCw, Server } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
@@ -11,6 +11,8 @@ function isOnline(ts) {
 
 export default function DevicesView({ onNavigate }) {
   const { authFetch } = useAuth()
+  const authFetchRef = useRef(authFetch)
+  useEffect(() => { authFetchRef.current = authFetch }, [authFetch])
   const [devices, setDevices] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirmMac, setConfirmMac] = useState(null)
@@ -18,17 +20,17 @@ export default function DevicesView({ onNavigate }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await authFetch('/api/devices/mine')
+      const res = await authFetchRef.current('/api/devices/mine')
       if (res.ok) setDevices(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [authFetch])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
   const release = async (mac) => {
-    const res = await authFetch(`/api/devices/${encodeURIComponent(mac)}`, { method: 'DELETE' })
+    const res = await authFetchRef.current(`/api/devices/${encodeURIComponent(mac)}`, { method: 'DELETE' })
     if (res.ok) setDevices(prev => prev.filter(d => d.mac_address !== mac))
     setConfirmMac(null)
   }

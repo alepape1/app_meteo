@@ -77,11 +77,13 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 windSpeed, windDirection, windSpeedFiltered, windDirectionFiltered,
                 light, dht_temperature, dht_humidity,
                 rssi, free_heap, uptime_s, relay_active,
-                pipeline_pressure, pipeline_flow, soil_moisture,
+                pipeline_pressure, pipeline_flow,
+                pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                soil_moisture,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                      ?, COALESCE(?, NOW()))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -105,6 +107,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
             int(payload.get("relay_active", 0)),
             payload.get("pipeline_pressure"),
             payload.get("pipeline_flow"),
+            payload.get("pipeline_source"),
+            payload.get("pipeline_pressure_ok"),
+            payload.get("pipeline_flow_ok"),
             payload.get("soil_moisture"),
             payload.get("dew_point"),
             payload.get("heat_index"),
@@ -147,13 +152,43 @@ def _handle_telemetry(finca_id: str, payload: dict):
             for i in range(relay_count):
                 actual = 1 if (relay_mask & (1 << i)) else 0
                 db.execute(
-                    "INSERT OR IGNORE INTO relay_state(device_mac, relay_index, desired, actual)"
-                    " VALUES (?, ?, 0, ?)",
+                    "INSERT INTO relay_state(device_mac, relay_index, desired, actual)"
+                    " VALUES (?, ?, 0, ?) ON CONFLICT DO NOTHING",
                     (device_mac, i, actual),
                 )
                 db.execute(
                     "UPDATE relay_state SET actual=? WHERE device_mac=? AND relay_index=?",
                     (actual, device_mac, i),
+                )
+
+        # Sincronizar campos de configuración reportados en la telemetría del firmware.
+        _VALID_IRRIG = {'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'}
+        irrig   = payload.get("irrigation_type")
+        trained = payload.get("leak_detect_trained")
+        pipe_sc = payload.get("pipeline_scenario")
+
+        if irrig in _VALID_IRRIG:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('irrigation_type', irrig),
+            )
+        if trained is not None:
+            db.execute(
+                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                ('leak_detect_trained', 'true' if trained else 'false'),
+            )
+        # En modo real, el scenario es auto-detectado por el firmware — actualizar.
+        if pipe_sc in ('normal', 'leak', 'burst', 'obstruction'):
+            mode_row = db.execute(
+                "SELECT value FROM app_settings WHERE key='pipeline_mode'"
+            ).fetchone()
+            if mode_row and mode_row['value'] == 'real':
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('pipeline_scenario', pipe_sc),
                 )
 
         db.commit()
