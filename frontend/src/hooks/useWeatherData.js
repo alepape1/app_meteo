@@ -10,6 +10,7 @@ const EMPTY = {
   dht_temperature: [], dht_humidity: [],
   rssi: [], free_heap: [], uptime_s: [], relay_active: [],
   soil_moisture: [],
+  pipeline_flow: [], pipeline_pressure: [],
   dew_point: [], heat_index: [], abs_humidity: [],
 }
 
@@ -306,6 +307,8 @@ export function useWeatherData() {
     uptime_s:           data.uptime_s.at(-1),
     relay_active:       data.relay_active.at(-1) ?? 0,
     soil_moisture:      data.soil_moisture.at(-1),
+    pipeline_flow:      data.pipeline_flow.at(-1),
+    pipeline_pressure:  data.pipeline_pressure.at(-1),
     dew_point:          data.dew_point.at(-1),
     heat_index:         data.heat_index.at(-1),
     abs_humidity:       data.abs_humidity.at(-1),

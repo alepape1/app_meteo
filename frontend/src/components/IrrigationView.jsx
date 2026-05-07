@@ -221,7 +221,7 @@ function SectorCard({ sector }) {
 }
 
 // ── ValveCard — control individual de una electroválvula ─────────────────────
-function ValveCard({ index, mac, flowLpm = 5, initialState }) {
+function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const { authFetch } = useAuth()
   const [desired, setDesired] = useState(initialState?.desired ?? false)
   const [actual,  setActual]  = useState(initialState?.actual  ?? false)
@@ -339,7 +339,8 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
     }
   }, [busy, retryRemainingMs, synced, desired, actual, authFetch, mac, index, startRetryCooldown, startSyncPolling])
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
-  const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * flowLpm).toFixed(1) : null
+  const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
+  const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -382,7 +383,7 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
             </span>
             <span className="font-semibold text-brand-600">{sessionLiters} L</span>
           </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal: {flowLpm} L/min</p>
+          <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
         </div>
       )}
 
@@ -409,7 +410,7 @@ function ValveCard({ index, mac, flowLpm = 5, initialState }) {
 }
 
 // ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
-function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
+function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm }) {
   const { authFetch } = useAuth()
   const [states, setStates] = useState([])
 
@@ -442,6 +443,7 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5 }) {
           index={i}
           mac={selectedMac}
           flowLpm={flowLpm}
+          sensorFlowLpm={sensorFlowLpm}
           initialState={states.find(s => s.index === i)}
         />
       ))}
@@ -1034,7 +1036,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
         {/* Electroválvulas — una card por relay */}
-        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} />
+        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
