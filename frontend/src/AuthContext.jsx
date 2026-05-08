@@ -20,6 +20,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(data.error || 'Error de autenticación')
     localStorage.setItem('aq_token', data.token)
     localStorage.setItem('aq_user', JSON.stringify(data.user))
+    tokenRef.current = data.token
     setToken(data.token)
     setUser(data.user)
   }, [])

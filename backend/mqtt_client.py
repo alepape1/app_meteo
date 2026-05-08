@@ -191,6 +191,24 @@ def _handle_telemetry(finca_id: str, payload: dict):
                     ('pipeline_scenario', pipe_sc),
                 )
 
+        pw = payload.get("pipeline_window")
+        if pw and isinstance(pw, dict):
+            db.execute("""
+                INSERT INTO pipeline_window_history(
+                    finca_id, device_mac, timestamp,
+                    samples, valve_open_ms,
+                    p_mean, p_min, p_max, p_std,
+                    f_mean, f_min, f_max, f_std
+                ) VALUES (%s, %s, COALESCE(%s, NOW()), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                finca_id, device_mac, ts_dt,
+                pw.get("samples"),    pw.get("valve_open_ms"),
+                pw.get("p_mean"),     pw.get("p_min"),
+                pw.get("p_max"),      pw.get("p_std"),
+                pw.get("f_mean"),     pw.get("f_min"),
+                pw.get("f_max"),      pw.get("f_std"),
+            ))
+
         db.commit()
         logger.info("Telemetría insertada: finca_id=%s mac=%s", finca_id, device_mac)
     finally:
@@ -201,19 +219,24 @@ def _handle_alert(finca_id: str, payload: dict):
     """Inserta alerta en la tabla alerts."""
     db = get_db_connection()
     try:
+        frames = payload.get("frames")
+        frames_json = json.dumps(frames) if frames is not None else None
         db.execute("""
-            INSERT INTO alerts(finca_id, device_mac, alert_type, severity, message)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO alerts(finca_id, device_mac, alert_type, severity, message, pipeline_mode, frames)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             finca_id,
             payload.get("device_mac"),
             payload.get("type", "unknown"),
             payload.get("severity", "info"),
             payload.get("message", ""),
+            payload.get("pipeline_mode"),
+            frames_json,
         ))
         db.commit()
-        logger.info("Alerta MQTT recibida: finca_id=%s type=%s severity=%s",
-                    finca_id, payload.get("type"), payload.get("severity"))
+        logger.info("Alerta MQTT recibida: finca_id=%s type=%s severity=%s frames=%d",
+                    finca_id, payload.get("type"), payload.get("severity"),
+                    len(frames) if frames else 0)
     finally:
         db.close()
 

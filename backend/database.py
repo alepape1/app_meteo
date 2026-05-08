@@ -405,6 +405,40 @@ def create_tables(conn: _CompatConn):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_finca   ON alerts(finca_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);")
 
+    # Migraciones ligeras sobre alerts
+    cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'alerts' AND table_schema = 'public'
+    """)
+    _alerts_cols = {row[0] for row in cur.fetchall()}
+    for _col, _ddl in [
+        ("pipeline_mode", "ALTER TABLE alerts ADD COLUMN pipeline_mode TEXT DEFAULT NULL"),
+        ("frames",        "ALTER TABLE alerts ADD COLUMN frames JSONB DEFAULT NULL"),
+    ]:
+        if _col not in _alerts_cols:
+            cur.execute(_ddl)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS pipeline_window_history (
+        id            BIGSERIAL PRIMARY KEY,
+        finca_id      TEXT,
+        device_mac    TEXT,
+        timestamp     TIMESTAMPTZ DEFAULT NOW(),
+        samples       INTEGER,
+        valve_open_ms INTEGER,
+        p_mean        REAL,
+        p_min         REAL,
+        p_max         REAL,
+        p_std         REAL,
+        f_mean        REAL,
+        f_min         REAL,
+        f_max         REAL,
+        f_std         REAL
+    );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pwh_device ON pipeline_window_history(device_mac);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pwh_ts     ON pipeline_window_history(timestamp DESC);")
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS irrigation_resets (
         id       BIGSERIAL PRIMARY KEY,
