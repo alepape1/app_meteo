@@ -1617,6 +1617,8 @@ def api_alerts():
         ).fetchall()
     ]
     if not user_macs:
+        if requested_mac:
+            return jsonify({"error": "Acceso denegado al dispositivo"}), 403
         return jsonify([])
 
     # Si se solicita una MAC concreta, verificar que pertenece al usuario
