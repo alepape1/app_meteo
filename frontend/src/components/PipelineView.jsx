@@ -395,12 +395,12 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       background: '#ffffff',
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
-    colors: ['#0d9488', '#2563eb'],
+    colors: ['#00d4bf', '#3d8bff'],
     stroke: {
       show: true,
       curve: 'smooth',
       lineCap: 'round',
-      width: [3.6, 3.6],
+      width: [2, 2],
     },
     markers: {
       size: 0,
