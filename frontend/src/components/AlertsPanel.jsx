@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Bell, CheckCheck, AlertTriangle, Info, RefreshCw, ShieldAlert, Thermometer, Droplets, Wifi, WifiOff, Activity } from 'lucide-react'
+import { Bell, CheckCheck, AlertTriangle, Info, RefreshCw, ShieldAlert, Thermometer, Droplets, Wifi, WifiOff, Activity, Trash2 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
 // Map alert_type keywords → icon + override label
@@ -76,9 +76,9 @@ function AnimatedIcon({ icon, sev, acked }) {
   )
 }
 
-function AlertRow({ alert, onAck }) {
-  const sev  = SEVERITY[alert.severity] ?? SEVERITY.info
-  const Icon = resolveAlertIcon(alert.alert_type, alert.severity)
+function AlertRow({ alert, onAck, onDelete }) {
+  const sev   = SEVERITY[alert.severity] ?? SEVERITY.info
+  const Icon  = resolveAlertIcon(alert.alert_type, alert.severity)
   const acked = Boolean(alert.acked)
 
   return (
@@ -94,43 +94,52 @@ function AlertRow({ alert, onAck }) {
           <span className={`text-[11px] font-bold tracking-wide uppercase px-2.5 py-0.5 rounded-full border ${sev.badge}`}>
             {sev.label}
           </span>
-          <span className="text-xs font-semibold text-navy-300 tracking-tight">
+          <span className="text-xs font-semibold text-white/90 tracking-tight">
             {alert.alert_type ?? '—'}
           </span>
           {alert.finca_id && (
-            <span className="text-[11px] text-navy-500 font-mono bg-navy-800/60 px-1.5 py-0.5 rounded-md">
+            <span className="text-[11px] text-white/60 font-mono bg-white/10 px-1.5 py-0.5 rounded-md">
               {alert.finca_id}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-navy-500 shrink-0 font-mono">
+          <span className="ml-auto text-[11px] text-white/50 shrink-0 font-mono">
             {timeAgo(alert.created_at)}
           </span>
         </div>
 
         {/* Message */}
-        <p className="text-sm font-medium text-navy-100 leading-relaxed">
+        <p className="text-sm font-medium text-white/85 leading-relaxed">
           {alert.message || '—'}
         </p>
 
         {/* MAC footer */}
         {alert.device_mac && (
-          <p className="text-[11px] text-navy-500 font-mono flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-navy-600" />
+          <p className="text-[11px] text-white/45 font-mono flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
             {alert.device_mac}
           </p>
         )}
       </div>
 
-      {/* Ack button */}
-      {!acked && (
+      {/* Action buttons */}
+      <div className="shrink-0 self-center flex items-center gap-1">
+        {!acked && (
+          <button
+            onClick={() => onAck(alert.id)}
+            title="Marcar como resuelto"
+            className="p-2 rounded-xl text-white/40 hover:text-emerald-400 hover:bg-emerald-500/15 border border-transparent hover:border-emerald-500/30 transition-all duration-200"
+          >
+            <CheckCheck size={15} />
+          </button>
+        )}
         <button
-          onClick={() => onAck(alert.id)}
-          title="Marcar como resuelto"
-          className="shrink-0 self-center p-2 rounded-xl text-navy-500 hover:text-emerald-400 hover:bg-emerald-500/15 border border-transparent hover:border-emerald-500/30 transition-all duration-200"
+          onClick={() => onDelete(alert.id)}
+          title="Eliminar alerta"
+          className="p-2 rounded-xl text-white/30 hover:text-red-400 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-all duration-200"
         >
-          <CheckCheck size={16} />
+          <Trash2 size={15} />
         </button>
-      )}
+      </div>
     </div>
   )
 }
@@ -164,6 +173,11 @@ export default function AlertsPanel() {
   const ackAlert = async (id) => {
     await authFetch(`/api/alerts/${id}/ack`, { method: 'POST' })
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, acked: 1 } : a))
+  }
+
+  const deleteAlert = async (id) => {
+    await authFetch(`/api/alerts/${id}`, { method: 'DELETE' })
+    setAlerts(prev => prev.filter(a => a.id !== id))
   }
 
   const pending = alerts.filter(a => !a.acked).length
@@ -236,7 +250,7 @@ export default function AlertsPanel() {
         ) : (
           <div className="space-y-2.5">
             {alerts.map(a => (
-              <AlertRow key={a.id} alert={a} onAck={ackAlert} />
+              <AlertRow key={a.id} alert={a} onAck={ackAlert} onDelete={deleteAlert} />
             ))}
           </div>
         )}

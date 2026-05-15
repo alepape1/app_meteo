@@ -1621,6 +1621,30 @@ def api_alert_ack(alert_id):
     return jsonify({"ok": True, "id": alert_id})
 
 
+@app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
+def api_alert_delete(alert_id):
+    """Elimina permanentemente una alerta del usuario autenticado."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+
+    alert_row = db.execute(
+        "SELECT device_mac FROM alerts WHERE id=%s", (alert_id,)
+    ).fetchone()
+    if not alert_row or alert_row["device_mac"] not in user_macs:
+        return jsonify({"error": "Acceso denegado"}), 403
+
+    db.execute("DELETE FROM alerts WHERE id=%s", (alert_id,))
+    db.commit()
+    return jsonify({"ok": True, "id": alert_id})
+
+
 # ── Provisioning endpoints ──────────────────────────────────────────────────
 
 @app.route("/api/mqtt/auth", methods=["POST"])
