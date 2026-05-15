@@ -14,3 +14,19 @@ env/
 
 # Reportes de tests generados automáticamente
 backend/tests/reports/
+
+# Dependencias
+node_modules/
+
+# Builds
+frontend/dist/
+
+# Logs temporales
+backend/tmp_*.txt
+
+# Config local de IDEs
+.claude/
+
+# Código legado (no parte del producto)
+new_version_meteo/
+
