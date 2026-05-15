@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import ReactApexChart from 'react-apexcharts'
 
 function toMs(t) {
@@ -36,7 +37,7 @@ export default function WeatherChart({
   type = 'area', yUnit = '', yMin, yMax, minYRange, height = 230,
   hideLegend = false,
 }) {
-  const builtSeries = buildSeries(series, timestamps)
+  const builtSeries = useMemo(() => buildSeries(series, timestamps), [series, timestamps])
   const hasData = builtSeries.some(s => s.data.length > 0)
   const chartId = `weather-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${type}`
   const legendItems = builtSeries.map((item, index) => ({
@@ -44,36 +45,40 @@ export default function WeatherChart({
     color: colors?.[index] ?? '#012d5c',
   }))
 
-  const yValues = builtSeries
-    .flatMap(s => s.data.map(pt => pt.y))
-    .filter(v => Number.isFinite(v))
+  const { resolvedYMin, resolvedYMax } = useMemo(() => {
+    const yValues = builtSeries
+      .flatMap(s => s.data.map(pt => pt.y))
+      .filter(v => Number.isFinite(v))
 
-  let resolvedYMin = yMin
-  let resolvedYMax = yMax
+    let resolvedYMin = yMin
+    let resolvedYMax = yMax
 
-  if (Number.isFinite(minYRange) && yValues.length > 0) {
-    const dataMin = Number.isFinite(yMin) ? yMin : Math.min(...yValues)
-    const dataMax = Number.isFinite(yMax) ? yMax : Math.max(...yValues)
-    const span = dataMax - dataMin
+    if (Number.isFinite(minYRange) && yValues.length > 0) {
+      const dataMin = Number.isFinite(yMin) ? yMin : Math.min(...yValues)
+      const dataMax = Number.isFinite(yMax) ? yMax : Math.max(...yValues)
+      const span = dataMax - dataMin
 
-    if (span < minYRange) {
-      const center = (dataMin + dataMax) / 2
-      const half = minYRange / 2
-      const step = minYRange >= 20 ? 2 : 1
+      if (span < minYRange) {
+        const center = (dataMin + dataMax) / 2
+        const half = minYRange / 2
+        const step = minYRange >= 20 ? 2 : 1
 
-      if (!Number.isFinite(yMin)) {
-        resolvedYMin = Math.floor((center - half) / step) * step
-      }
-      if (!Number.isFinite(yMax)) {
-        resolvedYMax = Math.ceil((center + half) / step) * step
+        if (!Number.isFinite(yMin)) {
+          resolvedYMin = Math.floor((center - half) / step) * step
+        }
+        if (!Number.isFinite(yMax)) {
+          resolvedYMax = Math.ceil((center + half) / step) * step
+        }
       }
     }
-  }
+
+    return { resolvedYMin, resolvedYMax }
+  }, [builtSeries, yMin, yMax, minYRange])
 
   const accentColor = colors?.[0] ?? '#0c8ecc'
   const accentColor2 = colors?.[1] ?? accentColor
 
-  const options = {
+  const options = useMemo(() => ({
     chart: {
       id: chartId,
       type,
@@ -213,7 +218,7 @@ export default function WeatherChart({
       },
     },
     dataLabels: { enabled: false },
-  }
+  }), [chartId, type, series, colors, resolvedYMin, resolvedYMax, yUnit, accentColor, accentColor2])
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden transition-shadow duration-200 hover:shadow-md">
