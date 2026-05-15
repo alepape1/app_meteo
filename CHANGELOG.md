@@ -11,6 +11,9 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Cambiado
+- `WeatherChart`: memoización de series, cálculo de ejes Y y objeto `options` con `useMemo`; componente envuelto con `React.memo` y comparador personalizado para evitar re-renders innecesarios y forced reflows en ApexCharts (~200–400 ms por ciclo de polling).
+
 ---
 
 ## [v0.2.0] — 2026-05-15
