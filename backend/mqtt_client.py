@@ -69,6 +69,10 @@ def _handle_telemetry(finca_id: str, payload: dict):
             except (ValueError, TypeError):
                 pass
 
+        raw_scenario = payload.get("pipeline_scenario")
+        valid_scenarios = {"normal", "leak", "burst", "obstruction"}
+        scenario_val = raw_scenario if raw_scenario in valid_scenarios else None
+
         db.execute("""
             INSERT INTO home_weather_station(
                 temperature, pressure, temperature_barometer, humidity,
@@ -79,11 +83,12 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 rssi, free_heap, uptime_s, relay_active,
                 pipeline_pressure, pipeline_flow,
                 pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                pipeline_scenario,
                 soil_moisture,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -110,6 +115,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_source"),
             payload.get("pipeline_pressure_ok"),
             payload.get("pipeline_flow_ok"),
+            scenario_val,
             payload.get("soil_moisture"),
             payload.get("dew_point"),
             payload.get("heat_index"),

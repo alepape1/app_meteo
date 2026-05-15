@@ -128,11 +128,12 @@ function getWaterColors(pct) {
 
 // ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
 // consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
-function WaterDroplet({ consumptionPct = 0, size = 68 }) {
+function WaterDroplet({ consumptionPct = 0, size = 120 }) {
   const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
   const svgRef   = useRef(null)
   const frontRef = useRef(null)
   const backRef  = useRef(null)
+  const midRef   = useRef(null)
   const bgRef    = useRef(null)
   const stop0    = useRef(null)
   const stop1    = useRef(null)
@@ -145,7 +146,7 @@ function WaterDroplet({ consumptionPct = 0, size = 68 }) {
   }, [consumptionPct])
 
   useEffect(() => {
-    const WAVE_AMP = 5.5, WAVE_SPEED = 0.5
+    const WAVE_AMP = 9, WAVE_SPEED = 0.5
     const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
     // Always show at least 20% visual fill so animation is perceptible
     const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
@@ -165,7 +166,8 @@ function WaterDroplet({ consumptionPct = 0, size = 68 }) {
       const yBase = Math.min(Y_BOTTOM - p * (Y_BOTTOM - Y_TOP), Y_MIN)
 
       if (frontRef.current) frontRef.current.setAttribute('d', buildWave(WAVE_AMP, 1.6, a.phase, yBase, +1))
-      if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 0.7, 1.2, a.phase + 1.2, yBase + 3, -1))
+      if (midRef.current)   midRef.current.setAttribute('d',   buildWave(WAVE_AMP * 0.8, 2.0, a.phase + 2.0, yBase + 2, +1))
+      if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 1.2, 1.2, a.phase + 1.2, yBase + 5, -1))
 
       const c = getWaterColors(a.displayedPct)
       if (stop0.current) stop0.current.setAttribute('stop-color', c.top)
@@ -207,24 +209,32 @@ function WaterDroplet({ consumptionPct = 0, size = 68 }) {
           </linearGradient>
           <pattern id={`ct-${uid}`} width="20" height="20" patternUnits="userSpaceOnUse">
             <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10"
-              fill="none" stroke="#7fd0ff" strokeWidth="0.4" opacity="0.55"/>
-            <circle cx="7" cy="5" r="0.7" fill="#9fdcff" opacity="0.7"/>
-            <circle cx="13" cy="9" r="0.7" fill="#9fdcff" opacity="0.7"/>
+              fill="none" stroke="#7fd0ff" strokeWidth="0.5" opacity="0.55"/>
+            <circle cx="7" cy="5" r="0.9" fill="#9fdcff" opacity="0.7"/>
+            <circle cx="13" cy="9" r="0.9" fill="#9fdcff" opacity="0.7"/>
           </pattern>
+          <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
         </defs>
+        {/* glow halo exterior */}
+        <path d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
         <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
           <rect x="0" y="0" width="132" height="156" fill={`url(#ct-${uid})`} opacity="0.6" />
         </g>
         <g clipPath={`url(#cp-${uid})`}>
-          <ellipse cx="45" cy="38" rx="8" ry="14" fill="white" opacity="0.18" transform="rotate(-25,45,38)" />
-          <ellipse cx="35" cy="55" rx="4" ry="7"  fill="white" opacity="0.12" transform="rotate(-20,35,55)" />
+          <ellipse cx="45" cy="38" rx="9" ry="16" fill="white" opacity="0.22" transform="rotate(-25,45,38)" />
+          <ellipse cx="35" cy="55" rx="5" ry="8"  fill="white" opacity="0.14" transform="rotate(-20,35,55)" />
+          <ellipse cx="90" cy="42" rx="3" ry="5"  fill="white" opacity="0.10" transform="rotate(15,90,42)" />
         </g>
         <g clipPath={`url(#cp-${uid})`}>
-          <path ref={backRef}  d="" fill={`url(#wg-${uid})`} opacity="0.55" />
+          <path ref={backRef}  d="" fill={`url(#wg-${uid})`} opacity="0.45" />
+          <path ref={midRef}   d="" fill={`url(#wg-${uid})`} opacity="0.60" />
           <path ref={frontRef} d="" fill={`url(#wg-${uid})`} opacity="1" />
         </g>
-        <path ref={outRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#0b4f88" strokeWidth="2" />
+        <path ref={outRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#0b4f88" strokeWidth="2.5" />
       </svg>
     </>
   )
@@ -534,13 +544,17 @@ function SavingsCard({ stats }) {
     </div>
   )
 
-  const { monthly_liters, baseline_liters, savings_liters, today_liters, daily, days_elapsed } = stats
+  const {
+    monthly_liters, baseline_liters, savings_liters, today_liters, daily, days_elapsed,
+    used_liters = monthly_liters, leak_liters = 0, today_leak_liters = 0, total_liters = monthly_liters,
+  } = stats
   const savingsPct = baseline_liters > 0
     ? Math.round((savings_liters / baseline_liters) * 100)
     : 0
   const consumptionPct = baseline_liters > 0
-    ? (monthly_liters / baseline_liters) * 100
+    ? (total_liters / baseline_liters) * 100
     : 0
+  const hasLeak = leak_liters > 0.5
 
   const state = consumptionPct >= 100 ? 'danger' : consumptionPct >= 85 ? 'warn' : 'ok'
   const cc = {
@@ -589,8 +603,14 @@ function SavingsCard({ stats }) {
         }
       </div>
 
+      {hasLeak && (
+        <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+          <AlertTriangle size={13} className="shrink-0" />
+          Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
+        </div>
+      )}
       <div className="flex items-center gap-4">
-        <WaterDroplet consumptionPct={consumptionPct} size={68} />
+        <WaterDroplet consumptionPct={consumptionPct} size={90} />
         <div className="flex-1 min-w-0">
           <p className="text-3xl font-bold text-navy-900 leading-none">
             {savings_liters.toFixed(0)}
@@ -615,15 +635,30 @@ function SavingsCard({ stats }) {
       {expanded && (
         <div className="mt-4 pt-4 border-t border-navy-50 space-y-2">
           {[
-            ['Usado este mes',                       `${monthly_liters.toFixed(1)} L`],
-            ['Usado hoy',                            `${today_liters.toFixed(1)} L`],
-            [`Referencia (${days_elapsed}d × 15 L)`, `${baseline_liters.toFixed(0)} L`],
+            ['Agua de riego este mes',                `${used_liters.toFixed(1)} L`],
+            ['Agua de riego hoy',                     `${today_liters.toFixed(1)} L`],
           ].map(([label, val]) => (
             <div key={label} className="flex justify-between text-xs">
               <span className="text-navy-400">{label}</span>
               <span className="font-medium text-navy-700">{val}</span>
             </div>
           ))}
+          <div className="flex justify-between text-xs">
+            <span className={`${hasLeak ? 'text-amber-600 font-semibold' : 'text-navy-400'}`}>
+              Pérdida por fugas{hasLeak ? ' ⚠' : ''}
+            </span>
+            <span className={`font-medium ${hasLeak ? 'text-amber-700' : 'text-navy-700'}`}>
+              {leak_liters.toFixed(1)} L {today_leak_liters > 0 ? `(hoy: ${today_leak_liters.toFixed(1)} L)` : ''}
+            </span>
+          </div>
+          <div className="flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 text-navy-800">
+            <span>Total consumido</span>
+            <span>{total_liters.toFixed(1)} L</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-400">{`Referencia (${days_elapsed}d × 15 L)`}</span>
+            <span className="font-medium text-navy-700">{baseline_liters.toFixed(0)} L</span>
+          </div>
           <div className={`flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 ${cc.text}`}>
             <span>Ahorro total</span>
             <span>{savings_liters.toFixed(1)} L ({savingsPct}%)</span>

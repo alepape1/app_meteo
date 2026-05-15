@@ -265,6 +265,7 @@ def create_tables(conn: _CompatConn):
         pipeline_source        TEXT    DEFAULT NULL,
         pipeline_pressure_ok   BOOLEAN DEFAULT NULL,
         pipeline_flow_ok       BOOLEAN DEFAULT NULL,
+        pipeline_scenario      TEXT    DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
         dew_point              REAL    DEFAULT NULL,
         heat_index             REAL    DEFAULT NULL,
@@ -296,6 +297,7 @@ def create_tables(conn: _CompatConn):
         ("pipeline_source",      "ALTER TABLE home_weather_station ADD COLUMN pipeline_source TEXT DEFAULT NULL"),
         ("pipeline_pressure_ok", "ALTER TABLE home_weather_station ADD COLUMN pipeline_pressure_ok BOOLEAN DEFAULT NULL"),
         ("pipeline_flow_ok",     "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow_ok BOOLEAN DEFAULT NULL"),
+        ("pipeline_scenario",    "ALTER TABLE home_weather_station ADD COLUMN pipeline_scenario TEXT DEFAULT NULL"),
     ]:
         if _col not in _hws_cols:
             cur.execute(_ddl)

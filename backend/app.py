@@ -996,6 +996,8 @@ def irrigation_stats():
             "baseline_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
             "savings_liters": round(days_elapsed * BASELINE_DAILY_L, 1),
             "days_elapsed": days_elapsed, "daily": [],
+            "used_liters": 0.0, "leak_liters": 0.0,
+            "today_leak_liters": 0.0, "total_liters": 0.0,
         })
 
     db = get_db()
@@ -1046,6 +1048,31 @@ def irrigation_stats():
     """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     today_row = cursor.fetchone()
 
+    # Fugas del mes: caudal detectado con válvula cerrada (relay_active=0)
+    # Umbral 0.1 L/min para filtrar ruido del sensor
+    LEAK_THRESHOLD_LPM = 0.1
+    cursor.execute("""
+        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS leak_liters
+        FROM home_weather_station
+        WHERE relay_active = 0
+          AND pipeline_flow > %s
+          AND device_mac = %s
+          AND timestamp >= %s
+    """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
+    leak_monthly_row = cursor.fetchone()
+
+    # Fugas de hoy
+    cursor.execute("""
+        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS today_leak_liters
+        FROM home_weather_station
+        WHERE relay_active = 0
+          AND pipeline_flow > %s
+          AND device_mac = %s
+          AND DATE(timestamp) = CURRENT_DATE
+          AND timestamp >= %s
+    """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
+    leak_today_row = cursor.fetchone()
+
     cursor.close()
 
     total_active = int(monthly_row["total_active"] or 0)
@@ -1054,6 +1081,10 @@ def irrigation_stats():
     today_liters = round(float(today_row["today_liters"] or 0), 1)
     monthly_seconds = total_active * INTERVAL_S
     today_seconds = today_active * INTERVAL_S
+
+    leak_liters = round(float(leak_monthly_row["leak_liters"] or 0), 1)
+    today_leak_liters = round(float(leak_today_row["today_leak_liters"] or 0), 1)
+    total_liters = round(monthly_liters + leak_liters, 1)
 
     days_elapsed = datetime.date.today().day
     baseline_liters = round(days_elapsed * BASELINE_DAILY_L, 1)
@@ -1077,6 +1108,10 @@ def irrigation_stats():
         "savings_liters": savings_liters,
         "days_elapsed": days_elapsed,
         "daily": daily,
+        "used_liters": monthly_liters,
+        "leak_liters": leak_liters,
+        "today_leak_liters": today_leak_liters,
+        "total_liters": total_liters,
     })
 
 
