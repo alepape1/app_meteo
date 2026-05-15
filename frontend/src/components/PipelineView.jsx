@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function toMs(t) {
+export function toMs(t) {
   if (t == null) return null
   if (typeof t === 'number') return Number.isNaN(t) ? null : t
   const raw = String(t).trim()
@@ -25,7 +25,7 @@ const toQueryStr = d => {
   return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
-const clampInput = (value, min, max) => {
+export const clampInput = (value, min, max) => {
   const n = Number.parseInt(value, 10)
   if (!Number.isFinite(n)) return min
   return Math.min(max, Math.max(min, n))

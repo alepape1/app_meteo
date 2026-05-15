@@ -35,7 +35,7 @@ function ConfirmModal({ message, onConfirm, onCancel }) {
 
 // ── Penman-Monteith FAO-56 simplificado ──────────────────────────────────────
 // Ra fijado en ~10 MJ/m²/día (media anual Lanzarote ~29°N)
-function calcET0(temp, humidity, windSpeed) {
+export function calcET0(temp, humidity, windSpeed) {
   if (temp == null) return null
   const T   = temp
   const RH  = Math.max(5, Math.min(100, humidity ?? 60))
@@ -51,7 +51,7 @@ function calcET0(temp, humidity, windSpeed) {
 }
 
 // ── Asesor de riego ──────────────────────────────────────────────────────────
-function getAdvice(temp, humidity, wind, et0Num) {
+export function getAdvice(temp, humidity, wind, et0Num) {
   const hour = new Date().getHours()
   const optimalHour = (hour >= 6 && hour <= 10) || (hour >= 18 && hour <= 22)
 
@@ -120,7 +120,7 @@ function buildWave(amplitude, freq, phase, yBase, dir) {
   return `M 0 ${H} L 0 ${pts[0].split(',')[1]} L ` + pts.join(' L ') + ` L ${W} ${H} Z`
 }
 
-function getWaterColors(pct) {
+export function getWaterColors(pct) {
   if (pct >= 100) return { top: '#ff6a6a', deep: '#a31818', stroke: '#b91c1c', bg: '#fee2e2' }
   if (pct >= 85)  return { top: '#ffae3b', deep: '#b86a07', stroke: '#b86a07', bg: '#fef3c7' }
   return               { top: '#3fb6f0', deep: '#0b4f88', stroke: '#0b4f88', bg: '#eaf5ff' }
@@ -704,7 +704,7 @@ const PERIODS = [
   { id: 'session', label: 'Sesiones', hint: 'últimas 60 sesiones' },
 ]
 
-function toChartMs(value) {
+export function toChartMs(value) {
   if (value == null) return null
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   const raw = String(value).trim()
@@ -715,12 +715,12 @@ function toChartMs(value) {
   return Number.isNaN(fallback) ? null : fallback
 }
 
-function toChartNum(value) {
+export function toChartNum(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
 }
 
-function fmtPeriodLabel(key, periodId) {
+export function fmtPeriodLabel(key, periodId) {
   if (!key) return '—'
 
   if (periodId === 'day') {
@@ -748,14 +748,14 @@ function fmtPeriodLabel(key, periodId) {
   return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
 }
 
-function fmtDuration(seconds) {
+export function fmtDuration(seconds) {
   if (seconds < 60) return `${seconds}s`
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return s > 0 ? `${m}m ${s}s` : `${m}m`
 }
 
-function getBarColumnWidth(count, periodId = 'default') {
+export function getBarColumnWidth(count, periodId = 'default') {
   if (count <= 6) return '34%'
   if (count <= 12) return '42%'
   if (count <= 24) return '52%'
@@ -763,7 +763,7 @@ function getBarColumnWidth(count, periodId = 'default') {
   return '62%'
 }
 
-function getChartMinWidth(count, periodId = 'default') {
+export function getChartMinWidth(count, periodId = 'default') {
   const base = periodId === 'session' ? 760 : 680
   const perItem = periodId === 'session' ? 26 : 32
   return Math.max(base, count * perItem)

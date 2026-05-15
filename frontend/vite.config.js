@@ -28,4 +28,13 @@ export default defineConfig({
       '/descargar': flaskUrl,
     },
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/tests/vitest.setup.js'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+    },
+  },
 })
