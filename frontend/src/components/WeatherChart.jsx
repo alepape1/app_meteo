@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, memo } from 'react'
 import ReactApexChart from 'react-apexcharts'
 
 function toMs(t) {
@@ -32,7 +32,7 @@ function buildSeries(series, timestamps) {
     .filter(s => s.data.length > 0)
 }
 
-export default function WeatherChart({
+function WeatherChart({
   title, icon: Icon, series, timestamps, colors,
   type = 'area', yUnit = '', yMin, yMax, minYRange, height = 230,
   hideLegend = false,
@@ -281,3 +281,39 @@ export default function WeatherChart({
     </div>
   )
 }
+
+function arePropsEqual(prev, next) {
+  if (
+    prev.title !== next.title ||
+    prev.type !== next.type ||
+    prev.yUnit !== next.yUnit ||
+    prev.yMin !== next.yMin ||
+    prev.yMax !== next.yMax ||
+    prev.minYRange !== next.minYRange ||
+    prev.height !== next.height ||
+    prev.hideLegend !== next.hideLegend
+  ) return false
+
+  if ((prev.colors ?? []).join(',') !== (next.colors ?? []).join(',')) return false
+
+  const pt = prev.timestamps, nt = next.timestamps
+  if (pt !== nt) {
+    if (pt.length !== nt.length || pt[0] !== nt[0] || pt.at(-1) !== nt.at(-1)) return false
+  }
+
+  const ps = prev.series, ns = next.series
+  if (ps !== ns) {
+    if (ps.length !== ns.length) return false
+    for (let i = 0; i < ps.length; i++) {
+      if (ps[i].name !== ns[i].name) return false
+      const pd = ps[i].data ?? [], nd = ns[i].data ?? []
+      if (pd !== nd) {
+        if (pd.length !== nd.length || pd.at(-1) !== nd.at(-1)) return false
+      }
+    }
+  }
+
+  return true
+}
+
+export default memo(WeatherChart, arePropsEqual)
