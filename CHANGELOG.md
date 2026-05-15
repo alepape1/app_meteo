@@ -13,6 +13,7 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Cambiado
 - `WeatherChart`: memoización de series, cálculo de ejes Y y objeto `options` con `useMemo`; componente envuelto con `React.memo` y comparador personalizado para evitar re-renders innecesarios y forced reflows en ApexCharts (~200–400 ms por ciclo de polling).
+- `useWeatherData`: `applyData` en modo `append` devuelve la referencia `prev` sin cambios cuando el último timestamp coincide y ningún valor ha variado, evitando que React dispare re-renders de App y de todos los `WeatherChart` en cada ciclo de polling sin datos nuevos.
 
 ---
 
