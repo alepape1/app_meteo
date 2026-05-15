@@ -341,21 +341,36 @@ Si vienes de una instalación con base de datos SQLite legada:
 | `GET` | `/api/relay/command` | ESP consulta bitmask (HTTP legacy) |
 | `POST` | `/api/relay/ack` | ESP confirma estado (HTTP legacy) |
 
+### Riego (estadísticas y sesiones)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/api/irrigation/stats?mac=XX` | Estadísticas mensuales: litros usados, ahorro vs baseline, fugas |
+| `GET` | `/api/irrigation/sessions?mac=XX` | Historial de sesiones de riego |
+| `GET` | `/api/irrigation/history?period=day&mac=XX` | Histórico agregado por día/semana/mes |
+| `POST` | `/api/irrigation/reset` | Resetear contador mensual |
+| `GET` | `/api/relay?mac=XX` | Estado de todos los relays del dispositivo |
+| `POST` | `/api/relay` | Activa/desactiva relay `{mac, index, state}` vía MQTT |
+
 ### Alertas
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `GET` | `/api/alerts?acked=0` | Alertas (filtrables por estado) |
 | `POST` | `/api/alerts/<id>/ack` | Marcar alerta como resuelta |
+| `DELETE` | `/api/alerts/<id>` | Eliminar alerta individual (solo propietario) |
+| `DELETE` | `/api/alerts` | Eliminar todas las alertas del usuario |
 
-### Pipeline
+### Pipeline (detección de fugas)
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/pipeline/status` | Última lectura + resultado de detección |
-| `GET` | `/api/pipeline/readings?n=N` | Histórico para gráficos |
-| `GET` | `/api/pipeline/scenario` | Escenario activo |
-| `POST` | `/api/pipeline/scenario` | Cambiar escenario (`normal`/`leak`/`burst`) |
+| `GET` | `/api/pipeline/status?mac=XX` | Última lectura + resultado EWMA de detección |
+| `GET` | `/api/pipeline/readings?n=N&mac=XX` | Histórico de lecturas para gráficos |
+| `GET` | `/api/pipeline/config?mac=XX` | Configuración activa (escenario, modo, tipo irrigación) |
+| `POST` | `/api/pipeline/config` | Actualizar configuración `{scenario, mode, irrigation_type, telemetry_interval_s}` |
+| `GET` | `/api/pipeline/scenario` | Escenario activo en texto plano |
+| `POST` | `/api/pipeline/scenario` | Cambiar escenario `{scenario: "normal"|"leak"|"burst"|"obstruction"}` |
 
 ---
 
@@ -621,6 +636,62 @@ WHERE acked = 0 ORDER BY created_at DESC;
 ```
 
 Lee `MQTT_PASSWORD` automáticamente del `.env`. Requiere `tmux` y acceso a los contenedores Docker.
+
+---
+
+## Testing
+
+La suite cubre el backend Flask y el frontend React con pytest y Vitest respectivamente.
+
+### Backend (pytest)
+
+| Módulo | Tests | Cobertura |
+|--------|------:|-----------|
+| `test_alerts_crud` | 18 | CRUD alertas, isolación multi-usuario |
+| `test_endpoints` | 26 | Auth, dispositivos, settings, headers de seguridad |
+| `test_irrigation_endpoints` | 13 | Stats, sesiones, reset, historial |
+| `test_mqtt_integration` | 7 | Telemetría, alertas, registro vía MQTT |
+| `test_parse` | 34 | Parser CSV del firmware (9–18 campos) |
+| `test_pipeline_endpoints` | 25 | Config, status, readings, escenarios |
+| `test_pipeline_sim` | 65 | Simulador presión/caudal, EWMA, detección (normal/leak/burst/obstruction) |
+| `test_regression` | 7 | Valores EWMA y estados fijados como golden |
+| `test_relay_dashboard` | 12 | Estado relay, control, persistencia |
+| `test_rows_to_dict` | 15 | Serialización de campos agrometeorológicos |
+| `test_security` | 30 | IDOR, SQL injection, MQTT auth y ACL |
+| **Total** | **262** | 261/262 passing — 1 fallo conocido corregido (IDOR `GET /api/alerts?mac=`) |
+
+Ejecutar los tests de backend:
+
+```bash
+cd backend
+python -m pytest tests/ -v
+```
+
+### Frontend (Vitest + React Testing Library)
+
+| Archivo | Tests | Qué cubre |
+|---------|------:|-----------|
+| `utils.test.js` | 26 | Funciones puras: formateo fechas, unidades, cálculos |
+| `AuthContext.test.jsx` | 6 | Login, logout, authFetch, guard de token |
+| `AlertsPanel.test.jsx` | 9 | Renderizado alertas, badge, acknowledge, filtros |
+| `ClaimDeviceView.test.jsx` | 8 | Flujo vinculación dispositivo, validación serial |
+| `LoginView.test.jsx` | 7 | Login form, validación, error handling |
+| `IrrigationView.test.jsx` | 55 | calc ET₀, asesor de riego, getWaterColors, cálculos consumo y ahorro mensual, formateo duración, etiquetas de gráfico |
+| `PipelineView.test.jsx` | 30 | toMs, clampInput, estados de detección (NORMAL/LEAK/BURST/OBSTRUCTION), selectores de escenario/modo/irrigación |
+| **Total** | **141** | 141/141 passing |
+
+Ejecutar los tests de frontend:
+
+```bash
+cd frontend
+npm test
+```
+
+Generar informe de cobertura:
+
+```bash
+npm run test:coverage
+```
 
 ---
 

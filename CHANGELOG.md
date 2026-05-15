@@ -9,6 +9,28 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [Unreleased]
+
+---
+
+## [v0.2.0] — 2026-05-15
+
+**Firmware compatible:** `v0.1.0`
+
+### Added
+- **Animaciones de agua en riego**: visualización fluida del estado de riego activo con animaciones CSS en tiempo real.
+- **Modal de confirmación al cerrar sesión**: el usuario debe confirmar antes de cerrar sesión, evitando cierres accidentales (Sidebar y barra superior móvil).
+- Frontend: tests de `IrrigationView` (55 tests) cubriendo `calcET0`, `getAdvice`, `getWaterColors`, cálculos de consumo y ahorro mensual (`savingsPct`, `consumptionPct`, `hasLeak`), `toChartMs`, `toChartNum`, `fmtPeriodLabel`, `fmtDuration`, `getBarColumnWidth`, `getChartMinWidth`.
+- Frontend: tests de `PipelineView` (30 tests) cubriendo `toMs`, `clampInput`, renderizado de estados de detección (NORMAL/LEAK/BURST/OBSTRUCTION/NO_DATA) e interacciones de selectores de escenario, modo y tipo de irrigación.
+- Funciones internas de `IrrigationView` exportadas para permitir tests unitarios.
+- Backend: suite de tests ampliada a 262 tests (pytest). Frontend: 141 tests (Vitest).
+- Nuevos módulos de tests backend: `test_alerts_crud`, `test_irrigation_endpoints`, `test_pipeline_endpoints`, `test_relay_dashboard`.
+
+### Fixed
+- `GET /api/alerts?mac=` IDOR: un usuario podía filtrar alertas por MAC ajena y recibía 200 vacío en lugar de 403. Ahora devuelve 403 si la MAC no pertenece al usuario autenticado.
+
+---
+
 ## [v0.1.0] — 2026-04-22
 
 **Firmware compatible:** `v0.1.0`
