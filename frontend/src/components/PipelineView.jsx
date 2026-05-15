@@ -312,6 +312,17 @@ function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   )
 }
 
+const CHART_MAX_POINTS = 150
+
+function downsampleChart(arr) {
+  const n = arr.length
+  if (n <= CHART_MAX_POINTS) return arr
+  const step = (n - 1) / (CHART_MAX_POINTS - 1)
+  const indices = new Set([0, n - 1])
+  for (let i = 1; i < CHART_MAX_POINTS - 1; i++) indices.add(Math.round(i * step))
+  return [...indices].sort((a, b) => a - b).map(i => arr[i])
+}
+
 function PipelineChart({ readings, mode, histLoading, liveHours }) {
   const deduped = new Map()
   readings.forEach((r) => {
@@ -332,12 +343,14 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
     .filter(p => Number.isFinite(p.x) && (Number.isFinite(p.pressure) || Number.isFinite(p.flow)))
     .sort((a, b) => a.x - b.x)
 
-  const samples = mode === 'live' && allSamples.length > 0
+  const windowed = mode === 'live' && allSamples.length > 0
     ? (() => {
         const cutoff = allSamples.at(-1).x - liveHours * 60 * 60 * 1000
         return allSamples.filter(p => p.x >= cutoff)
       })()
     : allSamples
+
+  const samples = downsampleChart(windowed)
 
   const pressure = samples
     .filter(p => Number.isFinite(p.pressure))
@@ -390,10 +403,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       width: [3.6, 3.6],
     },
     markers: {
-      size: 2,
-      colors: ['#14b8a6', '#3b82f6'],
-      strokeColors: ['#0d9488', '#2563eb'],
-      strokeWidth: 0.8,
+      size: 0,
       hover: { size: 4.5 },
     },
     fill: {
@@ -601,7 +611,7 @@ export default function PipelineView({ selectedMac }) {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
       const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
-      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&max_points=300${macPart}`)
+      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&max_points=150${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch {
