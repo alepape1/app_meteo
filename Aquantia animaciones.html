@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Aquantia · Animaciones</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --ink-soft: #475569;
+      --ink-muted: #94a3b8;
+      --line: #e6ecf3;
+      --green: #16a36e;
+      --green-soft: #d6f4e6;
+      --aqua: #2aa5e8;
+      --aqua-deep: #0b4f88;
+      --aqua-dark: #073764;
+      --danger: #e23b3b;
+      --danger-deep: #b91c1c;
+      --danger-soft: #ffe1e1;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Inter', system-ui, sans-serif; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 24px 96px;
+      background:
+        radial-gradient(1100px 600px at 80% -10%, #e3f0fb 0%, transparent 60%),
+        radial-gradient(900px 500px at -10% 110%, #e8f4ee 0%, transparent 55%),
+        var(--bg);
+    }
+    .page-head {
+      width: min(1080px, 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--aqua-dark);
+      letter-spacing: -0.01em;
+    }
+    .brand .b1 { color: var(--aqua-dark); }
+    .brand .b2 { color: var(--aqua); }
+    .brand-mark {
+      width: 28px; height: 28px;
+      display: inline-block;
+    }
+    .page-sub {
+      font-size: 13px;
+      color: var(--ink-muted);
+    }
+    .grid {
+      width: min(1080px, 100%);
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 880px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    /* ---------- AHORRO CARD ---------- */
+    .save-card {
+      background: var(--card);
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      box-shadow: 0 1px 0 rgba(15,23,42,0.02), 0 10px 30px -16px rgba(15,23,42,0.12);
+      padding: 22px 24px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .save-card .head {
+      display: flex; align-items: center; justify-content: space-between;
+      color: var(--ink-soft);
+      font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
+    }
+    .save-card .head .left { display: flex; align-items: center; gap: 8px; }
+    .save-card .head svg { color: var(--green); }
+    .save-card .head .chev {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      display: grid; place-items: center;
+      color: var(--ink-muted);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: var(--drop-col, 132px) 1fr;
+      gap: 18px;
+      align-items: center;
+      padding: 16px 0 4px;
+    }
+    .drop-wrap {
+      width: var(--drop-col, 132px); height: 156px;
+      position: relative;
+    }
+    .drop-wrap svg { width: 100%; height: 100%; display: block; }
+    .figure {
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.45;
+    }
+    .figure .big {
+      display: flex; align-items: baseline; gap: 6px;
+      font-size: 40px; font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .figure .big .unit { font-size: 18px; font-weight: 600; color: var(--ink-muted); }
+    .figure .lead { color: var(--ink-soft); margin-top: 2px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 10px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: var(--green);
+      font-weight: 600; font-size: 12.5px;
+      transition: background .35s ease, color .35s ease;
+    }
+    .pill.warn { background: #fff3d6; color: #b8861f; }
+    .pill.danger { background: var(--danger-soft); color: var(--danger-deep); }
+    .pill .dot {
+      width: 6px; height: 6px; border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 0 currentColor;
+      animation: dot-pulse 1.6s ease-out infinite;
+    }
+    @keyframes dot-pulse {
+      0% { box-shadow: 0 0 0 0 currentColor; opacity: .8; }
+      80% { box-shadow: 0 0 0 8px transparent; opacity: 0; }
+      100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
+    }
+
+    .rows {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 0;
+      font-size: 14.5px;
+      color: var(--ink-soft);
+    }
+    .row .val { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+    .row.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 12px; }
+    .row.total .lbl { color: var(--green); font-weight: 700; }
+    .row.total .val { color: var(--green); font-weight: 700; }
+    .row.total.danger .lbl,
+    .row.total.danger .val { color: var(--danger-deep); }
+    .foot {
+      text-align: center;
+      color: var(--aqua);
+      font-size: 13px; font-weight: 500;
+      padding: 10px 0 0;
+    }
+
+    /* ---------- CONTROLS PANEL ---------- */
+    .panel {
+      background: var(--card);
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      box-shadow: 0 1px 0 rgba(15,23,42,0.02), 0 10px 30px -16px rgba(15,23,42,0.12);
+      padding: 22px 24px 22px;
+    }
+    .panel h3 {
+      margin: 0 0 4px;
+      font-size: 14px; letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+    .panel p.hint {
+      margin: 0 0 18px;
+      color: var(--ink-muted); font-size: 13px;
+    }
+    .slider-row {
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 18px;
+    }
+    .slider-row .num {
+      min-width: 84px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700; font-size: 18px;
+      color: var(--ink);
+    }
+    .slider-row .num .u { color: var(--ink-muted); font-weight: 500; font-size: 13px; margin-left: 3px; }
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      flex: 1; height: 28px; background: transparent;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px; border-radius: 999px;
+      background: linear-gradient(90deg, var(--aqua) 0%, var(--aqua) var(--pct, 0%), #e6ecf3 var(--pct, 0%), #e6ecf3 100%);
+    }
+    input[type="range"]::-moz-range-track {
+      height: 6px; border-radius: 999px;
+      background: linear-gradient(90deg, var(--aqua) 0%, var(--aqua) var(--pct, 0%), #e6ecf3 var(--pct, 0%), #e6ecf3 100%);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 999px;
+      background: white; border: 2px solid var(--aqua);
+      margin-top: -6px;
+      box-shadow: 0 2px 6px rgba(11,79,136,0.25);
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 999px;
+      background: white; border: 2px solid var(--aqua);
+      box-shadow: 0 2px 6px rgba(11,79,136,0.25);
+      cursor: pointer;
+    }
+    .quick-btns {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin-bottom: 22px;
+    }
+    .quick-btns button {
+      font: inherit;
+      border: 1px solid var(--line);
+      background: white;
+      color: var(--ink-soft);
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 13px; font-weight: 500;
+      transition: all .2s ease;
+    }
+    .quick-btns button:hover { background: #f8fafd; border-color: #cdd9e6; }
+    .quick-btns button.active { background: var(--aqua-dark); color: white; border-color: var(--aqua-dark); }
+
+    .shutdown-row {
+      border-top: 1px dashed var(--line);
+      padding-top: 22px;
+      display: flex; align-items: center; gap: 22px;
+    }
+    .shutdown-row .copy {
+      flex: 1;
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+    .shutdown-row .copy b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 4px; }
+
+    .shutdown-btn {
+      width: var(--shut-w, 92px); height: 108px;
+      border: none; background: transparent;
+      cursor: pointer;
+      padding: 0;
+      position: relative;
+      filter: drop-shadow(0 8px 14px rgba(11,79,136,0.25));
+      transition: filter .35s ease, transform .35s ease;
+    }
+    .shutdown-btn svg { width: 100%; height: 100%; display: block; }
+    .shutdown-btn:hover {
+      transform: translateY(-2px);
+      filter: drop-shadow(0 10px 20px rgba(226,59,59,0.35));
+    }
+    .shutdown-btn:focus-visible { outline: 2px solid var(--aqua); outline-offset: 4px; border-radius: 12px; }
+
+    /* ---------- Tag at bottom ---------- */
+    .demo-meta {
+      width: min(1080px, 100%);
+      display: flex; justify-content: space-between;
+      margin-top: 18px;
+      font-size: 12px; color: var(--ink-muted);
+    }
+    .legend { display: flex; gap: 16px; align-items: center; }
+    .legend .swatch { display: inline-flex; align-items: center; gap: 6px; }
+    .legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="brand">
+    <span class="brand-mark" id="brandMark"></span>
+    <span><span class="b1">aquant</span><span class="b2">IA</span><span class="b1">lab</span></span>
+  </div>
+  <div class="page-sub">Animaciones · card "Ahorro este mes" &amp; botón de apagado</div>
+</div>
+
+<div class="grid">
+
+  <!-- ============ CARD ============ -->
+  <section class="save-card" id="card">
+    <div class="head">
+      <div class="left">
+        <!-- leaf -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 4 13c0-5 4-9 9-9 4 0 7 3 7 7 0 6-4 9-9 9z"/><path d="M4 13c4 0 8-3 11-7"/></svg>
+        AHORRO ESTE MES
+      </div>
+      <div class="chev">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="drop-wrap">
+        <svg id="dropSvg" width="132" height="156" viewBox="0 0 132 156" aria-hidden="true">
+          <defs>
+            <!-- drop silhouette path (used for clip + outline) -->
+            <clipPath id="dropClip">
+              <path id="dropClipPath" d="M66 6 C 66 6, 24 60, 24 96 C 24 124, 43 148, 66 148 C 89 148, 108 124, 108 96 C 108 60, 66 6, 66 6 Z" />
+            </clipPath>
+
+            <!-- empty (sky) gradient inside the drop -->
+            <linearGradient id="emptyGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#eaf5ff"/>
+              <stop offset="100%" stop-color="#cfe7fb"/>
+            </linearGradient>
+
+            <!-- water gradients -->
+            <linearGradient id="waterBlue" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3fb6f0"/>
+              <stop offset="100%" stop-color="#0b4f88"/>
+            </linearGradient>
+            <linearGradient id="waterRed" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ff6a6a"/>
+              <stop offset="100%" stop-color="#a31818"/>
+            </linearGradient>
+
+            <!-- subtle circuit overlay (echoes brand drop) -->
+            <pattern id="circuit" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M0 10 H14 V0 M40 18 H26 V40 M10 40 V30 H30 V20" fill="none" stroke="#7fd0ff" stroke-width="0.6" opacity="0.55"/>
+              <circle cx="14" cy="10" r="1.2" fill="#9fdcff" opacity="0.7"/>
+              <circle cx="26" cy="18" r="1.2" fill="#9fdcff" opacity="0.7"/>
+              <circle cx="30" cy="20" r="1.2" fill="#9fdcff" opacity="0.7"/>
+            </pattern>
+          </defs>
+
+          <!-- empty fill (inside) -->
+          <g clip-path="url(#dropClip)">
+            <rect x="0" y="0" width="132" height="156" fill="url(#emptyGrad)"/>
+            <rect x="0" y="0" width="132" height="156" fill="url(#circuit)" opacity="0.65"/>
+            <!-- subtle inner highlights -->
+            <ellipse cx="48" cy="55" rx="14" ry="22" fill="white" opacity="0.18"/>
+            <ellipse cx="86" cy="120" rx="6" ry="9" fill="white" opacity="0.22"/>
+          </g>
+
+          <!-- water layer (clipped to drop, masked to a wavy fill height) -->
+          <g clip-path="url(#dropClip)">
+            <g id="waterLayer">
+              <!-- back wave -->
+              <path id="waveBack"
+                d=""
+                fill="url(#waterBlue)" opacity="0.55"/>
+              <!-- front wave -->
+              <path id="waveFront"
+                d=""
+                fill="url(#waterBlue)"/>
+              <!-- subtle bubbles -->
+              <g id="bubbles" fill="white" opacity="0.55">
+                <circle cx="44" cy="120" r="1.6"/>
+                <circle cx="58" cy="132" r="1.1"/>
+                <circle cx="78" cy="118" r="1.8"/>
+                <circle cx="92" cy="128" r="1.2"/>
+                <circle cx="66" cy="138" r="1.4"/>
+              </g>
+            </g>
+          </g>
+
+          <!-- outline + glossy highlight -->
+          <path d="M66 6 C 66 6, 24 60, 24 96 C 24 124, 43 148, 66 148 C 89 148, 108 124, 108 96 C 108 60, 66 6, 66 6 Z"
+                fill="none" stroke="#0b4f88" stroke-width="2" id="dropOutline"/>
+          <path id="dropGloss" d="M48 40 C 40 60, 38 80, 42 92" stroke="white" stroke-width="3" fill="none" opacity="0.55" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <div class="figure">
+        <div class="big"><span id="saveNum">375</span><span class="unit">L</span></div>
+        <div class="lead" id="leadText">ahorrados vs riego manual diario</div>
+        <span class="pill" id="pill">
+          <span class="dot"></span>
+          <span id="pillText">100% de ahorro</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="rows">
+      <div class="row"><span>Usado este mes</span><span class="val"><span id="usedMonth">0.0</span> L</span></div>
+      <div class="row"><span>Usado hoy</span><span class="val"><span id="usedToday">0.0</span> L</span></div>
+      <div class="row"><span>Referencia (15d × 15 L)</span><span class="val">375 L</span></div>
+      <div class="row total" id="totalRow"><span class="lbl">Ahorro total</span><span class="val"><span id="totalSave">375.0</span> L (<span id="totalPct">100</span>%)</span></div>
+    </div>
+    <div class="foot">Toca para ver detalles</div>
+  </section>
+
+  <!-- ============ PANEL ============ -->
+  <section class="panel">
+    <h3>Simulador de consumo</h3>
+    <p class="hint">Arrastra para ver cómo la gota se va rellenando con el agua consumida este mes. Al superar la referencia (375 L), el agua cambia a rojo.</p>
+
+    <div class="slider-row">
+      <input type="range" id="litros" min="0" max="500" step="1" value="0" style="--pct: 0%"/>
+      <div class="num"><span id="litrosNum">0</span><span class="u">L</span></div>
+    </div>
+
+    <div class="quick-btns" id="quickBtns">
+      <button data-v="0">0 L · inicio</button>
+      <button data-v="120">120 L · ligero</button>
+      <button data-v="280">280 L · normal</button>
+      <button data-v="375" class="active">375 L · al límite</button>
+      <button data-v="460">460 L · exceso</button>
+      <button data-v="auto">▶ Auto-play (mes)</button>
+    </div>
+
+    <div class="shutdown-row">
+      <div class="copy">
+        <b>Botón de apagado</b>
+        Pasa el ratón por encima: el símbolo de power dentro de la gota se ilumina en rojo y la gota se prepara para apagar el sistema.
+      </div>
+      <button class="shutdown-btn" id="shutBtn" aria-label="Apagar sistema">
+        <svg width="92" height="108" viewBox="0 0 132 156">
+          <defs>
+            <clipPath id="dropClip2">
+              <path id="dropClipPath2" d="M66 6 C 66 6, 24 60, 24 96 C 24 124, 43 148, 66 148 C 89 148, 108 124, 108 96 C 108 60, 66 6, 66 6 Z" />
+            </clipPath>
+            <linearGradient id="dropBg2" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3fb6f0"/>
+              <stop offset="100%" stop-color="#0b4f88"/>
+            </linearGradient>
+            <radialGradient id="powerGlow" cx="0.5" cy="0.5" r="0.6">
+              <stop offset="0%" stop-color="#ff8a8a" stop-opacity="0.9"/>
+              <stop offset="60%" stop-color="#ff3030" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#ff3030" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <g clip-path="url(#dropClip2)">
+            <rect x="0" y="0" width="132" height="156" fill="url(#dropBg2)"/>
+            <!-- circuit details -->
+            <g stroke="#7fd0ff" stroke-width="0.7" fill="none" opacity="0.7">
+              <path d="M30 60 H 50 V 80"/>
+              <path d="M100 50 V 70 H 80"/>
+              <path d="M40 110 H 60"/>
+              <path d="M90 120 V 100"/>
+              <path d="M55 30 V 50"/>
+              <path d="M70 130 H 90"/>
+            </g>
+            <g fill="#9fdcff" opacity="0.85">
+              <circle cx="30" cy="60" r="1.6"/>
+              <circle cx="50" cy="80" r="1.6"/>
+              <circle cx="100" cy="50" r="1.6"/>
+              <circle cx="80" cy="70" r="1.6"/>
+              <circle cx="40" cy="110" r="1.6"/>
+              <circle cx="60" cy="110" r="1.6"/>
+              <circle cx="90" cy="120" r="1.6"/>
+              <circle cx="90" cy="100" r="1.6"/>
+              <circle cx="55" cy="30" r="1.6"/>
+              <circle cx="55" cy="50" r="1.6"/>
+              <circle cx="70" cy="130" r="1.6"/>
+              <circle cx="90" cy="130" r="1.6"/>
+            </g>
+            <!-- gloss -->
+            <ellipse cx="48" cy="55" rx="14" ry="22" fill="white" opacity="0.18"/>
+            <ellipse cx="86" cy="120" rx="6" ry="9" fill="white" opacity="0.22"/>
+
+            <!-- red glow (revealed on hover via CSS) -->
+            <circle id="redGlow" cx="66" cy="92" r="42" fill="url(#powerGlow)" opacity="0"/>
+
+            <!-- power symbol -->
+            <g id="powerSym" transform="translate(66 92)" stroke="#cfeeff" stroke-width="5" fill="none" stroke-linecap="round">
+              <path d="M -16 -6 A 18 18 0 1 0 16 -6" />
+              <line x1="0" y1="-22" x2="0" y2="-2" />
+            </g>
+          </g>
+
+          <!-- outline -->
+          <path d="M66 6 C 66 6, 24 60, 24 96 C 24 124, 43 148, 66 148 C 89 148, 108 124, 108 96 C 108 60, 66 6, 66 6 Z"
+                fill="none" stroke="#0b4f88" stroke-width="2" id="shutOutline"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+</div>
+
+<div class="demo-meta">
+  <div>aquantIAlab · prototipo de interacción</div>
+  <div class="legend">
+    <span class="swatch"><span class="sw" style="background:#3fb6f0"></span> Ahorro</span>
+    <span class="swatch"><span class="sw" style="background:#ffc94a"></span> Cerca del límite</span>
+    <span class="swatch"><span class="sw" style="background:#e23b3b"></span> Exceso</span>
+  </div>
+</div>
+
+<!-- brand mark svg -->
+<script>
+  document.getElementById('brandMark').innerHTML = `
+    <svg viewBox="0 0 132 156" width="28" height="28" aria-hidden="true">
+      <defs>
+        <linearGradient id="bmGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3fb6f0"/>
+          <stop offset="100%" stop-color="#0b4f88"/>
+        </linearGradient>
+      </defs>
+      <path id="brandMarkPath" d="M66 6 C 66 6, 24 60, 24 96 C 24 124, 43 148, 66 148 C 89 148, 108 124, 108 96 C 108 60, 66 6, 66 6 Z"
+            fill="url(#bmGrad)"/>
+    </svg>`;
+</script>
+
+<style>
+  /* shutdown hover */
+  #powerSym { transition: stroke .35s ease, filter .35s ease; }
+  #redGlow { transition: opacity .35s ease; }
+  #shutOutline { transition: stroke .35s ease; }
+  .shutdown-btn:hover #powerSym {
+    stroke: #ff3838;
+    filter: drop-shadow(0 0 6px rgba(255, 56, 56, 0.9)) drop-shadow(0 0 12px rgba(255, 56, 56, 0.55));
+    animation: powerPulse 1.2s ease-in-out infinite;
+  }
+  .shutdown-btn:hover #redGlow { opacity: 1; animation: glowPulse 1.4s ease-in-out infinite; }
+  .shutdown-btn:hover #shutOutline { stroke: #b91c1c; }
+  @keyframes powerPulse {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(255, 56, 56, 0.9)) drop-shadow(0 0 12px rgba(255, 56, 56, 0.55)); }
+    50%      { filter: drop-shadow(0 0 10px rgba(255, 56, 56, 1)) drop-shadow(0 0 22px rgba(255, 56, 56, 0.8)); }
+  }
+  @keyframes glowPulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+
+  /* danger jitter when overflow */
+  .card-danger #dropOutline { stroke: #b91c1c; }
+  .card-danger {
+    animation: alertShake 1.8s ease-in-out infinite;
+  }
+  @keyframes alertShake {
+    0%, 100% { transform: translateX(0); }
+    92% { transform: translateX(0); }
+    94% { transform: translateX(-2px); }
+    96% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+  }
+</style>
+
+<script>
+  // ----- water wave animation -----
+  const W = 132, H = 156;
+  const waveBack = document.getElementById('waveBack');
+  const waveFront = document.getElementById('waveFront');
+  const waterLayer = document.getElementById('waterLayer');
+  const dropOutline = document.getElementById('dropOutline');
+  const dropSvg = document.getElementById('dropSvg');
+  const card = document.getElementById('card');
+  const litros = document.getElementById('litros');
+  const litrosNum = document.getElementById('litrosNum');
+  const saveNum = document.getElementById('saveNum');
+  const usedMonth = document.getElementById('usedMonth');
+  const usedToday = document.getElementById('usedToday');
+  const totalSave = document.getElementById('totalSave');
+  const totalPct = document.getElementById('totalPct');
+  const totalRow = document.getElementById('totalRow');
+  const pill = document.getElementById('pill');
+  const pillText = document.getElementById('pillText');
+  const leadText = document.getElementById('leadText');
+
+  // ===== TWEAKS =====
+  const TWEAKS = /*EDITMODE-BEGIN*/{
+    "dropWidth": 54,
+    "waveAmp": 5.5,
+    "waveSpeed": 0.5,
+    "refLitros": 445,
+    "warnThreshold": 0.85
+  }/*EDITMODE-END*/;
+
+  let REF = TWEAKS.refLitros;
+  let WARN = TWEAKS.warnThreshold;
+
+  // Rebuild drop silhouette from a half-width param
+  function dropPath(hw) {
+    const cx = 66, top = 6, bot = 148;
+    const lx = cx - hw, rx = cx + hw;
+    const sideY = 96;
+    const bcy = 124;
+    const bcx = Math.round(hw * 0.55);
+    return `M ${cx} ${top} C ${cx} ${top}, ${lx} 60, ${lx} ${sideY} `
+         + `C ${lx} ${bcy}, ${cx - bcx} ${bot}, ${cx} ${bot} `
+         + `C ${cx + bcx} ${bot}, ${rx} ${bcy}, ${rx} ${sideY} `
+         + `C ${rx} 60, ${cx} ${top}, ${cx} ${top} Z`;
+  }
+  function glossPath(hw) {
+    const lx = 66 - hw;
+    return `M ${lx + 24} 40 C ${lx + 16} 60, ${lx + 14} 80, ${lx + 18} 92`;
+  }
+  function applyDropShape(hw) {
+    const d = dropPath(hw);
+    ['dropClipPath', 'dropOutline', 'dropClipPath2', 'shutOutline', 'brandMarkPath']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.setAttribute('d', d); });
+    const gloss = document.getElementById('dropGloss');
+    if (gloss) gloss.setAttribute('d', glossPath(hw));
+    // grow SVG horizontal footprint so wider drops don't clip
+    // viewBox stays 132x156; we scale the container instead
+    const scale = Math.max(1, hw / 42);
+    document.documentElement.style.setProperty('--drop-col', (132 * scale) + 'px');
+    document.documentElement.style.setProperty('--shut-w', (92 * scale) + 'px');
+  }
+  applyDropShape(TWEAKS.dropWidth);
+
+  let phase = 0;
+  let displayedPct = 0; // smoothed
+  let targetPct = 0;
+
+  function buildWave(amplitude, freq, phase, yBase, dir) {
+    // y = yBase + amplitude * sin(...)
+    const pts = [];
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+      const x = (i / steps) * W;
+      const y = yBase + amplitude * Math.sin(freq * (x / W) * Math.PI * 2 + phase * dir);
+      pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    }
+    return `M 0 ${H} L 0 ${pts[0].split(',')[1]} L ` + pts.join(' L ') + ` L ${W} ${H} Z`;
+  }
+
+  function tick(t) {
+    phase += 0.035 * (TWEAKS.waveSpeed || 1);
+    // smooth easing
+    displayedPct += (targetPct - displayedPct) * 0.08;
+
+    // water y based on pct (0% = bottom of drop, 100% = full)
+    // drop spans roughly y=10 (top) to y=148 (bottom), inside area
+    const yTop = 14, yBottom = 150;
+    const p = Math.max(0, Math.min(1.25, displayedPct / 100)); // allow >100 for overflow visual
+    const yBase = yBottom - p * (yBottom - yTop);
+    const baseAmp = (TWEAKS.waveAmp || 4);
+    const amp = baseAmp + Math.min(p, 1) * 2;
+
+    waveFront.setAttribute('d', buildWave(amp, 1.6, phase, yBase, 1));
+    waveBack.setAttribute('d', buildWave(amp * 0.7, 1.2, phase + 1.2, yBase + 3, -1));
+
+    // color based on consumption
+    const consumed = (displayedPct / 100) * REF;
+    const ratio = consumed / REF;
+    let blue = '#3fb6f0', deep = '#0b4f88';
+    if (ratio >= 1) { blue = '#ff6a6a'; deep = '#a31818'; }
+    else if (ratio >= WARN) { blue = '#ffae3b'; deep = '#b86a07'; }
+    // re-color via fill attr only when needed
+    waveFront.setAttribute('fill', `url(#${ratio >= 1 ? 'waterRed' : 'waterBlue'})`);
+    waveBack.setAttribute('fill', `url(#${ratio >= 1 ? 'waterRed' : 'waterBlue'})`);
+    // outline glow when at/over limit
+    if (ratio >= 1) {
+      card.classList.add('card-danger');
+      dropOutline.setAttribute('stroke', '#b91c1c');
+    } else if (ratio >= WARN) {
+      card.classList.remove('card-danger');
+      dropOutline.setAttribute('stroke', '#b86a07');
+    } else {
+      card.classList.remove('card-danger');
+      dropOutline.setAttribute('stroke', '#0b4f88');
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ----- state update -----
+  function setLitros(v) {
+    v = Math.max(0, Math.min(500, v));
+    litros.value = v;
+    litrosNum.textContent = Math.round(v);
+    // pct of REFERENCE consumed
+    const pct = (v / REF) * 100;
+    targetPct = pct;
+    litros.style.setProperty('--pct', Math.min(100, (v / 500) * 100) + '%');
+
+    // numbers in card
+    const ahorro = Math.max(0, REF - v);
+    const ahorroPct = Math.round((ahorro / REF) * 100);
+    saveNum.textContent = ahorro.toFixed(0);
+    usedMonth.textContent = v.toFixed(1);
+    usedToday.textContent = (v / 30).toFixed(1);
+    totalSave.textContent = ahorro.toFixed(1);
+    totalPct.textContent = ahorroPct;
+
+    // pill state
+    pill.classList.remove('warn', 'danger');
+    if (v >= REF) {
+      pill.classList.add('danger');
+      pillText.textContent = `+${(v - REF).toFixed(0)} L sobre el límite`;
+      leadText.textContent = 'has superado el riego manual diario';
+      totalRow.classList.add('danger');
+    } else if (v >= REF * WARN) {
+      pill.classList.add('warn');
+      pillText.textContent = `${ahorroPct}% de ahorro · cerca del límite`;
+      leadText.textContent = 'queda poco margen este mes';
+      totalRow.classList.remove('danger');
+    } else {
+      pillText.textContent = `${ahorroPct}% de ahorro`;
+      leadText.textContent = 'ahorrados vs riego manual diario';
+      totalRow.classList.remove('danger');
+    }
+  }
+
+  litros.addEventListener('input', e => {
+    stopAuto();
+    setLitros(parseInt(e.target.value, 10));
+    setActiveQuick(null);
+  });
+
+  // ----- quick buttons -----
+  const quickBtns = document.getElementById('quickBtns');
+  function setActiveQuick(val) {
+    quickBtns.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', String(b.dataset.v) === String(val));
+    });
+  }
+  quickBtns.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const v = b.dataset.v;
+    if (v === 'auto') { startAuto(); setActiveQuick('auto'); return; }
+    stopAuto();
+    setActiveQuick(v);
+    setLitros(parseInt(v, 10));
+  });
+
+  // ----- auto-play simulates a month -----
+  let autoTimer = null;
+  function startAuto() {
+    stopAuto();
+    let v = 0;
+    setLitros(0);
+    autoTimer = setInterval(() => {
+      // slightly accelerated, varied daily usage
+      const inc = 6 + Math.random() * 10;
+      v += inc;
+      const cap = Math.round(REF * 1.28);
+      if (v > cap) { stopAuto(); setActiveQuick(null); v = cap; }
+      setLitros(v);
+    }, 220);
+  }
+  function stopAuto() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  }
+
+  // start at 0 to show empty state, then animate up to 375 as intro
+  setLitros(0);
+  setTimeout(() => {
+    // gentle intro: rise to REF over ~2.5s
+    let v = 0;
+    const start = performance.now();
+    const dur = 2500;
+    function intro(t) {
+      const p = Math.min(1, (t - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      v = eased * REF;
+      setLitros(v);
+      if (p < 1) requestAnimationFrame(intro);
+    }
+    requestAnimationFrame(intro);
+  }, 500);
+</script>
+
+<!-- ============ TWEAKS PANEL ============ -->
+<style>
+  .tweaks-panel {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 300px;
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px -8px rgba(15,23,42,0.25);
+    padding: 16px 18px 14px;
+    z-index: 9999;
+    display: none;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .tweaks-panel.open { display: block; }
+  .tweaks-panel .tp-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .tweaks-panel .tp-title {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .tweaks-panel .tp-close {
+    border: none; background: transparent; cursor: pointer;
+    color: var(--ink-muted); padding: 4px; border-radius: 6px;
+    font-size: 16px; line-height: 1;
+  }
+  .tweaks-panel .tp-close:hover { background: #f1f5f9; color: var(--ink); }
+  .tweaks-panel .tp-sub {
+    font-size: 11.5px; color: var(--ink-muted);
+    margin: 0 0 12px;
+  }
+  .tweaks-panel .tp-row { margin: 10px 0 12px; }
+  .tweaks-panel .tp-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12.5px; color: var(--ink); font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .tweaks-panel .tp-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--aqua-dark); font-weight: 600;
+  }
+  .tweaks-panel input[type="range"] {
+    width: 100%; height: 22px;
+  }
+  .tweaks-panel .tp-reset {
+    width: 100%; margin-top: 8px;
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px; color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .tweaks-panel .tp-reset:hover { background: #f8fafd; }
+</style>
+
+<div class="tweaks-panel" id="tweaksPanel" aria-hidden="true">
+  <div class="tp-head">
+    <div class="tp-title">Tweaks</div>
+    <button class="tp-close" id="tpClose" aria-label="Cerrar tweaks">✕</button>
+  </div>
+  <p class="tp-sub">Ajusta la forma de la gota y la animación.</p>
+
+  <div class="tp-row">
+    <div class="tp-label"><span>Ancho de la gota</span><span class="tp-value"><span id="tpDropWidthVal">42</span> px</span></div>
+    <input type="range" id="tpDropWidth" min="30" max="62" step="1" />
+  </div>
+
+  <div class="tp-row">
+    <div class="tp-label"><span>Amplitud de las olas</span><span class="tp-value"><span id="tpWaveAmpVal">4</span> px</span></div>
+    <input type="range" id="tpWaveAmp" min="0" max="10" step="0.5" />
+  </div>
+
+  <div class="tp-row">
+    <div class="tp-label"><span>Velocidad de las olas</span><span class="tp-value">×<span id="tpWaveSpeedVal">1</span></span></div>
+    <input type="range" id="tpWaveSpeed" min="0" max="3" step="0.1" />
+  </div>
+
+  <div class="tp-row">
+    <div class="tp-label"><span>Referencia (límite mes)</span><span class="tp-value"><span id="tpRefVal">375</span> L</span></div>
+    <input type="range" id="tpRef" min="150" max="600" step="5" />
+  </div>
+
+  <div class="tp-row">
+    <div class="tp-label"><span>Umbral de aviso</span><span class="tp-value"><span id="tpWarnVal">85</span>%</span></div>
+    <input type="range" id="tpWarn" min="50" max="99" step="1" />
+  </div>
+
+  <button class="tp-reset" id="tpReset">Restaurar valores</button>
+</div>
+
+<script>
+  (function () {
+    const panel = document.getElementById('tweaksPanel');
+    const DEFAULTS = { dropWidth: 42, waveAmp: 4, waveSpeed: 1, refLitros: 375, warnThreshold: 0.85 };
+
+    function syncUI() {
+      document.getElementById('tpDropWidth').value = TWEAKS.dropWidth;
+      document.getElementById('tpDropWidthVal').textContent = TWEAKS.dropWidth;
+      document.getElementById('tpWaveAmp').value = TWEAKS.waveAmp;
+      document.getElementById('tpWaveAmpVal').textContent = TWEAKS.waveAmp;
+      document.getElementById('tpWaveSpeed').value = TWEAKS.waveSpeed;
+      document.getElementById('tpWaveSpeedVal').textContent = TWEAKS.waveSpeed;
+      document.getElementById('tpRef').value = TWEAKS.refLitros;
+      document.getElementById('tpRefVal').textContent = TWEAKS.refLitros;
+      document.getElementById('tpWarn').value = Math.round(TWEAKS.warnThreshold * 100);
+      document.getElementById('tpWarnVal').textContent = Math.round(TWEAKS.warnThreshold * 100);
+    }
+    syncUI();
+
+    function persist(patch) {
+      Object.assign(TWEAKS, patch);
+      try {
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*');
+      } catch (e) {}
+    }
+
+    function applyAll() {
+      applyDropShape(TWEAKS.dropWidth);
+      REF = TWEAKS.refLitros;
+      WARN = TWEAKS.warnThreshold;
+      // refresh dependent UI based on current litros value
+      setLitros(parseInt(litros.value, 10) || 0);
+      // also keep slider max sensible relative to REF
+      litros.max = Math.max(500, Math.round(REF * 1.3));
+    }
+    applyAll();
+
+    function bind(id, key, valId, parse, fmt) {
+      const el = document.getElementById(id);
+      const v = document.getElementById(valId);
+      el.addEventListener('input', e => {
+        const raw = parseFloat(e.target.value);
+        const val = parse ? parse(raw) : raw;
+        v.textContent = fmt ? fmt(val) : val;
+        persist({ [key]: val });
+        applyAll();
+      });
+    }
+    bind('tpDropWidth', 'dropWidth', 'tpDropWidthVal');
+    bind('tpWaveAmp', 'waveAmp', 'tpWaveAmpVal');
+    bind('tpWaveSpeed', 'waveSpeed', 'tpWaveSpeedVal');
+    bind('tpRef', 'refLitros', 'tpRefVal');
+    bind('tpWarn', 'warnThreshold',
+      'tpWarnVal',
+      v => v / 100,
+      v => Math.round(v * 100));
+
+    document.getElementById('tpReset').addEventListener('click', () => {
+      Object.assign(TWEAKS, DEFAULTS);
+      persist({ ...DEFAULTS });
+      syncUI();
+      applyAll();
+    });
+
+    // ----- Edit-mode protocol -----
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || typeof d !== 'object') return;
+      if (d.type === '__activate_edit_mode') {
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+      } else if (d.type === '__deactivate_edit_mode') {
+        panel.classList.remove('open');
+        panel.setAttribute('aria-hidden', 'true');
+      }
+    });
+
+    document.getElementById('tpClose').addEventListener('click', () => {
+      panel.classList.remove('open');
+      panel.setAttribute('aria-hidden', 'true');
+      try { window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*'); } catch (e) {}
+    });
+
+    // Announce availability AFTER listeners are wired
+    try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch (e) {}
+  })();
+</script>
+
+</body>
+</html>

@@ -12,43 +12,68 @@ const THEMES = {
   cyan:   { gradient: 'from-brand-500 to-brand-300',          soft: 'bg-brand-50',   text: 'text-brand-500',   border: 'border-brand-100' },
 }
 
-export default function StatCard({ title, value, unit, icon: Icon, color = 'teal', subtitle, min, max }) {
+function formatMetricValue(value) {
+  return value != null ? Number(value).toFixed(1) : '—'
+}
+
+export default function StatCard({ title, value, unit, icon: Icon, color = 'teal', subtitle, min, max, items }) {
   const t = THEMES[color] ?? THEMES.teal
-  const display = value != null ? Number(value).toFixed(1) : '—'
+  const groupedItems = Array.isArray(items) && items.length > 0
+    ? items
+    : [{ label: title, value, unit, subtitle, min, max }]
 
   return (
-    <div className={`bg-white rounded-2xl border ${t.border} shadow-sm overflow-hidden`}>
-      {/* Gradient top bar */}
-      <div className={`h-1 bg-gradient-to-r ${t.gradient}`} />
+    <div className={`bg-white rounded-2xl border ${t.border} shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
+      <div className={`h-[3px] bg-gradient-to-r ${t.gradient}`} />
 
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest leading-none">{title}</p>
-          <div className={`${t.soft} ${t.text} p-1.5 rounded-lg`}>
-            <Icon size={15} />
+      <div className="p-4 pb-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`${t.soft} ${t.text} p-1 rounded-lg flex items-center justify-center`} style={{ boxShadow: '0 1px 4px 0 rgba(0,0,0,0.03)' }}>
+            <Icon size={13} />
           </div>
+          <h3 className="text-[13px] font-bold text-navy-700 uppercase tracking-wider leading-none">{title}</h3>
         </div>
 
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-3xl font-bold text-navy-900 leading-none tracking-tight">
-              {display}
-            </p>
-            <p className="text-sm font-medium text-navy-300 mt-1">{unit}</p>
-          </div>
-          {subtitle && (
-            <span className={`text-xs font-bold ${t.text} ${t.soft} px-2 py-1 rounded-lg`}>
-              {subtitle}
-            </span>
-          )}
-        </div>
+        <div className="space-y-2.5">
+          {groupedItems.map((item, index) => {
+            const hasRange = item.min != null && item.max != null
 
-        {min != null && max != null && (
-          <div className="mt-3 pt-3 border-t border-navy-50 flex justify-between text-xs text-navy-300">
-            <span>Min <strong className="text-navy-500">{Number(min).toFixed(1)}</strong></span>
-            <span>Max <strong className="text-navy-500">{Number(max).toFixed(1)}</strong></span>
-          </div>
-        )}
+            return (
+              <div
+                key={`${title}-${item.label ?? index}`}
+                className={index > 0 ? 'pt-2.5 border-t border-navy-50' : ''}
+              >
+                {groupedItems.length > 1 && (
+                  <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-wide mb-1.5">
+                    {item.label}
+                  </p>
+                )}
+
+                <div className="flex items-end justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className={`${groupedItems.length > 1 ? 'text-xl' : 'text-2xl'} font-extrabold text-navy-900 leading-none tracking-tight tabular-nums`}>
+                      {formatMetricValue(item.value)}
+                    </p>
+                    <p className="text-xs font-medium text-navy-300 mt-0.5">{item.unit}</p>
+                  </div>
+
+                  {item.subtitle && (
+                    <span className={`text-xs font-bold ${t.text} ${t.soft} px-2 py-1 rounded-lg`}>
+                      {item.subtitle}
+                    </span>
+                  )}
+                </div>
+
+                {hasRange && (
+                  <div className="mt-2 pt-2 border-t border-navy-50 flex justify-between text-xs text-navy-300">
+                    <span>Min <strong className="text-navy-500 tabular-nums">{Number(item.min).toFixed(1)}</strong></span>
+                    <span>Max <strong className="text-navy-500 tabular-nums">{Number(item.max).toFixed(1)}</strong></span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

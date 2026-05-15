@@ -1,0 +1,59 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    // ── Un solo botón: F5 levanta entorno local y depura el backend ──────────
+    {
+      "name": "Aquantia: Entorno local completo",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app_meteo/backend/app.py",
+      "cwd": "${workspaceFolder}/app_meteo/backend",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "envFile": "${workspaceFolder}/app_meteo/backend/.env",
+      "env": {
+        "FLASK_ENV": "development",
+        "FLASK_DEBUG": "0"
+      },
+      "console": "integratedTerminal",
+      "jinja": true,
+      "justMyCode": true,
+      "preLaunchTask": "Dev: Preparar entorno local",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Running on (https?://\\S+)",
+        "uriFormat": "http://localhost:5173"
+      }
+    },
+
+    // ── Backend Flask — modo debug ────────────────────────────────────────────
+    {
+      "name": "Backend: Flask Debug",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app_meteo/backend/app.py",
+      "cwd": "${workspaceFolder}/app_meteo/backend",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "envFile": "${workspaceFolder}/app_meteo/backend/.env",
+      "env": {
+        "FLASK_ENV": "development",
+        "FLASK_DEBUG": "0"
+      },
+      "console": "integratedTerminal",
+      "jinja": true,
+      "justMyCode": true
+    },
+
+    // ── Simulador de pipeline ─────────────────────────────────────────────────
+    {
+      "name": "Backend: Pipeline Simulator",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app_meteo/backend/simulator.py",
+      "cwd": "${workspaceFolder}/app_meteo/backend",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "envFile": "${workspaceFolder}/app_meteo/backend/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

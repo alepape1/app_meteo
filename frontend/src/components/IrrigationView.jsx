@@ -5,6 +5,7 @@ import {
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
   BarChart2,
 } from 'lucide-react'
+import { useAuth } from '../AuthContext'
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -34,7 +35,7 @@ function ConfirmModal({ message, onConfirm, onCancel }) {
 
 // ── Penman-Monteith FAO-56 simplificado ──────────────────────────────────────
 // Ra fijado en ~10 MJ/m²/día (media anual Lanzarote ~29°N)
-function calcET0(temp, humidity, windSpeed) {
+export function calcET0(temp, humidity, windSpeed) {
   if (temp == null) return null
   const T   = temp
   const RH  = Math.max(5, Math.min(100, humidity ?? 60))
@@ -50,7 +51,7 @@ function calcET0(temp, humidity, windSpeed) {
 }
 
 // ── Asesor de riego ──────────────────────────────────────────────────────────
-function getAdvice(temp, humidity, wind, et0Num) {
+export function getAdvice(temp, humidity, wind, et0Num) {
   const hour = new Date().getHours()
   const optimalHour = (hour >= 6 && hour <= 10) || (hour >= 18 && hour <= 22)
 
@@ -99,58 +100,141 @@ function getAdvice(temp, humidity, wind, et0Num) {
   }
 }
 
-// ── SVG Water Droplet animado ────────────────────────────────────────────────
-// savingsPct 0-100: cuánto se ha ahorrado (más = más lleno = mejor)
-function WaterDroplet({ savingsPct, color, size = 72 }) {
-  const uid = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
-  const fill = Math.max(2, Math.min(98, savingsPct))
-  // yWave: 12 (lleno) → 100 (vacío), dentro del viewBox 0 0 80 104
-  const yWave = 100 - (fill / 100) * 88
+// ── Aquantia drop path — hw=54, viewBox 132×156 (spec parametric formula) ─────
+const _HW = 54, _CX = 66, _TOP = 6, _BOT = 148, _SIDEY = 96, _BCY = 124
+const _LX = _CX - _HW, _RX = _CX + _HW, _BCX = Math.round(_HW * 0.55)
+const AQUANTIA_DROP_PATH =
+  `M ${_CX} ${_TOP} C ${_CX} ${_TOP}, ${_LX} 60, ${_LX} ${_SIDEY} ` +
+  `C ${_LX} ${_BCY}, ${_CX - _BCX} ${_BOT}, ${_CX} ${_BOT} ` +
+  `C ${_CX + _BCX} ${_BOT}, ${_RX} ${_BCY}, ${_RX} ${_SIDEY} ` +
+  `C ${_RX} 60, ${_CX} ${_TOP}, ${_CX} ${_TOP} Z`
 
-  const palette = {
-    green: { main: '#10b981', light: '#d1fae5', stroke: '#059669' },
-    amber: { main: '#f59e0b', light: '#fef3c7', stroke: '#d97706' },
-    red:   { main: '#ef4444', light: '#fee2e2', stroke: '#dc2626' },
+function buildWave(amplitude, freq, phase, yBase, dir) {
+  const W = 132, H = 156, steps = 24
+  const pts = []
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * W
+    const y = yBase + amplitude * Math.sin(freq * (x / W) * Math.PI * 2 + phase * dir)
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
   }
-  const p = palette[color] ?? palette.green
-  // Teardrop: punta arriba, semicírculo en la base (sweep=1 = horario = hacia abajo)
-  const dropPath = 'M40,4 C40,4 12,50 12,72 A28,28 0 0 1 68,72 C68,50 40,4 40,4 Z'
-  const wavePath = `M-80,${yWave} C-60,${yWave - 4} -40,${yWave + 4} -20,${yWave} `
-    + `C0,${yWave - 4} 20,${yWave + 4} 40,${yWave} `
-    + `C60,${yWave - 4} 80,${yWave + 4} 100,${yWave} `
-    + `C120,${yWave - 4} 140,${yWave + 4} 160,${yWave} `
-    + `L160,108 L-80,108 Z`
+  return `M 0 ${H} L 0 ${pts[0].split(',')[1]} L ` + pts.join(' L ') + ` L ${W} ${H} Z`
+}
 
+export function getWaterColors(pct) {
+  if (pct >= 100) return { top: '#ff6a6a', deep: '#a31818', stroke: '#b91c1c', bg: '#fee2e2' }
+  if (pct >= 85)  return { top: '#ffae3b', deep: '#b86a07', stroke: '#b86a07', bg: '#fef3c7' }
+  return               { top: '#3fb6f0', deep: '#0b4f88', stroke: '#0b4f88', bg: '#eaf5ff' }
+}
+
+// ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
+// consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
+function WaterDroplet({ consumptionPct = 0, size = 120 }) {
+  const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
+  const svgRef   = useRef(null)
+  const frontRef = useRef(null)
+  const backRef  = useRef(null)
+  const midRef   = useRef(null)
+  const bgRef    = useRef(null)
+  const stop0    = useRef(null)
+  const stop1    = useRef(null)
+  const outRef   = useRef(null)
+  const rafId    = useRef(null)
+  const anim     = useRef({ displayedPct: 0, phase: 0, introStart: null, target: 0 })
+
+  useEffect(() => {
+    anim.current.target = Math.max(0, consumptionPct)
+  }, [consumptionPct])
+
+  useEffect(() => {
+    const WAVE_AMP = 9, WAVE_SPEED = 0.5
+    const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
+    // Always show at least 20% visual fill so animation is perceptible
+    const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
+
+    anim.current.introStart = performance.now()
+    anim.current.displayedPct = 0
+
+    function tick(now) {
+      const a = anim.current
+      const introP = Math.min(1, (now - a.introStart) / INTRO_MS)
+      const eased  = 1 - Math.pow(1 - introP, 3)
+
+      a.displayedPct += (a.target * eased - a.displayedPct) * 0.08
+      a.phase += 0.035 * WAVE_SPEED
+
+      const p     = Math.max(0, Math.min(1.25, a.displayedPct / 100))
+      const yBase = Math.min(Y_BOTTOM - p * (Y_BOTTOM - Y_TOP), Y_MIN)
+
+      if (frontRef.current) frontRef.current.setAttribute('d', buildWave(WAVE_AMP, 1.6, a.phase, yBase, +1))
+      if (midRef.current)   midRef.current.setAttribute('d',   buildWave(WAVE_AMP * 0.8, 2.0, a.phase + 2.0, yBase + 2, +1))
+      if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 1.2, 1.2, a.phase + 1.2, yBase + 5, -1))
+
+      const c = getWaterColors(a.displayedPct)
+      if (stop0.current) stop0.current.setAttribute('stop-color', c.top)
+      if (stop1.current) stop1.current.setAttribute('stop-color', c.deep)
+      if (outRef.current) outRef.current.setAttribute('stroke', c.stroke)
+      if (bgRef.current)  bgRef.current.setAttribute('fill', c.bg)
+
+      if (svgRef.current)
+        svgRef.current.style.animation = a.displayedPct >= 100
+          ? `shk-${uid} 1.8s ease-in-out infinite` : ''
+
+      rafId.current = requestAnimationFrame(tick)
+    }
+
+    rafId.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId.current)
+  }, [uid])
+
+  const h = Math.round(size * 156 / 132)
   return (
     <>
       <style>{`
-        @keyframes wv-${uid} { 0%{transform:translateX(0)} 100%{transform:translateX(-80px)} }
-        .wv-${uid} { animation: wv-${uid} 2.5s linear infinite; }
+        @keyframes shk-${uid} {
+          0%,92%,100%{transform:translateX(0)}
+          94%{transform:translateX(-2px)} 96%{transform:translateX(2px)} 98%{transform:translateX(-1px)}
+        }
       `}</style>
       <svg
-        width={size} height={size * 104 / 80}
-        viewBox="0 0 80 104"
-        style={{ overflow: 'visible', display: 'block' }}
+        ref={svgRef}
+        width={size} height={h}
+        viewBox="0 0 132 156"
+        style={{ overflow: 'visible', display: 'block', flexShrink: 0 }}
       >
         <defs>
-          <clipPath id={`cp-${uid}`}>
-            <path d={dropPath} />
-          </clipPath>
+          <clipPath id={`cp-${uid}`}><path d={AQUANTIA_DROP_PATH} /></clipPath>
+          <linearGradient id={`wg-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop ref={stop0} offset="0%"   stopColor="#3fb6f0" />
+            <stop ref={stop1} offset="100%" stopColor="#0b4f88" />
+          </linearGradient>
+          <pattern id={`ct-${uid}`} width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10"
+              fill="none" stroke="#7fd0ff" strokeWidth="0.5" opacity="0.55"/>
+            <circle cx="7" cy="5" r="0.9" fill="#9fdcff" opacity="0.7"/>
+            <circle cx="13" cy="9" r="0.9" fill="#9fdcff" opacity="0.7"/>
+          </pattern>
+          <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
         </defs>
-        {/* Gota fondo */}
-        <path d={dropPath} fill={p.light} stroke={p.stroke} strokeWidth="1.5" />
-        {/* Relleno + ola animada */}
+        {/* glow halo exterior */}
+        <path d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
+        <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
-          <rect x="-5" y={yWave + 3} width="90" height="110" fill={p.main} opacity="0.35" />
-          <g className={`wv-${uid}`}>
-            <path d={wavePath} fill={p.main} opacity="0.75" />
-          </g>
+          <rect x="0" y="0" width="132" height="156" fill={`url(#ct-${uid})`} opacity="0.6" />
         </g>
-        {/* Brillo */}
-        <ellipse
-          cx="28" cy="28" rx="5" ry="9" fill="white" opacity="0.22"
-          transform="rotate(-25,28,28)"
-        />
+        <g clipPath={`url(#cp-${uid})`}>
+          <ellipse cx="45" cy="38" rx="9" ry="16" fill="white" opacity="0.22" transform="rotate(-25,45,38)" />
+          <ellipse cx="35" cy="55" rx="5" ry="8"  fill="white" opacity="0.14" transform="rotate(-20,35,55)" />
+          <ellipse cx="90" cy="42" rx="3" ry="5"  fill="white" opacity="0.10" transform="rotate(15,90,42)" />
+        </g>
+        <g clipPath={`url(#cp-${uid})`}>
+          <path ref={backRef}  d="" fill={`url(#wg-${uid})`} opacity="0.45" />
+          <path ref={midRef}   d="" fill={`url(#wg-${uid})`} opacity="0.60" />
+          <path ref={frontRef} d="" fill={`url(#wg-${uid})`} opacity="1" />
+        </g>
+        <path ref={outRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#0b4f88" strokeWidth="2.5" />
       </svg>
     </>
   )
@@ -219,25 +303,43 @@ function SectorCard({ sector }) {
   )
 }
 
-// ── RelayControl con temporizador de sesión ──────────────────────────────────
-function RelayControl({ setRelay, flowLpm = 5 }) {
-  const [desired, setDesired] = useState(false)
-  const [actual, setActual]   = useState(false)  // confirmado por ESP32 vía ACK
+// ── ValveCard — control individual de una electroválvula ─────────────────────
+function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
+  const { authFetch } = useAuth()
+  const [desired, setDesired] = useState(initialState?.desired ?? false)
+  const [actual,  setActual]  = useState(initialState?.actual  ?? false)
   const [busy, setBusy] = useState(false)
+  const [retryRemainingMs, setRetryRemainingMs] = useState(0)
   const [sessionStart, setSessionStart] = useState(null)
-  const [sessionSeconds, setSessionSeconds] = useState(0)
+  const [sessionSeconds, setSessionSeconds] = useState(null)
   const pollRef = useRef(null)
+  const retryTimerRef = useRef(null)
 
-  // Carga el estado inicial (desired + actual) desde el servidor
+  // Sync state when parent passes new initialState
   useEffect(() => {
-    fetch('/api/relay')
-      .then(r => r.json())
-      .then(j => { setDesired(j.desired ?? false); setActual(j.actual ?? false) })
-      .catch(() => {})
-  }, [])
+    if (initialState) {
+      const nextDesired = Boolean(initialState.desired)
+      const nextActual = Boolean(initialState.actual)
+      setDesired(nextDesired)
+      setActual(nextActual)
+      if (nextDesired === nextActual) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
+        if (retryTimerRef.current) {
+          clearInterval(retryTimerRef.current)
+          retryTimerRef.current = null
+        }
+        setRetryRemainingMs(0)
+      }
+    }
+  }, [initialState?.desired, initialState?.actual])
 
-  // Limpia el polling al desmontar
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    if (retryTimerRef.current) clearInterval(retryTimerRef.current)
+  }, [])
 
   useEffect(() => {
     if (!sessionStart) return
@@ -245,41 +347,83 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
     return () => clearInterval(id)
   }, [sessionStart])
 
-  // Polling rápido hasta que el ESP32 confirme el nuevo estado (máx ~30s)
+  const startRetryCooldown = useCallback((timeoutMs = 8000) => {
+    if (retryTimerRef.current) clearInterval(retryTimerRef.current)
+    const endsAt = Date.now() + timeoutMs
+    setRetryRemainingMs(timeoutMs)
+    retryTimerRef.current = setInterval(() => {
+      const remaining = Math.max(0, endsAt - Date.now())
+      setRetryRemainingMs(remaining)
+      if (remaining <= 0) {
+        clearInterval(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    }, 250)
+  }, [])
+
   const startSyncPolling = useCallback((expected) => {
     if (pollRef.current) clearInterval(pollRef.current)
     let attempts = 0
     pollRef.current = setInterval(async () => {
       attempts++
       try {
-        const res = await fetch('/api/relay')
-        const j = await res.json()
-        const confirmed = j.actual ?? false
-        setActual(confirmed)
-        if (confirmed === expected || attempts >= 15) {
+        const url = mac ? `/api/relay?mac=${encodeURIComponent(mac)}` : '/api/relay'
+        const res = await authFetch(url)
+        const arr = await res.json()
+        const row = Array.isArray(arr) ? arr.find(r => r.index === index) : null
+        if (row) {
+          const backendDesired = Boolean(row.desired)
+          const backendActual = Boolean(row.actual)
+          setDesired(backendDesired)
+          setActual(backendActual)
+          if (backendActual === expected || backendDesired === backendActual || attempts >= 15) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+          }
+          if (backendDesired === backendActual && retryTimerRef.current) {
+            clearInterval(retryTimerRef.current)
+            retryTimerRef.current = null
+            setRetryRemainingMs(0)
+          }
+        } else if (attempts >= 15) {
           clearInterval(pollRef.current)
           pollRef.current = null
         }
       } catch (_) {
-        if (attempts >= 15) { clearInterval(pollRef.current); pollRef.current = null }
+        if (attempts >= 15) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
       }
     }, 2000)
-  }, [])
-
-  const toggle = useCallback(async () => {
-    setBusy(true)
-    const next = !desired
-    await setRelay(next)
-    setDesired(next)
-    if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
-    else { setSessionStart(null) }
-    setBusy(false)
-    startSyncPolling(next)
-  }, [desired, setRelay, startSyncPolling])
+  }, [authFetch, mac, index])
 
   const synced = desired === actual
-  const sessionLiters = (sessionSeconds / 60 * flowLpm).toFixed(1)
+  const cooldownSeconds = Math.ceil(retryRemainingMs / 1000)
+  const actionLocked = busy || retryRemainingMs > 0
+
+  const toggle = useCallback(async () => {
+    if (busy || retryRemainingMs > 0) return
+    setBusy(true)
+    const next = synced ? !desired : !actual
+    try {
+      await authFetch('/api/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, index, state: next }),
+      })
+      setDesired(next)
+      startRetryCooldown(8000)
+      if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
+      else { setSessionStart(null) }
+      startSyncPolling(next)
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, retryRemainingMs, synced, desired, actual, authFetch, mac, index, startRetryCooldown, startSyncPolling])
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+  const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
+  const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -288,7 +432,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
           <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
         </div>
         <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Electroválvula principal
+          Válvula {index + 1}
         </p>
       </div>
 
@@ -298,15 +442,14 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
         }`} />
         <div className="flex-1">
           <p className="text-sm font-semibold text-navy-900">
-            {actual ? 'Válvula abierta — Regando' : 'Válvula cerrada'}
+            {actual ? 'Abierta — Regando' : 'Cerrada'}
           </p>
           <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado con el dispositivo' : 'Sincronizando…'}
+            {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
           </p>
         </div>
       </div>
 
-      {/* Info de sesión — visible cuando está abierta o recién cerrada */}
       {(desired || sessionSeconds > 0) && (
         <div className={`rounded-xl p-3 mb-4 ${
           desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
@@ -315,7 +458,7 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             <span className="flex items-center gap-1 text-navy-400">
               <Clock size={11} /> Tiempo abierta
             </span>
-            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds)}</span>
+            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
           </div>
           <div className="flex justify-between text-xs mt-1.5">
             <span className="flex items-center gap-1 text-navy-400">
@@ -323,27 +466,71 @@ function RelayControl({ setRelay, flowLpm = 5 }) {
             </span>
             <span className="font-semibold text-brand-600">{sessionLiters} L</span>
           </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal nominal: {flowLpm} L/min</p>
+          <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
         </div>
       )}
 
       <button
         onClick={toggle}
-        disabled={busy}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 ${
+        disabled={actionLocked}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
           desired
             ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
             : 'bg-brand-500 text-white hover:bg-brand-600'
         }`}
       >
         {desired ? <Lock size={14} /> : <Unlock size={14} />}
-        {busy ? 'Enviando…' : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+        {busy
+          ? 'Enviando…'
+          : retryRemainingMs > 0
+            ? `Espera ${cooldownSeconds}s…`
+            : !synced
+              ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
+              : desired ? 'Cerrar válvula' : 'Abrir válvula'}
       </button>
-
-      <p className="text-xs text-navy-300 mt-2.5 text-center">
-        GPIO 26 · JQC-3FF-S-Z · Relay activo-LOW
-      </p>
     </div>
+  )
+}
+
+// ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
+function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm }) {
+  const { authFetch } = useAuth()
+  const [states, setStates] = useState([])
+
+  useEffect(() => {
+    setStates([])
+    const url = selectedMac
+      ? `/api/relay?mac=${encodeURIComponent(selectedMac)}`
+      : '/api/relay'
+    authFetch(url)
+      .then(r => r.json())
+      .then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      })
+      .catch(() => {})
+    const id = setInterval(() => {
+      authFetch(url).then(r => r.json()).then(arr => {
+        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+        setStates(normalized)
+      }).catch(() => {})
+    }, 5000)
+    return () => clearInterval(id)
+  }, [authFetch, selectedMac])
+
+  return (
+    <>
+      {Array.from({ length: relayCount }, (_, i) => (
+        <ValveCard
+          key={`${selectedMac || 'default'}-${i}`}
+          index={i}
+          mac={selectedMac}
+          flowLpm={flowLpm}
+          sensorFlowLpm={sensorFlowLpm}
+          initialState={states.find(s => s.index === i)}
+        />
+      ))}
+    </>
   )
 }
 
@@ -357,16 +544,35 @@ function SavingsCard({ stats }) {
     </div>
   )
 
-  const { monthly_liters, baseline_liters, savings_liters, today_liters, daily, days_elapsed } = stats
+  const {
+    monthly_liters, baseline_liters, savings_liters, today_liters, daily, days_elapsed,
+    used_liters = monthly_liters, leak_liters = 0, today_leak_liters = 0, total_liters = monthly_liters,
+  } = stats
   const savingsPct = baseline_liters > 0
     ? Math.round((savings_liters / baseline_liters) * 100)
     : 0
-  const color = savingsPct >= 60 ? 'green' : savingsPct >= 30 ? 'amber' : 'red'
+  const consumptionPct = baseline_liters > 0
+    ? (total_liters / baseline_liters) * 100
+    : 0
+  const hasLeak = leak_liters > 0.5
+
+  const state = consumptionPct >= 100 ? 'danger' : consumptionPct >= 85 ? 'warn' : 'ok'
   const cc = {
-    green: { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700', border: 'border-emerald-100' },
-    amber: { text: 'text-amber-500',   badge: 'bg-amber-50 text-amber-700',     border: 'border-amber-200' },
-    red:   { text: 'text-red-500',     badge: 'bg-red-50 text-red-700',         border: 'border-red-200' },
-  }[color]
+    ok:     { text: 'text-emerald-600', border: 'border-sky-100',   pillStyle: { background: '#d6f4e6', color: '#16a36e' } },
+    warn:   { text: 'text-amber-500',   border: 'border-amber-200', pillStyle: { background: '#fff3d6', color: '#b8861f' } },
+    danger: { text: 'text-red-500',     border: 'border-red-200',   pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
+  }[state]
+
+  const pillText = consumptionPct >= 100
+    ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
+    : consumptionPct >= 85
+    ? `${savingsPct}% de ahorro · cerca del límite`
+    : `${savingsPct}% de ahorro`
+  const leadText = consumptionPct >= 100
+    ? 'has superado el riego manual diario'
+    : consumptionPct >= 85
+    ? 'queda poco margen este mes'
+    : 'ahorrados vs riego manual diario'
 
   return (
     <div
@@ -375,10 +581,17 @@ function SavingsCard({ stats }) {
       role="button"
       aria-expanded={expanded}
     >
+      <style>{`
+        @keyframes dot-pulse {
+          0%   { box-shadow: 0 0 0 0 currentColor; opacity: .8; }
+          80%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
+          100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
+        }
+      `}</style>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="bg-emerald-50 p-1.5 rounded-lg">
-            <Leaf size={15} className="text-emerald-600" />
+          <div className="bg-sky-50 p-1.5 rounded-lg">
+            <Leaf size={15} className="text-sky-500" />
           </div>
           <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
             Ahorro este mes
@@ -390,18 +603,31 @@ function SavingsCard({ stats }) {
         }
       </div>
 
+      {hasLeak && (
+        <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+          <AlertTriangle size={13} className="shrink-0" />
+          Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
+        </div>
+      )}
       <div className="flex items-center gap-4">
-        <WaterDroplet savingsPct={savingsPct} color={color} size={68} />
+        <WaterDroplet consumptionPct={consumptionPct} size={90} />
         <div className="flex-1 min-w-0">
           <p className="text-3xl font-bold text-navy-900 leading-none">
             {savings_liters.toFixed(0)}
             <span className="text-base font-normal text-navy-300 ml-1">L</span>
           </p>
           <p className="text-xs text-navy-400 mt-1 leading-snug">
-            ahorrados vs riego manual diario
+            {leadText}
           </p>
-          <span className={`inline-block mt-2 text-xs font-semibold px-2 py-0.5 rounded-full ${cc.badge}`}>
-            {savingsPct}% de ahorro
+          <span
+            className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
+            style={cc.pillStyle}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
+              style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
+            />
+            {pillText}
           </span>
         </div>
       </div>
@@ -409,15 +635,30 @@ function SavingsCard({ stats }) {
       {expanded && (
         <div className="mt-4 pt-4 border-t border-navy-50 space-y-2">
           {[
-            ['Usado este mes',                       `${monthly_liters.toFixed(1)} L`],
-            ['Usado hoy',                            `${today_liters.toFixed(1)} L`],
-            [`Referencia (${days_elapsed}d × 15 L)`, `${baseline_liters.toFixed(0)} L`],
+            ['Agua de riego este mes',                `${used_liters.toFixed(1)} L`],
+            ['Agua de riego hoy',                     `${today_liters.toFixed(1)} L`],
           ].map(([label, val]) => (
             <div key={label} className="flex justify-between text-xs">
               <span className="text-navy-400">{label}</span>
               <span className="font-medium text-navy-700">{val}</span>
             </div>
           ))}
+          <div className="flex justify-between text-xs">
+            <span className={`${hasLeak ? 'text-amber-600 font-semibold' : 'text-navy-400'}`}>
+              Pérdida por fugas{hasLeak ? ' ⚠' : ''}
+            </span>
+            <span className={`font-medium ${hasLeak ? 'text-amber-700' : 'text-navy-700'}`}>
+              {leak_liters.toFixed(1)} L {today_leak_liters > 0 ? `(hoy: ${today_leak_liters.toFixed(1)} L)` : ''}
+            </span>
+          </div>
+          <div className="flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 text-navy-800">
+            <span>Total consumido</span>
+            <span>{total_liters.toFixed(1)} L</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-400">{`Referencia (${days_elapsed}d × 15 L)`}</span>
+            <span className="font-medium text-navy-700">{baseline_liters.toFixed(0)} L</span>
+          </div>
           <div className={`flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 ${cc.text}`}>
             <span>Ahorro total</span>
             <span>{savings_liters.toFixed(1)} L ({savingsPct}%)</span>
@@ -430,9 +671,14 @@ function SavingsCard({ stats }) {
                 {daily.slice(-5).map(d => (
                   <div key={d.date} className="flex justify-between text-xs">
                     <span className="text-navy-400">
-                      {new Date(d.date + 'T12:00:00').toLocaleDateString('es-ES', {
-                        weekday: 'short', day: 'numeric', month: 'short',
-                      })}
+                      {/* Manejo robusto de fechas: soporta ISO, yyyy-mm-dd, y fechas legacy */}
+                      {(() => {
+                        const ms = Date.parse(d.date) || Date.parse(d.date + 'T12:00:00');
+                        if (!ms || isNaN(ms)) return d.date;
+                        return new Date(ms).toLocaleDateString('es-ES', {
+                          weekday: 'short', day: 'numeric', month: 'short',
+                        });
+                      })()}
                     </span>
                     <span className="font-medium text-brand-600">
                       {d.liters.toFixed(1)} L · {Math.floor(d.seconds / 60)}m {d.seconds % 60}s
@@ -452,46 +698,249 @@ function SavingsCard({ stats }) {
 
 // ── Gráfico de consumo con selector de período ────────────────────────────────
 const PERIODS = [
-  { id: 'day',   label: 'Días',    hint: 'últimos 30 días' },
-  { id: 'week',  label: 'Semanas', hint: 'últimas 16 semanas' },
-  { id: 'month', label: 'Meses',   hint: 'últimos 12 meses' },
+  { id: 'day',     label: 'Días',     hint: 'últimos 30 días' },
+  { id: 'week',    label: 'Semanas',  hint: 'últimas 16 semanas' },
+  { id: 'month',   label: 'Meses',    hint: 'últimos 12 meses' },
+  { id: 'session', label: 'Sesiones', hint: 'últimas 60 sesiones' },
 ]
 
-function fmtPeriodLabel(key, periodId) {
+export function toChartMs(value) {
+  if (value == null) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const parsed = Date.parse(raw)
+  if (!Number.isNaN(parsed)) return parsed
+  const fallback = new Date(raw.includes(',') ? raw : raw.replace(' ', 'T')).getTime()
+  return Number.isNaN(fallback) ? null : fallback
+}
+
+export function toChartNum(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+export function fmtPeriodLabel(key, periodId) {
+  if (!key) return '—'
+
   if (periodId === 'day') {
-    const d = new Date(key + 'T12:00:00')
-    return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+    const ms = toChartMs(`${key}T12:00:00`)
+    if (ms == null) return String(key)
+    return new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
   }
+
   if (periodId === 'week') {
-    const [, w] = key.split('-W')
-    return `Sem ${parseInt(w, 10)}`
+    const [, w] = String(key).split('-W')
+    return w ? `Sem ${parseInt(w, 10)}` : String(key)
   }
+
+  if (periodId === 'session') {
+    const ms = toChartMs(key)
+    if (ms == null) return 'Sesión'
+    return new Date(ms)
+      .toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      .replace(',', '')
+  }
+
   // month: "2025-03"
-  const [y, m] = key.split('-')
+  const [y, m] = String(key).split('-')
+  if (!y || !m) return String(key)
   return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
 }
 
-function ConsumptionChart() {
+export function fmtDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+export function getBarColumnWidth(count, periodId = 'default') {
+  if (count <= 6) return '34%'
+  if (count <= 12) return '42%'
+  if (count <= 24) return '52%'
+  if (periodId === 'session') return '68%'
+  return '62%'
+}
+
+export function getChartMinWidth(count, periodId = 'default') {
+  const base = periodId === 'session' ? 760 : 680
+  const perItem = periodId === 'session' ? 26 : 32
+  return Math.max(base, count * perItem)
+}
+
+function ConsumptionChart({ selectedMac }) {
+  const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
+  const [sessions, setSessions] = useState([])
+
+  const macParam = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
 
   useEffect(() => {
-    fetch(`/api/irrigation/history?period=${period}`)
-      .then(r => r.json())
-      .then(setHistory)
-      .catch(() => {})
-  }, [period])
+    if (period === 'session') {
+      authFetch(`/api/irrigation/sessions${selectedMac ? `?mac=${encodeURIComponent(selectedMac)}` : ''}`)
+        .then(r => r.json())
+        .then(setSessions)
+        .catch(() => {})
+    } else {
+      authFetch(`/api/irrigation/history?period=${period}${macParam}`)
+        .then(r => r.json())
+        .then(setHistory)
+        .catch(() => {})
+    }
+  }, [period, selectedMac])
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
-  const series = [{ name: 'Consumo', data: history.map(d => ({ x: d.period, y: d.liters })) }]
+
+  // ── Sessions view ──
+  if (period === 'session') {
+    const normalizedSessions = sessions
+      .map(s => ({
+        ...s,
+        startMs: toChartMs(s.start),
+        liters: toChartNum(s.liters),
+        duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
+      }))
+      .filter(s => s.startMs != null)
+
+    const sessionSeries = [{
+      name: 'Consumo',
+      data: normalizedSessions.map(s => ({ x: s.startMs, y: s.liters })),
+    }]
+
+    const sessionChartKey = `session-${normalizedSessions.length}-${normalizedSessions[normalizedSessions.length - 1]?.startMs ?? 'empty'}`
+
+    const sessionOptions = {
+      chart: {
+        type: 'bar', toolbar: { show: false }, background: 'transparent',
+        fontFamily: '"DM Sans", system-ui, sans-serif',
+        animations: { enabled: false },
+      },
+      colors: ['#10b981'],
+      plotOptions: {
+        bar: {
+          borderRadius: 6,
+          borderRadiusApplication: 'end',
+          columnWidth: getBarColumnWidth(normalizedSessions.length, 'session'),
+          colors: {
+            backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+            backgroundBarRadius: 6,
+          },
+        },
+      },
+      dataLabels: { enabled: false },
+      xaxis: {
+        type: 'datetime',
+        labels: {
+          style: { fontSize: '10px', colors: '#8a9aaa' },
+          datetimeUTC: false,
+          rotate: -35,
+          hideOverlappingLabels: true,
+          formatter: val => fmtPeriodLabel(val, 'session'),
+        },
+        axisBorder: { show: false }, axisTicks: { show: false },
+      },
+      yaxis: {
+        labels: {
+          style: { fontSize: '11px', colors: '#8a9aaa' },
+          formatter: v => `${toChartNum(v).toFixed(0)} L`,
+        },
+      },
+      grid: {
+        borderColor: '#f3f3ef',
+        strokeDashArray: 3,
+        xaxis: { lines: { show: false } },
+        padding: { left: 0, right: 8, bottom: 8 },
+      },
+      tooltip: {
+        theme: 'light',
+        x: { formatter: val => fmtPeriodLabel(val, 'session') },
+        custom: ({ dataPointIndex }) => {
+          const s = normalizedSessions[dataPointIndex]
+          if (!s) return ''
+          return `<div style="padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:12px">
+            <div style="font-weight:600;color:#1e2d3d;margin-bottom:4px">${fmtDuration(s.duration_s)}</div>
+            <div style="color:#5a7a9a">${s.liters.toFixed(1)} L consumidos</div>
+          </div>`
+        },
+      },
+    }
+
+    const totalL = normalizedSessions.reduce((a, s) => a + s.liters, 0)
+
+    return (
+      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
+          <BarChart2 size={15} className="text-navy-300 shrink-0" />
+          <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
+          {normalizedSessions.length > 0 && (
+            <span className="text-xs text-navy-300">
+              {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
+            </span>
+          )}
+          <div className="ml-auto flex gap-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  period === p.id
+                    ? 'bg-brand-500 text-white'
+                    : 'text-navy-400 hover:bg-navy-50'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {normalizedSessions.length > 0 ? (
+          <div className="overflow-x-auto px-2 pb-2">
+            <div style={{ minWidth: `${getChartMinWidth(normalizedSessions.length, 'session')}px` }}>
+              <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={250} />
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
+            Sin sesiones de riego registradas
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Días / Semanas / Meses view ──
+  const normalizedHistory = history
+    .map(d => ({
+      ...d,
+      period: String(d.period ?? ''),
+      liters: toChartNum(d.liters),
+      seconds: Math.max(0, Math.round(toChartNum(d.seconds))),
+    }))
+    .filter(d => d.period)
+
+  const series = [{ name: 'Consumo', data: normalizedHistory.map(d => ({ x: d.period, y: d.liters })) }]
+  const historyChartKey = `${period}-${normalizedHistory.length}-${normalizedHistory[normalizedHistory.length - 1]?.period ?? 'empty'}`
 
   const options = {
     chart: {
       type: 'bar', toolbar: { show: false }, background: 'transparent',
       fontFamily: '"DM Sans", system-ui, sans-serif',
+      animations: { enabled: false },
     },
     colors: ['#0c8ecc'],
-    plotOptions: { bar: { borderRadius: 4, columnWidth: '58%' } },
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        borderRadiusApplication: 'end',
+        columnWidth: getBarColumnWidth(normalizedHistory.length, period),
+        colors: {
+          backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
+          backgroundBarRadius: 6,
+        },
+      },
+    },
     dataLabels: { enabled: false },
     xaxis: {
       type: 'category',
@@ -499,27 +948,34 @@ function ConsumptionChart() {
         style: { fontSize: '11px', colors: '#8a9aaa' },
         formatter: v => fmtPeriodLabel(v, period),
         rotate: -30,
+        hideOverlappingLabels: true,
+        trim: true,
       },
       axisBorder: { show: false }, axisTicks: { show: false },
     },
     yaxis: {
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => `${v.toFixed(0)} L`,
+        formatter: v => `${toChartNum(v).toFixed(0)} L`,
       },
     },
-    grid: { borderColor: '#f3f3ef', strokeDashArray: 3, xaxis: { lines: { show: false } } },
+    grid: {
+      borderColor: '#f3f3ef',
+      strokeDashArray: 3,
+      xaxis: { lines: { show: false } },
+      padding: { left: 0, right: 8, bottom: 8 },
+    },
     tooltip: {
       theme: 'light',
       x: { formatter: v => fmtPeriodLabel(v, period) },
-      y: { formatter: v => `${v.toFixed(1)} L` },
+      y: { formatter: v => `${toChartNum(v).toFixed(1)} L` },
       style: { fontSize: '12px', fontFamily: '"DM Sans"' },
     },
   }
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-2">
+      <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
         <BarChart2 size={15} className="text-navy-300 shrink-0" />
         <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
         <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
@@ -539,8 +995,12 @@ function ConsumptionChart() {
           ))}
         </div>
       </div>
-      {history.length > 0 ? (
-        <ReactApexChart options={options} series={series} type="bar" height={220} />
+      {normalizedHistory.length > 0 ? (
+        <div className="overflow-x-auto px-2 pb-2">
+          <div style={{ minWidth: `${getChartMinWidth(normalizedHistory.length, period)}px` }}>
+            <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={250} />
+          </div>
+        </div>
       ) : (
         <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
           Sin datos de riego en este período
@@ -635,17 +1095,23 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
 }
 
 // ── Vista principal ──────────────────────────────────────────────────────────
-export default function IrrigationView({ latest, setRelay }) {
+export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
+  const { authFetch } = useAuth()
   const [stats, setStats] = useState(null)
   const [flowLpm, setFlowLpm] = useState(5.0)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
-  const loadStats = useCallback(() =>
-    fetch('/api/irrigation/stats').then(r => r.json()).then(setStats).catch(() => {}),
-  [])
+  const relayCount = deviceInfo?.relay_count ?? 1
+
+  const loadStats = useCallback(() => {
+    const url = selectedMac
+      ? `/api/irrigation/stats?mac=${encodeURIComponent(selectedMac)}`
+      : '/api/irrigation/stats'
+    return authFetch(url).then(r => r.json()).then(setStats).catch(() => {})
+  }, [selectedMac])
 
   useEffect(() => {
-    fetch('/api/settings')
+    authFetch('/api/settings')
       .then(r => r.json())
       .then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0')))
       .catch(() => {})
@@ -658,12 +1124,16 @@ export default function IrrigationView({ latest, setRelay }) {
   }, [loadStats])
 
   const handleIrrigate = useCallback(async () => {
-    await setRelay(true)
-  }, [setRelay])
+    await authFetch('/api/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: selectedMac, index: 0, state: true }),
+    })
+  }, [selectedMac])
 
   const handleReset = useCallback(async () => {
     setShowResetConfirm(false)
-    await fetch('/api/irrigation/reset', { method: 'POST' })
+    await authFetch('/api/irrigation/reset', { method: 'POST' })
     loadStats()
   }, [loadStats])
 
@@ -702,8 +1172,8 @@ export default function IrrigationView({ latest, setRelay }) {
       {/* ── Grid de control: 1 col → 2 col → 4 col ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-        {/* Electroválvula + temporizador de sesión */}
-        <RelayControl setRelay={setRelay} flowLpm={flowLpm} />
+        {/* Electroválvulas — una card por relay */}
+        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
 
         {/* ET₀ estimado */}
         <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
@@ -771,7 +1241,7 @@ export default function IrrigationView({ latest, setRelay }) {
                 <span className="text-navy-300 font-normal text-xs">L este mes</span>
               </p>
               <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-                <p className="text-xs text-navy-300">Caudal nominal: 5 L/min</p>
+                <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
                 {stats.monthly_seconds > 0 && (
                   <p className="text-xs text-navy-300">
                     {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
@@ -793,7 +1263,7 @@ export default function IrrigationView({ latest, setRelay }) {
       </div>
 
       {/* ── Gráfico de consumo diario ── */}
-      <ConsumptionChart />
+      <ConsumptionChart selectedMac={selectedMac} />
 
       {/* ── Sectores de riego ── */}
       <div>
