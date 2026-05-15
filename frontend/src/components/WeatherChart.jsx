@@ -92,8 +92,8 @@ function WeatherChart({
     stroke: {
       curve: 'smooth',
       lineCap: 'round',
-      width: type === 'scatter' ? 0 : series.map((_, i) => i === 0 ? 2.5 : 2),
-      dashArray: series.map((_, i) => i > 0 ? 5 : 0),
+      width: type === 'scatter' ? 0 : Array.from({ length: series.length }, (_, i) => i === 0 ? 2.5 : 2),
+      dashArray: Array.from({ length: series.length }, (_, i) => i > 0 ? 5 : 0),
     },
     fill: {
       type: type === 'area' ? 'gradient' : 'solid',
@@ -218,7 +218,7 @@ function WeatherChart({
       },
     },
     dataLabels: { enabled: false },
-  }), [chartId, type, series, colors, resolvedYMin, resolvedYMax, yUnit, accentColor, accentColor2])
+  }), [chartId, type, series.length, colors, resolvedYMin, resolvedYMax, yUnit, accentColor, accentColor2])
 
   return (
     <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden transition-shadow duration-200 hover:shadow-md">
@@ -267,7 +267,7 @@ function WeatherChart({
 
       {hasData ? (
         <ReactApexChart
-          key={`${chartId}-${timestamps.length}-${timestamps[0] ?? ''}-${timestamps.at(-1) ?? ''}`}
+          key={`${chartId}-${timestamps[0] ?? ''}`}
           options={options}
           series={builtSeries}
           type={type}
