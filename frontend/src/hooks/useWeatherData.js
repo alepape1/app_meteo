@@ -46,6 +46,8 @@ export function useWeatherData() {
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
   const [devices, setDevices] = useState([])
+  // Ref para saber si applyData hizo un cambio real (evita setLastUpdate innecesario)
+  const dataDidChangeRef = useRef(false)
   const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
   // Guarda los parámetros del último fetchFiltered activo.
@@ -57,6 +59,7 @@ export function useWeatherData() {
 
     setData(prev => {
       if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
+        dataDidChangeRef.current = true
         const replaced = {}
         Object.keys(EMPTY).forEach((key) => {
           replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-maxPoints) : []
@@ -84,8 +87,12 @@ export function useWeatherData() {
           const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
           return prevArr.length > 0 && String(prevArr.at(-1)) !== String(nextArr.at(-1))
         })
-        if (!anyChanged) return prev
+        if (!anyChanged) {
+          dataDidChangeRef.current = false
+          return prev
+        }
       }
+      dataDidChangeRef.current = true
 
       const merged = {}
       Object.keys(EMPTY).forEach((key) => {
@@ -113,8 +120,10 @@ export function useWeatherData() {
       return merged
     })
 
-    setLastUpdate(new Date().toLocaleTimeString('es-ES'))
-    setError(null)
+    if (dataDidChangeRef.current) {
+      setLastUpdate(new Date().toLocaleTimeString('es-ES'))
+      setError(null)
+    }
   }, [])
 
   // Ref al AbortController activo para peticiones de muestras/latest/filtrar.
@@ -206,8 +215,11 @@ export function useWeatherData() {
       const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) return
       const json = await res.json()
-      if (Object.keys(json).length > 0) setDeviceInfo(json)
-      else setDeviceInfo(null)
+      const nextStr = JSON.stringify(json)
+      setDeviceInfo(prev => {
+        if (Object.keys(json).length === 0) return prev === null ? null : null
+        return JSON.stringify(prev) === nextStr ? prev : json
+      })
     } catch (e) {
       if (e.name !== 'AbortError') { /* ignorar errores transitorios de device_info */ }
     }
@@ -218,7 +230,8 @@ export function useWeatherData() {
       const res = await authFetchRef.current('/api/devices/mine')
       if (!res.ok) return
       const json = await res.json()
-      setDevices(json)
+      const nextDevStr = JSON.stringify(json)
+      setDevices(prev => JSON.stringify(prev) === nextDevStr ? prev : json)
       setSelectedMac(current => (
         current && json.some(device => device.mac_address === current)
           ? current
