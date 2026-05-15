@@ -400,7 +400,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       show: true,
       curve: 'smooth',
       lineCap: 'round',
-      width: [2, 2],
+      width: [2.8, 2.8],
     },
     markers: {
       size: 0,
@@ -408,7 +408,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
     },
     fill: {
       type: 'solid',
-      opacity: 0.16,
+      opacity: 0,
     },
     xaxis: {
       type: 'datetime',
