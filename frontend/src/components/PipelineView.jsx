@@ -388,7 +388,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
 
   const options = {
     chart: {
-      type: 'line',
+      type: 'area',
       toolbar: { show: false },
       zoom: { enabled: false },
       animations: { enabled: false },
@@ -400,7 +400,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       show: true,
       curve: 'smooth',
       lineCap: 'round',
-      width: [2.8, 2.8],
+      width: [2.5, 2.5],
     },
     markers: {
       size: 0,
@@ -408,7 +408,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
     },
     fill: {
       type: 'gradient',
-      gradient: { opacityFrom: 0.08, opacityTo: 0.01, shadeIntensity: 0 },
+      gradient: { opacityFrom: 0.10, opacityTo: 0, shadeIntensity: 0 },
     },
     xaxis: {
       type: 'datetime',
@@ -508,7 +508,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       </div>
       {hasVisibleSeries ? (
         <div className="px-2 pb-2">
-          <ReactApexChart key={chartKey} options={options} series={series} type="line" height={320} />
+          <ReactApexChart key={chartKey} options={options} series={series} type="area" height={320} />
         </div>
       ) : (
         <div className="flex items-center justify-center text-navy-300 text-sm text-center px-6" style={{ height: 260 }}>
