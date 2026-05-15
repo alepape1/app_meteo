@@ -86,7 +86,7 @@ function AlertRow({ alert, onAck }) {
       acked ? sev.ackedCard : `${sev.card} ${sev.glow}`
     }`}>
 
-      <AnimatedIcon Icon={Icon} sev={sev} acked={acked} />
+      <AnimatedIcon icon={Icon} sev={sev} acked={acked} />
 
       <div className="flex-1 min-w-0 space-y-1.5">
         {/* Top row: badge + type + time */}
