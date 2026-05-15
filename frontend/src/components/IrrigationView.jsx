@@ -100,83 +100,131 @@ function getAdvice(temp, humidity, wind, et0Num) {
   }
 }
 
+// ── Aquantia drop path — hw=54, viewBox 132×156 (spec parametric formula) ─────
+const _HW = 54, _CX = 66, _TOP = 6, _BOT = 148, _SIDEY = 96, _BCY = 124
+const _LX = _CX - _HW, _RX = _CX + _HW, _BCX = Math.round(_HW * 0.55)
+const AQUANTIA_DROP_PATH =
+  `M ${_CX} ${_TOP} C ${_CX} ${_TOP}, ${_LX} 60, ${_LX} ${_SIDEY} ` +
+  `C ${_LX} ${_BCY}, ${_CX - _BCX} ${_BOT}, ${_CX} ${_BOT} ` +
+  `C ${_CX + _BCX} ${_BOT}, ${_RX} ${_BCY}, ${_RX} ${_SIDEY} ` +
+  `C ${_RX} 60, ${_CX} ${_TOP}, ${_CX} ${_TOP} Z`
+
+function buildWave(amplitude, freq, phase, yBase, dir) {
+  const W = 132, H = 156, steps = 24
+  const pts = []
+  for (let i = 0; i <= steps; i++) {
+    const x = (i / steps) * W
+    const y = yBase + amplitude * Math.sin(freq * (x / W) * Math.PI * 2 + phase * dir)
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`)
+  }
+  return `M 0 ${H} L 0 ${pts[0].split(',')[1]} L ` + pts.join(' L ') + ` L ${W} ${H} Z`
+}
+
+function getWaterColors(pct) {
+  if (pct >= 100) return { top: '#ff6a6a', deep: '#a31818', stroke: '#b91c1c', bg: '#fee2e2' }
+  if (pct >= 85)  return { top: '#ffae3b', deep: '#b86a07', stroke: '#b86a07', bg: '#fef3c7' }
+  return               { top: '#3fb6f0', deep: '#0b4f88', stroke: '#0b4f88', bg: '#eaf5ff' }
+}
+
 // ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
 // consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
 function WaterDroplet({ consumptionPct = 0, size = 68 }) {
-  const uid = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
-  const pct = Math.max(0, consumptionPct)
-  // Mínimo 25% de relleno visual para que la ola siempre sea visible
-  const fillPct = Math.max(25, Math.min(pct, 110))
-  // yWave: 12 (lleno) → 98 (vacío), viewBox 0 0 80 104
-  const yWave = 98 - (Math.min(fillPct, 100) / 100) * 86
+  const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
+  const svgRef   = useRef(null)
+  const frontRef = useRef(null)
+  const backRef  = useRef(null)
+  const bgRef    = useRef(null)
+  const stop0    = useRef(null)
+  const stop1    = useRef(null)
+  const outRef   = useRef(null)
+  const rafId    = useRef(null)
+  const anim     = useRef({ displayedPct: 0, phase: 0, introStart: null, target: 0 })
 
-  const isOver = pct >= 100
-  const isNear = pct >= 85
+  useEffect(() => {
+    anim.current.target = Math.max(0, consumptionPct)
+  }, [consumptionPct])
 
-  const waterTop  = isOver ? '#ff6a6a' : isNear ? '#ffae3b' : '#3fb6f0'
-  const waterDeep = isOver ? '#a31818' : isNear ? '#b86a07' : '#0b4f88'
-  const strokeC   = isOver ? '#b91c1c' : isNear ? '#b86a07' : '#0b4f88'
-  const bgLight   = isOver ? '#fee2e2' : isNear ? '#fef3c7' : '#eaf5ff'
+  useEffect(() => {
+    const WAVE_AMP = 5.5, WAVE_SPEED = 0.5
+    const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
+    // Always show at least 20% visual fill so animation is perceptible
+    const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
 
-  const dropPath = 'M40,4 C40,4 12,50 12,72 A28,28 0 0 1 68,72 C68,50 40,4 40,4 Z'
-  const mkWave = (amp, dy) =>
-    `M-80,${yWave + dy} C-60,${yWave + dy - amp} -40,${yWave + dy + amp} -20,${yWave + dy} ` +
-    `C0,${yWave + dy - amp} 20,${yWave + dy + amp} 40,${yWave + dy} ` +
-    `C60,${yWave + dy - amp} 80,${yWave + dy + amp} 100,${yWave + dy} ` +
-    `C120,${yWave + dy - amp} 140,${yWave + dy + amp} 160,${yWave + dy} ` +
-    `L160,108 L-80,108 Z`
+    anim.current.introStart = performance.now()
+    anim.current.displayedPct = 0
 
+    function tick(now) {
+      const a = anim.current
+      const introP = Math.min(1, (now - a.introStart) / INTRO_MS)
+      const eased  = 1 - Math.pow(1 - introP, 3)
+
+      a.displayedPct += (a.target * eased - a.displayedPct) * 0.08
+      a.phase += 0.035 * WAVE_SPEED
+
+      const p     = Math.max(0, Math.min(1.25, a.displayedPct / 100))
+      const yBase = Math.min(Y_BOTTOM - p * (Y_BOTTOM - Y_TOP), Y_MIN)
+
+      if (frontRef.current) frontRef.current.setAttribute('d', buildWave(WAVE_AMP, 1.6, a.phase, yBase, +1))
+      if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 0.7, 1.2, a.phase + 1.2, yBase + 3, -1))
+
+      const c = getWaterColors(a.displayedPct)
+      if (stop0.current) stop0.current.setAttribute('stop-color', c.top)
+      if (stop1.current) stop1.current.setAttribute('stop-color', c.deep)
+      if (outRef.current) outRef.current.setAttribute('stroke', c.stroke)
+      if (bgRef.current)  bgRef.current.setAttribute('fill', c.bg)
+
+      if (svgRef.current)
+        svgRef.current.style.animation = a.displayedPct >= 100
+          ? `shk-${uid} 1.8s ease-in-out infinite` : ''
+
+      rafId.current = requestAnimationFrame(tick)
+    }
+
+    rafId.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId.current)
+  }, [uid])
+
+  const h = Math.round(size * 156 / 132)
   return (
     <>
       <style>{`
-        @keyframes wv-${uid}  { 0%{transform:translateX(0)}   100%{transform:translateX(-80px)} }
-        @keyframes wv2-${uid} { 0%{transform:translateX(-40px)} 100%{transform:translateX(40px)} }
         @keyframes shk-${uid} {
-          0%,91%,100%{transform:translateX(0)}
-          93%{transform:translateX(-2px)} 95%{transform:translateX(2px)} 97%{transform:translateX(-1px)}
+          0%,92%,100%{transform:translateX(0)}
+          94%{transform:translateX(-2px)} 96%{transform:translateX(2px)} 98%{transform:translateX(-1px)}
         }
-        .wv-${uid}  { animation: wv-${uid}  2.5s linear infinite; }
-        .wv2-${uid} { animation: wv2-${uid} 3.5s linear infinite; }
-        .shk-${uid} { animation: shk-${uid} 1.8s ease-in-out infinite; }
       `}</style>
       <svg
-        width={size} height={Math.round(size * 104 / 80)}
-        viewBox="0 0 80 104"
-        className={isOver ? `shk-${uid}` : ''}
-        style={{ overflow: 'visible', display: 'block' }}
+        ref={svgRef}
+        width={size} height={h}
+        viewBox="0 0 132 156"
+        style={{ overflow: 'visible', display: 'block', flexShrink: 0 }}
       >
         <defs>
-          <clipPath id={`cp-${uid}`}>
-            <path d={dropPath} />
-          </clipPath>
+          <clipPath id={`cp-${uid}`}><path d={AQUANTIA_DROP_PATH} /></clipPath>
           <linearGradient id={`wg-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={waterTop} />
-            <stop offset="100%" stopColor={waterDeep} />
+            <stop ref={stop0} offset="0%"   stopColor="#3fb6f0" />
+            <stop ref={stop1} offset="100%" stopColor="#0b4f88" />
           </linearGradient>
           <pattern id={`ct-${uid}`} width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10" fill="none" stroke="#7fd0ff" strokeWidth="0.4" opacity="0.55"/>
+            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10"
+              fill="none" stroke="#7fd0ff" strokeWidth="0.4" opacity="0.55"/>
             <circle cx="7" cy="5" r="0.7" fill="#9fdcff" opacity="0.7"/>
             <circle cx="13" cy="9" r="0.7" fill="#9fdcff" opacity="0.7"/>
           </pattern>
         </defs>
-        {/* Fondo de la gota */}
-        <path d={dropPath} fill={bgLight} stroke={strokeC} strokeWidth="1.5" />
-        {/* Patrón circuito */}
+        <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
-          <rect x="0" y="0" width="80" height="104" fill={`url(#ct-${uid})`} opacity="0.6" />
+          <rect x="0" y="0" width="132" height="156" fill={`url(#ct-${uid})`} opacity="0.6" />
         </g>
-        {/* Agua: ola trasera + ola delantera */}
         <g clipPath={`url(#cp-${uid})`}>
-          <rect x="-5" y={yWave + 5} width="90" height="110" fill={`url(#wg-${uid})`} opacity="0.35" />
-          <g className={`wv2-${uid}`}>
-            <path d={mkWave(2.5, 2.5)} fill={`url(#wg-${uid})`} opacity="0.45" />
-          </g>
-          <g className={`wv-${uid}`}>
-            <path d={mkWave(4, 0)} fill={`url(#wg-${uid})`} opacity="0.78" />
-          </g>
+          <ellipse cx="45" cy="38" rx="8" ry="14" fill="white" opacity="0.18" transform="rotate(-25,45,38)" />
+          <ellipse cx="35" cy="55" rx="4" ry="7"  fill="white" opacity="0.12" transform="rotate(-20,35,55)" />
         </g>
-        {/* Brillo */}
-        <ellipse cx="27" cy="26" rx="5" ry="9" fill="white" opacity="0.22" transform="rotate(-25,27,26)" />
+        <g clipPath={`url(#cp-${uid})`}>
+          <path ref={backRef}  d="" fill={`url(#wg-${uid})`} opacity="0.55" />
+          <path ref={frontRef} d="" fill={`url(#wg-${uid})`} opacity="1" />
+        </g>
+        <path ref={outRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#0b4f88" strokeWidth="2" />
       </svg>
     </>
   )
@@ -496,9 +544,9 @@ function SavingsCard({ stats }) {
 
   const state = consumptionPct >= 100 ? 'danger' : consumptionPct >= 85 ? 'warn' : 'ok'
   const cc = {
-    ok:     { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700 dot-green', border: 'border-sky-100' },
-    warn:   { text: 'text-amber-500',   badge: 'bg-amber-50 text-amber-700 dot-amber',     border: 'border-amber-200' },
-    danger: { text: 'text-red-500',     badge: 'bg-red-50 text-red-700 dot-red',           border: 'border-red-200' },
+    ok:     { text: 'text-emerald-600', border: 'border-sky-100',   pillStyle: { background: '#d6f4e6', color: '#16a36e' } },
+    warn:   { text: 'text-amber-500',   border: 'border-amber-200', pillStyle: { background: '#fff3d6', color: '#b8861f' } },
+    danger: { text: 'text-red-500',     border: 'border-red-200',   pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
   }[state]
 
   const pillText = consumptionPct >= 100
@@ -519,6 +567,13 @@ function SavingsCard({ stats }) {
       role="button"
       aria-expanded={expanded}
     >
+      <style>{`
+        @keyframes dot-pulse {
+          0%   { box-shadow: 0 0 0 0 currentColor; opacity: .8; }
+          80%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
+          100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
+        }
+      `}</style>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="bg-sky-50 p-1.5 rounded-lg">
@@ -544,8 +599,14 @@ function SavingsCard({ stats }) {
           <p className="text-xs text-navy-400 mt-1 leading-snug">
             {leadText}
           </p>
-          <span className={`inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full ${cc.badge}`}>
-            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
+          <span
+            className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
+            style={cc.pillStyle}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
+              style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
+            />
             {pillText}
           </span>
         </div>
