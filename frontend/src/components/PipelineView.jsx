@@ -312,7 +312,7 @@ function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   )
 }
 
-function PipelineChart({ readings, mode, histLoading }) {
+function PipelineChart({ readings, mode, histLoading, liveHours }) {
   const deduped = new Map()
   readings.forEach((r) => {
     const x = toMs(r.timestamp)
@@ -328,9 +328,16 @@ function PipelineChart({ readings, mode, histLoading }) {
     deduped.set(x, current)
   })
 
-  const samples = Array.from(deduped.values())
+  const allSamples = Array.from(deduped.values())
     .filter(p => Number.isFinite(p.x) && (Number.isFinite(p.pressure) || Number.isFinite(p.flow)))
     .sort((a, b) => a.x - b.x)
+
+  const samples = mode === 'live' && allSamples.length > 0
+    ? (() => {
+        const cutoff = allSamples.at(-1).x - liveHours * 60 * 60 * 1000
+        return allSamples.filter(p => p.x >= cutoff)
+      })()
+    : allSamples
 
   const pressure = samples
     .filter(p => Number.isFinite(p.pressure))
@@ -396,9 +403,9 @@ function PipelineChart({ readings, mode, histLoading }) {
     xaxis: {
       type: 'datetime',
       ...(mode === 'live' && samples.length > 0 && (() => {
-        const LIVE_WINDOW_MS = 60 * 60 * 1000 // última hora
         const latestMs = samples.at(-1).x
-        return { min: latestMs - LIVE_WINDOW_MS, max: latestMs + 30_000 }
+        const windowMs = liveHours * 60 * 60 * 1000
+        return { min: latestMs - windowMs, max: latestMs + 30_000 }
       })()),
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
@@ -524,6 +531,8 @@ export default function PipelineView({ selectedMac }) {
   const [applyBusy,         setApplyBusy]         = useState(false)
   const timerRef = useRef(null)
   const liveAbortRef = useRef(null)
+
+  const [liveHours, setLiveHours] = useState(1)
 
   // Historical mode
   const [mode, setMode] = useState('live')  // 'live' | 'history'
@@ -753,13 +762,28 @@ export default function PipelineView({ selectedMac }) {
           )}
 
           {mode === 'live' && (
-            <p className="text-xs text-navy-300 ml-auto">Auto-refresh cada 20 s</p>
+            <div className="flex items-center gap-3 ml-auto">
+              <span className="text-xs text-navy-400 shrink-0">Ventana:</span>
+              <input
+                type="range"
+                min={1}
+                max={24}
+                step={1}
+                value={liveHours}
+                onChange={e => setLiveHours(Number(e.target.value))}
+                className="w-28 accent-brand-500"
+              />
+              <span className="text-xs font-semibold text-navy-600 w-12 shrink-0">
+                {liveHours < 24 ? `${liveHours} h` : '24 h'}
+              </span>
+              <span className="text-xs text-navy-300">· Auto-refresh 20 s</span>
+            </div>
           )}
         </div>
       </div>
 
       {/* ── Gráfico presión + caudal ── */}
-      <PipelineChart readings={chartReadings} mode={mode} histLoading={histLoading} />
+      <PipelineChart readings={chartReadings} mode={mode} histLoading={histLoading} liveHours={liveHours} />
 
       {/* ── Estadísticos de detección (solo en vivo) ── */}
       {mode === 'live' && (
