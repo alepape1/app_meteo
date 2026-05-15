@@ -436,7 +436,7 @@ function AppInner({ user, logout }) {
                 { name: 'BMP280', data: data.bmp280_pressure },
               ]}
               colors={['#012d5c', '#534AB7']}
-              yUnit=" hPa" minYRange={40} type="area"
+              yUnit=" hPa" minYRange={2} type="area"
             />
             <WeatherChart
               title="Luz Ambiente" icon={Sun} timestamps={ts}

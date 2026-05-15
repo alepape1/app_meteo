@@ -100,6 +100,7 @@ export default function LoginView() {
               </label>
               <input
                 type="password"
+                autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder={tab === 'register' ? 'Mínimo 8 caracteres' : '••••••••'}
