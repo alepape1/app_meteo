@@ -121,7 +121,7 @@ export default function WeatherChart({
           const ms = typeof val === 'number' ? val : toMs(val)
           if (ms == null) return ''
           const d = new Date(ms)
-          if (isNaN(d.getTime())) return ''
+          if (Number.isNaN(d.getTime())) return ''
           return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
         },
       },
@@ -158,7 +158,7 @@ export default function WeatherChart({
         let timeLabel = ''
         if (xVal != null) {
           const d = new Date(xVal)
-          if (!isNaN(d)) {
+          if (!Number.isNaN(d.getTime())) {
             timeLabel = d.toLocaleString('es-ES', {
               day: '2-digit', month: 'short',
               hour: '2-digit', minute: '2-digit',

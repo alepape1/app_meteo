@@ -7,19 +7,17 @@ app = Flask(__name__)
 # Configuración
 TEMPLATE_FILE = "index.html"
 
+# Inicialización única al arrancar la aplicación
+with app.app_context():
+    _conn = get_db_connection()
+    create_tables(_conn)
+    _conn.close()
+
 def get_db():
     """Conecta a la base de datos y asegura que exista una conexión única por petición."""
     if 'db' not in g:
         g.db = get_db_connection()
     return g.db
-
-@app.before_request
-def initialize_database():
-    """Asegura que la tabla exista antes de procesar peticiones (opcional, pero útil)."""
-    # Solo intentamos crear tablas si es la primera vez o para asegurar integridad
-    conn = get_db_connection()
-    create_tables(conn)
-    conn.close()
 
 @app.teardown_appcontext
 def close_connection(exception):

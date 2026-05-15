@@ -185,7 +185,7 @@ def main():
                 print(format_row(values, status, count))
                 if status != 200:
                     errors += 1
-            except requests.exceptions.ConnectionError:
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
                 print(f"  [ERR] #{count:>4} | No se puede conectar a {url}")
                 print(f"         Asegurate de que la app Flask este corriendo.")
                 errors += 1

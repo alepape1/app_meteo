@@ -7,7 +7,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, DB_NAME)
 
 def get_db_connection():
-    # Detect check_same_thread=False permite que SQLite funcione mejor con Flask en desarrollo
+    # check_same_thread=False permite que SQLite funcione mejor con Flask en desarrollo
     conexion = sqlite3.connect(DB_PATH, check_same_thread=False)
     return conexion
 
