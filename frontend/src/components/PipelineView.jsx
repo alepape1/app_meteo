@@ -395,7 +395,7 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       background: '#ffffff',
       fontFamily: '"DM Sans", system-ui, sans-serif',
     },
-    colors: ['#00d4bf', '#3d8bff'],
+    colors: ['#0891b2', '#2563eb'],
     stroke: {
       show: true,
       curve: 'smooth',
