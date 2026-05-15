@@ -1645,6 +1645,30 @@ def api_alert_delete(alert_id):
     return jsonify({"ok": True, "id": alert_id})
 
 
+@app.route("/api/alerts", methods=["DELETE"])
+def api_alerts_delete_all():
+    """Elimina todas las alertas visibles del usuario autenticado."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+
+    user_macs = [
+        r["mac_address"]
+        for r in db.execute(
+            "SELECT mac_address FROM user_devices WHERE user_id=%s", (user_id,)
+        ).fetchall()
+    ]
+
+    if not user_macs:
+        return jsonify({"ok": True, "deleted": 0})
+
+    placeholders = ",".join(["%s"] * len(user_macs))
+    result = db.execute(
+        f"DELETE FROM alerts WHERE device_mac IN ({placeholders})", user_macs
+    )
+    db.commit()
+    return jsonify({"ok": True, "deleted": result.rowcount})
+
+
 # ── Provisioning endpoints ──────────────────────────────────────────────────
 
 @app.route("/api/mqtt/auth", methods=["POST"])

@@ -180,6 +180,11 @@ export default function AlertsPanel() {
     setAlerts(prev => prev.filter(a => a.id !== id))
   }
 
+  const deleteAllAlerts = async () => {
+    await authFetch('/api/alerts', { method: 'DELETE' })
+    setAlerts([])
+  }
+
   const pending = alerts.filter(a => !a.acked).length
 
   return (
@@ -220,6 +225,17 @@ export default function AlertsPanel() {
                 </button>
               ))}
             </div>
+
+            {alerts.length > 0 && (
+              <button
+                onClick={deleteAllAlerts}
+                title="Eliminar todas las alertas"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/15 border border-red-500/20 hover:border-red-500/40 transition-all duration-200"
+              >
+                <Trash2 size={12} />
+                Eliminar todas
+              </button>
+            )}
 
             <button
               onClick={fetchAlerts}
