@@ -83,7 +83,7 @@ function WeatherChart({
       id: chartId,
       type,
       toolbar: { show: false },
-      animations: { enabled: true, speed: 400, easing: 'easeinout' },
+      animations: { enabled: true, speed: 400, easing: 'easeinout', dynamicAnimation: { enabled: false } },
       background: 'transparent',
       fontFamily: '"DM Sans", system-ui, sans-serif',
       zoom: { enabled: true },
