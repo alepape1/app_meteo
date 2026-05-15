@@ -402,11 +402,10 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
     },
     xaxis: {
       type: 'datetime',
-      ...(mode === 'live' && samples.length > 0 && (() => {
-        const latestMs = samples.at(-1).x
-        const windowMs = liveHours * 60 * 60 * 1000
-        return { min: latestMs - windowMs, max: latestMs + 30_000 }
-      })()),
+      ...(mode === 'live' && samples.length > 0 && {
+        min: samples[0].x,
+        max: samples.at(-1).x + 30_000,
+      }),
       labels: {
         style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
         datetimeUTC: false,
