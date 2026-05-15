@@ -75,6 +75,18 @@ export function useWeatherData() {
         if (!seen.has(ts)) appendIndexes.push(index)
       })
 
+      // Si no hay puntos nuevos y el último timestamp coincide, comprobar si
+      // algún valor real cambió antes de crear nuevos arrays. Si nada cambió,
+      // devolver prev para que React no dispare un re-render.
+      if (appendIndexes.length === 0 && incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1)) {
+        const anyChanged = Object.keys(EMPTY).some((key) => {
+          const prevArr = Array.isArray(prev[key]) ? prev[key] : []
+          const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
+          return prevArr.length > 0 && String(prevArr.at(-1)) !== String(nextArr.at(-1))
+        })
+        if (!anyChanged) return prev
+      }
+
       const merged = {}
       Object.keys(EMPTY).forEach((key) => {
         const prevArr = Array.isArray(prev[key]) ? prev[key] : []
