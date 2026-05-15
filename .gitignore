@@ -29,4 +29,10 @@ backend/tmp_*.txt
 
 # Código legado (no parte del producto)
 new_version_meteo/
+static/
+templates/
+dataBase.py
+server.py
+practice_json.py
+personas
 
