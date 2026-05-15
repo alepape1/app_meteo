@@ -82,7 +82,7 @@ function AlertRow({ alert, onAck, onDelete }) {
   const acked = Boolean(alert.acked)
 
   return (
-    <div className={`relative flex items-start gap-4 p-4 rounded-2xl border transition-all duration-300 ${
+    <div className={`relative flex items-start gap-4 p-4 rounded-2xl border font-sans transition-all duration-300 ${
       acked ? sev.ackedCard : `${sev.card} ${sev.glow}`
     }`}>
 
@@ -94,40 +94,40 @@ function AlertRow({ alert, onAck, onDelete }) {
           <span className={`text-[11px] font-bold tracking-wide uppercase px-2.5 py-0.5 rounded-full border ${sev.badge}`}>
             {sev.label}
           </span>
-          <span className="text-xs font-semibold text-white/90 tracking-tight">
+          <span className="text-xs font-semibold text-white tracking-tight">
             {alert.alert_type ?? '—'}
           </span>
           {alert.finca_id && (
-            <span className="text-[11px] text-white/60 font-mono bg-white/10 px-1.5 py-0.5 rounded-md">
+            <span className="text-[11px] text-white/70 font-mono bg-white/10 px-1.5 py-0.5 rounded-md">
               {alert.finca_id}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-white/50 shrink-0 font-mono">
+          <span className="ml-auto text-[11px] text-white/60 shrink-0 font-mono">
             {timeAgo(alert.created_at)}
           </span>
         </div>
 
         {/* Message */}
-        <p className="text-sm font-medium text-white/85 leading-relaxed">
+        <p className="text-sm font-medium text-white leading-relaxed">
           {alert.message || '—'}
         </p>
 
         {/* MAC footer */}
         {alert.device_mac && (
-          <p className="text-[11px] text-white/45 font-mono flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/30" />
+          <p className="text-[11px] text-white/55 font-mono flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/40" />
             {alert.device_mac}
           </p>
         )}
       </div>
 
-      {/* Action buttons */}
-      <div className="shrink-0 self-center flex items-center gap-1">
+      {/* Action buttons — always visible */}
+      <div className="shrink-0 self-center flex flex-col items-center gap-1">
         {!acked && (
           <button
             onClick={() => onAck(alert.id)}
             title="Marcar como resuelto"
-            className="p-2 rounded-xl text-white/40 hover:text-emerald-400 hover:bg-emerald-500/15 border border-transparent hover:border-emerald-500/30 transition-all duration-200"
+            className="p-2 rounded-xl text-slate-300 hover:text-emerald-400 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/40 transition-all duration-200"
           >
             <CheckCheck size={15} />
           </button>
@@ -135,7 +135,7 @@ function AlertRow({ alert, onAck, onDelete }) {
         <button
           onClick={() => onDelete(alert.id)}
           title="Eliminar alerta"
-          className="p-2 rounded-xl text-white/30 hover:text-red-400 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-all duration-200"
+          className="p-2 rounded-xl text-slate-300 hover:text-red-400 hover:bg-red-500/20 border border-white/10 hover:border-red-500/40 transition-all duration-200"
         >
           <Trash2 size={15} />
         </button>
