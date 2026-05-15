@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu, Power } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -14,7 +14,6 @@ import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
-import logoutLogo from './assets/logo_shutdown.png'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -25,6 +24,69 @@ function degreesToCompass(deg) {
 
 function minOf(arr) { return arr.length ? Math.min(...arr.filter(v => v != null)) : null }
 function maxOf(arr) { return arr.length ? Math.max(...arr.filter(v => v != null)) : null }
+
+function ShutdownDropSVG() {
+  return (
+    <>
+      <style>{`
+        .sdb-power   { transition: stroke .35s ease, filter .35s ease; }
+        .sdb-glow    { transition: opacity .35s ease; opacity: 0; }
+        .sdb-outline { transition: stroke .35s ease; }
+        .group:hover .sdb-power {
+          stroke: #ff3838;
+          filter: drop-shadow(0 0 6px rgba(255,56,56,.9)) drop-shadow(0 0 12px rgba(255,56,56,.55));
+          animation: sdb-pulse 1.2s ease-in-out infinite;
+        }
+        .group:hover .sdb-glow    { opacity: 1; animation: sdb-glow-p 1.4s ease-in-out infinite; }
+        .group:hover .sdb-outline { stroke: #b91c1c; }
+        @keyframes sdb-pulse  {
+          0%,100% { filter: drop-shadow(0 0 6px rgba(255,56,56,.9)) drop-shadow(0 0 12px rgba(255,56,56,.55)); }
+          50%     { filter: drop-shadow(0 0 10px rgba(255,56,56,1)) drop-shadow(0 0 22px rgba(255,56,56,.8)); }
+        }
+        @keyframes sdb-glow-p { 0%,100%{opacity:.6} 50%{opacity:1} }
+      `}</style>
+      <svg width="42" height="50" viewBox="0 0 132 156" aria-hidden="true">
+        <defs>
+          <clipPath id="sdb-clip">
+            <path d="M66 6 C66 6,24 60,24 96 C24 124,43 148,66 148 C89 148,108 124,108 96 C108 60,66 6,66 6Z"/>
+          </clipPath>
+          <linearGradient id="sdb-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3fb6f0"/>
+            <stop offset="100%" stopColor="#0b4f88"/>
+          </linearGradient>
+          <radialGradient id="sdb-rglow" cx="0.5" cy="0.5" r="0.6">
+            <stop offset="0%"   stopColor="#ff8a8a" stopOpacity="0.9"/>
+            <stop offset="60%"  stopColor="#ff3030" stopOpacity="0.35"/>
+            <stop offset="100%" stopColor="#ff3030" stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+        <g clipPath="url(#sdb-clip)">
+          <rect x="0" y="0" width="132" height="156" fill="url(#sdb-grad)"/>
+          <g stroke="#7fd0ff" strokeWidth="0.7" fill="none" opacity="0.7">
+            <path d="M30 60 H50 V80"/>
+            <path d="M100 50 V70 H80"/>
+            <path d="M40 110 H60"/>
+            <path d="M90 120 V100"/>
+          </g>
+          <g fill="#9fdcff" opacity="0.85">
+            <circle cx="30" cy="60" r="1.6"/><circle cx="50" cy="80" r="1.6"/>
+            <circle cx="100" cy="50" r="1.6"/><circle cx="80" cy="70" r="1.6"/>
+            <circle cx="40" cy="110" r="1.6"/><circle cx="60" cy="110" r="1.6"/>
+          </g>
+          <ellipse cx="48" cy="55" rx="14" ry="22" fill="white" opacity="0.18"/>
+          <circle className="sdb-glow" cx="66" cy="92" r="42" fill="url(#sdb-rglow)"/>
+          <g className="sdb-power" transform="translate(66 92)" stroke="#cfeeff" strokeWidth="5" fill="none" strokeLinecap="round">
+            <path d="M-16-6 A18 18 0 1 0 16-6"/>
+            <line x1="0" y1="-22" x2="0" y2="-2"/>
+          </g>
+        </g>
+        <path className="sdb-outline"
+          d="M66 6 C66 6,24 60,24 96 C24 124,43 148,66 148 C89 148,108 124,108 96 C108 60,66 6,66 6Z"
+          fill="none" stroke="#0b4f88" strokeWidth="2"/>
+      </svg>
+    </>
+  )
+}
 
 export default function App() {
   const { token, user, logout } = useAuth()
@@ -184,15 +246,10 @@ function AppInner({ user, logout }) {
               <button
                 onClick={logout}
                 title="Salir"
-                className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:bg-red-50 active:bg-red-100"
+                className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
               >
-                <span className="relative inline-flex items-center justify-center">
-                  <img src={logoutLogo} alt="Salir" className="w-[42px] h-auto object-contain shrink-0" />
-                  <span className="absolute -right-1 -bottom-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 shadow-sm transition-all group-hover:scale-110 group-hover:bg-red-600 group-hover:text-white group-active:bg-red-600 group-active:text-white">
-                    <Power size={11} />
-                  </span>
-                </span>
-                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold text-red-600 opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100 group-active:max-w-16 group-active:opacity-100">
+                <ShutdownDropSVG />
+                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold text-red-600 opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100">
                   Salir
                 </span>
               </button>

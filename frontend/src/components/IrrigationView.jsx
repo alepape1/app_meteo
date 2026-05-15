@@ -100,58 +100,81 @@ function getAdvice(temp, humidity, wind, et0Num) {
   }
 }
 
-// ── SVG Water Droplet animado ────────────────────────────────────────────────
-// savingsPct 0-100: cuánto se ha ahorrado (más = más lleno = mejor)
-function WaterDroplet({ savingsPct, color, size = 72 }) {
+// ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
+// consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
+function WaterDroplet({ consumptionPct = 0, size = 68 }) {
   const uid = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
-  const fill = Math.max(2, Math.min(98, savingsPct))
-  // yWave: 12 (lleno) → 100 (vacío), dentro del viewBox 0 0 80 104
-  const yWave = 100 - (fill / 100) * 88
+  const pct = Math.max(0, consumptionPct)
+  // yWave: 12 (lleno) → 98 (vacío), viewBox 0 0 80 104
+  const yWave = 98 - (Math.min(pct, 100) / 100) * 86
 
-  const palette = {
-    green: { main: '#10b981', light: '#d1fae5', stroke: '#059669' },
-    amber: { main: '#f59e0b', light: '#fef3c7', stroke: '#d97706' },
-    red:   { main: '#ef4444', light: '#fee2e2', stroke: '#dc2626' },
-  }
-  const p = palette[color] ?? palette.green
-  // Teardrop: punta arriba, semicírculo en la base (sweep=1 = horario = hacia abajo)
+  const isOver = pct >= 100
+  const isNear = pct >= 85
+
+  const waterTop  = isOver ? '#ff6a6a' : isNear ? '#ffae3b' : '#3fb6f0'
+  const waterDeep = isOver ? '#a31818' : isNear ? '#b86a07' : '#0b4f88'
+  const strokeC   = isOver ? '#b91c1c' : isNear ? '#b86a07' : '#0b4f88'
+  const bgLight   = isOver ? '#fee2e2' : isNear ? '#fef3c7' : '#eaf5ff'
+
   const dropPath = 'M40,4 C40,4 12,50 12,72 A28,28 0 0 1 68,72 C68,50 40,4 40,4 Z'
-  const wavePath = `M-80,${yWave} C-60,${yWave - 4} -40,${yWave + 4} -20,${yWave} `
-    + `C0,${yWave - 4} 20,${yWave + 4} 40,${yWave} `
-    + `C60,${yWave - 4} 80,${yWave + 4} 100,${yWave} `
-    + `C120,${yWave - 4} 140,${yWave + 4} 160,${yWave} `
-    + `L160,108 L-80,108 Z`
+  const mkWave = (amp, dy) =>
+    `M-80,${yWave + dy} C-60,${yWave + dy - amp} -40,${yWave + dy + amp} -20,${yWave + dy} ` +
+    `C0,${yWave + dy - amp} 20,${yWave + dy + amp} 40,${yWave + dy} ` +
+    `C60,${yWave + dy - amp} 80,${yWave + dy + amp} 100,${yWave + dy} ` +
+    `C120,${yWave + dy - amp} 140,${yWave + dy + amp} 160,${yWave + dy} ` +
+    `L160,108 L-80,108 Z`
 
   return (
     <>
       <style>{`
-        @keyframes wv-${uid} { 0%{transform:translateX(0)} 100%{transform:translateX(-80px)} }
-        .wv-${uid} { animation: wv-${uid} 2.5s linear infinite; }
+        @keyframes wv-${uid}  { 0%{transform:translateX(0)}   100%{transform:translateX(-80px)} }
+        @keyframes wv2-${uid} { 0%{transform:translateX(-40px)} 100%{transform:translateX(40px)} }
+        @keyframes shk-${uid} {
+          0%,91%,100%{transform:translateX(0)}
+          93%{transform:translateX(-2px)} 95%{transform:translateX(2px)} 97%{transform:translateX(-1px)}
+        }
+        .wv-${uid}  { animation: wv-${uid}  2.5s linear infinite; }
+        .wv2-${uid} { animation: wv2-${uid} 3.5s linear infinite; }
+        .shk-${uid} { animation: shk-${uid} 1.8s ease-in-out infinite; }
       `}</style>
       <svg
-        width={size} height={size * 104 / 80}
+        width={size} height={Math.round(size * 104 / 80)}
         viewBox="0 0 80 104"
+        className={isOver ? `shk-${uid}` : ''}
         style={{ overflow: 'visible', display: 'block' }}
       >
         <defs>
           <clipPath id={`cp-${uid}`}>
             <path d={dropPath} />
           </clipPath>
+          <linearGradient id={`wg-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={waterTop} />
+            <stop offset="100%" stopColor={waterDeep} />
+          </linearGradient>
+          <pattern id={`ct-${uid}`} width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10" fill="none" stroke="#7fd0ff" strokeWidth="0.4" opacity="0.55"/>
+            <circle cx="7" cy="5" r="0.7" fill="#9fdcff" opacity="0.7"/>
+            <circle cx="13" cy="9" r="0.7" fill="#9fdcff" opacity="0.7"/>
+          </pattern>
         </defs>
-        {/* Gota fondo */}
-        <path d={dropPath} fill={p.light} stroke={p.stroke} strokeWidth="1.5" />
-        {/* Relleno + ola animada */}
+        {/* Fondo de la gota */}
+        <path d={dropPath} fill={bgLight} stroke={strokeC} strokeWidth="1.5" />
+        {/* Patrón circuito */}
         <g clipPath={`url(#cp-${uid})`}>
-          <rect x="-5" y={yWave + 3} width="90" height="110" fill={p.main} opacity="0.35" />
+          <rect x="0" y="0" width="80" height="104" fill={`url(#ct-${uid})`} opacity="0.6" />
+        </g>
+        {/* Agua: ola trasera + ola delantera */}
+        <g clipPath={`url(#cp-${uid})`}>
+          <rect x="-5" y={yWave + 5} width="90" height="110" fill={`url(#wg-${uid})`} opacity="0.35" />
+          <g className={`wv2-${uid}`}>
+            <path d={mkWave(2.5, 2.5)} fill={`url(#wg-${uid})`} opacity="0.45" />
+          </g>
           <g className={`wv-${uid}`}>
-            <path d={wavePath} fill={p.main} opacity="0.75" />
+            <path d={mkWave(4, 0)} fill={`url(#wg-${uid})`} opacity="0.78" />
           </g>
         </g>
         {/* Brillo */}
-        <ellipse
-          cx="28" cy="28" rx="5" ry="9" fill="white" opacity="0.22"
-          transform="rotate(-25,28,28)"
-        />
+        <ellipse cx="27" cy="26" rx="5" ry="9" fill="white" opacity="0.22" transform="rotate(-25,27,26)" />
       </svg>
     </>
   )
@@ -465,12 +488,27 @@ function SavingsCard({ stats }) {
   const savingsPct = baseline_liters > 0
     ? Math.round((savings_liters / baseline_liters) * 100)
     : 0
-  const color = savingsPct >= 60 ? 'green' : savingsPct >= 30 ? 'amber' : 'red'
+  const consumptionPct = baseline_liters > 0
+    ? (monthly_liters / baseline_liters) * 100
+    : 0
+
+  const state = consumptionPct >= 100 ? 'danger' : consumptionPct >= 85 ? 'warn' : 'ok'
   const cc = {
-    green: { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700', border: 'border-emerald-100' },
-    amber: { text: 'text-amber-500',   badge: 'bg-amber-50 text-amber-700',     border: 'border-amber-200' },
-    red:   { text: 'text-red-500',     badge: 'bg-red-50 text-red-700',         border: 'border-red-200' },
-  }[color]
+    ok:     { text: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700 dot-green', border: 'border-sky-100' },
+    warn:   { text: 'text-amber-500',   badge: 'bg-amber-50 text-amber-700 dot-amber',     border: 'border-amber-200' },
+    danger: { text: 'text-red-500',     badge: 'bg-red-50 text-red-700 dot-red',           border: 'border-red-200' },
+  }[state]
+
+  const pillText = consumptionPct >= 100
+    ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
+    : consumptionPct >= 85
+    ? `${savingsPct}% de ahorro · cerca del límite`
+    : `${savingsPct}% de ahorro`
+  const leadText = consumptionPct >= 100
+    ? 'has superado el riego manual diario'
+    : consumptionPct >= 85
+    ? 'queda poco margen este mes'
+    : 'ahorrados vs riego manual diario'
 
   return (
     <div
@@ -481,8 +519,8 @@ function SavingsCard({ stats }) {
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="bg-emerald-50 p-1.5 rounded-lg">
-            <Leaf size={15} className="text-emerald-600" />
+          <div className="bg-sky-50 p-1.5 rounded-lg">
+            <Leaf size={15} className="text-sky-500" />
           </div>
           <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
             Ahorro este mes
@@ -495,17 +533,18 @@ function SavingsCard({ stats }) {
       </div>
 
       <div className="flex items-center gap-4">
-        <WaterDroplet savingsPct={savingsPct} color={color} size={68} />
+        <WaterDroplet consumptionPct={consumptionPct} size={68} />
         <div className="flex-1 min-w-0">
           <p className="text-3xl font-bold text-navy-900 leading-none">
             {savings_liters.toFixed(0)}
             <span className="text-base font-normal text-navy-300 ml-1">L</span>
           </p>
           <p className="text-xs text-navy-400 mt-1 leading-snug">
-            ahorrados vs riego manual diario
+            {leadText}
           </p>
-          <span className={`inline-block mt-2 text-xs font-semibold px-2 py-0.5 rounded-full ${cc.badge}`}>
-            {savingsPct}% de ahorro
+          <span className={`inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full ${cc.badge}`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
+            {pillText}
           </span>
         </div>
       </div>
