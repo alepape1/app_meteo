@@ -2,101 +2,29 @@
 test_endpoints.py — Paso 2: tests de integración de endpoints HTTP
 Requiere PostgreSQL en localhost:5432 (user=aquantia, pass=aquantia).
 Usa DB separada 'aquantia_test' para no contaminar la DB de dev.
+
+Fixtures de infraestructura (test_db_pool, flask_app, client, clean_tables)
+provienen de conftest.py; este módulo sólo define helpers y casos de test.
 """
 import os
 import sys
 
-import psycopg2
-import psycopg2.pool
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# Import app first: it calls load_dotenv() which sets PG_PASS, PG_HOST, etc.
-# before database.py module-level variables are initialized.
 import app as flask_module  # noqa: E402
-import database              # noqa: E402 — already in sys.modules with correct env
+import database              # noqa: E402
 
-TEST_DB = "aquantia_test"
-PG_CONN = dict(
-    host=os.environ.get("PG_HOST", "localhost"),
-    port=int(os.environ.get("PG_PORT", 5432)),
-    user=os.environ.get("PG_USER", "aquantia"),
-    password=os.environ.get("PG_PASS", "aquantia_dev"),
+from conftest import (  # noqa: E402
+    register_and_login as _ral,
+    auth_headers,
+    insert_device_credential,
+    claim_device as _claim,
 )
 
 
-# ── Fixtures de infraestructura ───────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def test_db_pool():
-    """Crea aquantia_test si no existe y redirige database._pool hacia ella."""
-    # 1. Crear la base de datos de test si no existe
-    admin = psycopg2.connect(dbname="aquantia", **PG_CONN)
-    admin.autocommit = True
-    cur = admin.cursor()
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TEST_DB,))
-    if not cur.fetchone():
-        cur.execute(f"CREATE DATABASE {TEST_DB}")
-    cur.close()
-    admin.close()
-
-    # 2. Crear pool hacia la DB de test y reemplazar el pool global del módulo
-    pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=2, maxconn=10, dbname=TEST_DB, **PG_CONN
-    )
-    original_pool = database._pool
-    database._pool = pool
-
-    # 3. Crear schema en la DB de test
-    conn = database.get_db_connection()
-    database.create_tables(conn)
-    conn.close()
-
-    yield pool
-
-    # Restaurar el pool original al terminar la sesión de tests
-    database._pool = original_pool
-    pool.closeall()
-
-
-@pytest.fixture(scope="session")
-def flask_app(test_db_pool):
-    """App Flask en modo TESTING con JWT secret fijo."""
-    flask_module.app.config.update({
-        "TESTING": True,
-        "JWT_SECRET_KEY": "test-secret-for-pytest-at-least-32-bytes",
-        "JWT_ACCESS_TOKEN_EXPIRES": False,
-        "RATELIMIT_ENABLED": False,
-    })
-    yield flask_module.app
-
-
-@pytest.fixture
-def client(flask_app):
-    """Cliente HTTP de test; crea un contexto de aplicación fresco por test."""
-    with flask_app.test_client() as c:
-        yield c
-
-
-@pytest.fixture(autouse=True)
-def clean_tables(test_db_pool):
-    """Elimina datos de usuario tras cada test para garantizar aislamiento."""
-    try:
-        flask_module.limiter._storage.reset()
-    except Exception:
-        pass
-    yield
-    conn = database.get_db_connection()
-    # El orden importa: respetar la FK user_devices → users
-    conn.execute("DELETE FROM user_devices")
-    conn.execute("DELETE FROM device_credentials")
-    conn.execute("DELETE FROM users")
-    conn.commit()
-    conn.close()
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Helpers locales ────────────────────────────────────────────────────────────
 
 def register_user(client, email="test@example.com", password="pass1234",
                   name="Tester"):
@@ -112,10 +40,6 @@ def login_user(client, email="test@example.com", password="pass1234"):
         "email": email,
         "password": password,
     })
-
-
-def auth_headers(token):
-    return {"Authorization": f"Bearer {token}"}
 
 
 # ── Registro de usuario ───────────────────────────────────────────────────────
@@ -333,3 +257,107 @@ class TestDevices:
             json={"serial_number": "SN-ANY"},
         )
         assert resp.status_code == 401
+
+    def test_release_device_removes_from_mine(self, client):
+        """DELETE /api/devices/<mac> desvincula el dispositivo correctamente."""
+        token = self._token(client)
+        mac = "CC:DD:EE:FF:00:11"
+        serial = "SN-DEL-001"
+        self._insert_credential(mac, serial)
+
+        client.post("/api/devices/claim",
+                    json={"serial_number": serial},
+                    headers=auth_headers(token))
+
+        resp = client.delete(f"/api/devices/{mac}", headers=auth_headers(token))
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+        # Ya no aparece en /devices/mine
+        devices = client.get("/api/devices/mine",
+                             headers=auth_headers(token)).get_json()
+        assert not any(d["mac_address"].upper() == mac for d in devices)
+
+    def test_release_device_other_user_returns_404(self, client):
+        """Un usuario no puede desvincular un dispositivo que no le pertenece."""
+        mac = "DD:EE:FF:00:11:22"
+        serial = "SN-DEL-002"
+        self._insert_credential(mac, serial)
+
+        token_a = self._token(client, email="owner@test.com")
+        client.post("/api/devices/claim",
+                    json={"serial_number": serial},
+                    headers=auth_headers(token_a))
+
+        register_user(client, email="intruder@test.com")
+        token_b = login_user(client, email="intruder@test.com").get_json()["token"]
+        resp = client.delete(f"/api/devices/{mac}", headers=auth_headers(token_b))
+        assert resp.status_code == 404
+
+    def test_release_nonexistent_device_returns_404(self, client):
+        token = self._token(client)
+        resp = client.delete("/api/devices/AA:BB:CC:DD:EE:FF",
+                             headers=auth_headers(token))
+        assert resp.status_code == 404
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+class TestSettings:
+    def _token(self, client):
+        register_user(client, email="cfg@test.com")
+        return login_user(client, email="cfg@test.com").get_json()["token"]
+
+    def test_get_settings_returns_dict(self, client):
+        token = self._token(client)
+        resp = client.get("/api/settings", headers=auth_headers(token))
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), dict)
+
+    def test_post_settings_updates_value(self, client):
+        token = self._token(client)
+        resp = client.post(
+            "/api/settings",
+            json={"flow_lpm": "8.5"},
+            headers=auth_headers(token),
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body.get("flow_lpm") == "8.5"
+
+    def test_post_settings_multiple_keys(self, client):
+        token = self._token(client)
+        resp = client.post(
+            "/api/settings",
+            json={"flow_lpm": "6.0", "baseline_daily_l": "12.0"},
+            headers=auth_headers(token),
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body.get("flow_lpm") == "6.0"
+        assert body.get("baseline_daily_l") == "12.0"
+
+    def test_post_settings_missing_json_returns_400(self, client):
+        token = self._token(client)
+        resp = client.post(
+            "/api/settings",
+            data="not json",
+            content_type="text/plain",
+            headers=auth_headers(token),
+        )
+        assert resp.status_code == 400
+
+    def test_settings_require_auth(self, client):
+        assert client.get("/api/settings").status_code == 401
+        assert client.post("/api/settings", json={}).status_code == 401
+
+
+# ── Cabeceras de seguridad ────────────────────────────────────────────────────
+
+class TestSecurityHeaders:
+    def test_security_headers_present(self, client):
+        resp = client.get("/api/auth/register",
+                          json={"email": "h@h.com", "password": "pass1234"})
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert resp.headers.get("X-Frame-Options") == "DENY"
+        assert "Content-Security-Policy" in resp.headers

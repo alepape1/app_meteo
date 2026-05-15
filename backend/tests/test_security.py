@@ -1,18 +1,17 @@
 """
-test_security.py — Tests de seguridad para los 5 fixes implementados en app.py.
+test_security.py — Tests de seguridad para los fixes implementados en app.py.
 
 Fix 1: _verify_device_auth — MAC no registrada devuelve (None, False) → 401
 Fix 2: irrigation_history — _PERIOD_MAP elimina f-string SQL con input usuario
 Fix 3: IDOR en POST /api/alerts/<id>/ack — verificación de ownership
 Fix 4: CORS — ALLOWED_ORIGINS=* lanza RuntimeError (no testeable por endpoint)
 Fix 5: docker-compose.yml — infra, sin test
+Fix 6: /api/mqtt/auth y /api/mqtt/acl — aislamiento por finca_id
 """
 import os
 import sys
 
 import bcrypt
-import psycopg2
-import psycopg2.pool
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -20,131 +19,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import app as flask_module  # noqa: E402
 import database              # noqa: E402
 
-TEST_DB = "aquantia_test"
-PG_CONN = dict(
-    host=os.environ.get("PG_HOST", "localhost"),
-    port=int(os.environ.get("PG_PORT", 5432)),
-    user=os.environ.get("PG_USER", "aquantia"),
-    password=os.environ.get("PG_PASS", "aquantia_dev"),
+from conftest import (  # noqa: E402
+    register_and_login as _register_and_login,
+    auth_headers as _auth,
+    insert_device_credential as _insert_device_credential,
+    claim_device as _claim_device,
+    insert_alert as _insert_alert,
 )
-
-
-# ── Fixtures de infraestructura ───────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def test_db_pool():
-    admin = psycopg2.connect(dbname="aquantia", **PG_CONN)
-    admin.autocommit = True
-    cur = admin.cursor()
-    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TEST_DB,))
-    if not cur.fetchone():
-        cur.execute(f"CREATE DATABASE {TEST_DB}")
-    cur.close()
-    admin.close()
-
-    pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=2, maxconn=10, dbname=TEST_DB, **PG_CONN
-    )
-    original_pool = database._pool
-    database._pool = pool
-
-    conn = database.get_db_connection()
-    database.create_tables(conn)
-    conn.close()
-
-    yield pool
-
-    database._pool = original_pool
-    pool.closeall()
-
-
-@pytest.fixture(scope="session")
-def flask_app(test_db_pool):
-    flask_module.app.config.update({
-        "TESTING": True,
-        "JWT_SECRET_KEY": "test-secret-for-pytest-at-least-32-bytes",
-        "JWT_ACCESS_TOKEN_EXPIRES": False,
-        "RATELIMIT_ENABLED": False,
-    })
-    yield flask_module.app
-
-
-@pytest.fixture
-def client(flask_app):
-    with flask_app.test_client() as c:
-        yield c
-
-
-@pytest.fixture(autouse=True)
-def clean_tables(test_db_pool):
-    try:
-        flask_module.limiter._storage.reset()
-    except Exception:
-        pass
-    yield
-    conn = database.get_db_connection()
-    conn.execute("DELETE FROM alerts")
-    conn.execute("DELETE FROM user_devices")
-    conn.execute("DELETE FROM device_credentials")
-    conn.execute("DELETE FROM users")
-    conn.commit()
-    conn.close()
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _register_and_login(client, email, password="pass1234", name="Tester"):
-    client.post("/api/auth/register", json={
-        "email": email,
-        "password": password,
-        "display_name": name,
-    })
-    resp = client.post("/api/auth/login", json={"email": email, "password": password})
-    return resp.get_json()["token"]
-
-
-def _auth(token):
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _insert_device_credential(mac, serial="SN-SEC-001"):
-    """Inserta credenciales reales con bcrypt para que _verify_device_auth pueda validar."""
-    raw_token = "test-device-secret"
-    token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
-    conn = database.get_db_connection()
-    conn.execute(
-        "INSERT INTO device_credentials(mac, token_hash, serial_number)"
-        " VALUES (%s, %s, %s)",
-        (mac, token_hash, serial),
-    )
-    conn.commit()
-    conn.close()
-    return raw_token
-
-
-def _claim_device(client, token, mac, serial):
-    """Asocia el dispositivo al usuario autenticado."""
-    resp = client.post(
-        "/api/devices/claim",
-        json={"serial_number": serial},
-        headers=_auth(token),
-    )
-    assert resp.status_code == 200, f"Claim falló: {resp.get_json()}"
-
-
-def _insert_alert(device_mac, alert_type="leak"):
-    conn = database.get_db_connection()
-    conn.execute(
-        "INSERT INTO alerts(device_mac, alert_type, message) VALUES (%s, %s, %s)",
-        (device_mac, alert_type, "test alert"),
-    )
-    conn.commit()
-    alert_id = conn.execute(
-        "SELECT id FROM alerts WHERE device_mac=%s ORDER BY id DESC LIMIT 1",
-        (device_mac,),
-    ).fetchone()["id"]
-    conn.close()
-    return alert_id
 
 
 # ── Fix 1: _verify_device_auth — MAC no registrada → 401 ────────────────────
@@ -358,3 +239,129 @@ class TestAlertAckIDOR:
         conn.close()
         assert row_after["acked"] == 1
         assert row_after["acked_at"] is not None
+
+
+# ── Fix 6: /api/mqtt/auth — autenticación de dispositivos y backend ───────────
+
+class TestMQTTAuth:
+    """Valida el endpoint mosquitto-go-auth POST /api/mqtt/auth."""
+
+    def _insert_cred(self, mac, serial, raw_token="mqtt-secret"):
+        """Inserta hash bcrypt directamente para el endpoint mqtt/auth."""
+        token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
+        conn = database.get_db_connection()
+        conn.execute(
+            "INSERT INTO device_credentials(mac, token_hash, serial_number)"
+            " VALUES (%s, %s, %s)",
+            (mac, token_hash, serial),
+        )
+        conn.commit()
+        conn.close()
+        return raw_token
+
+    def test_missing_credentials_returns_401(self, client):
+        resp = client.post("/api/mqtt/auth", json={})
+        assert resp.status_code == 401
+
+    def test_backend_user_valid_password_returns_200(self, client, monkeypatch):
+        monkeypatch.setenv("MQTT_PASSWORD", "secret-backend-pw")
+        resp = client.post("/api/mqtt/auth",
+                           json={"username": "backend", "password": "secret-backend-pw"})
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+    def test_backend_user_wrong_password_returns_401(self, client, monkeypatch):
+        monkeypatch.setenv("MQTT_PASSWORD", "correct-pw")
+        resp = client.post("/api/mqtt/auth",
+                           json={"username": "backend", "password": "wrong-pw"})
+        assert resp.status_code == 401
+
+    def test_device_valid_token_returns_200(self, client):
+        mac = "AA:00:11:22:33:44"
+        raw = self._insert_cred(mac, "SN-MQTT-001")
+        resp = client.post("/api/mqtt/auth",
+                           json={"username": mac, "password": raw})
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+    def test_device_wrong_token_returns_401(self, client):
+        mac = "AA:00:11:22:33:55"
+        self._insert_cred(mac, "SN-MQTT-002")
+        resp = client.post("/api/mqtt/auth",
+                           json={"username": mac, "password": "wrong-token"})
+        assert resp.status_code == 401
+
+    def test_unknown_device_returns_401(self, client):
+        resp = client.post("/api/mqtt/auth",
+                           json={"username": "FF:FF:FF:FF:FF:FF", "password": "any"})
+        assert resp.status_code == 401
+
+
+# ── Fix 6: /api/mqtt/acl — aislamiento de topics por finca_id ────────────────
+
+class TestMQTTACL:
+    """Valida la política de ACL: un dispositivo solo accede a su finca."""
+
+    def _setup_device(self, mac, serial, finca_id, raw_token="acl-secret"):
+        """Registra credenciales y asigna finca_id en device_credentials."""
+        token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt()).decode()
+        conn = database.get_db_connection()
+        conn.execute(
+            "INSERT INTO device_credentials(mac, token_hash, serial_number,"
+            " claimed_by_finca_id) VALUES (%s, %s, %s, %s)",
+            (mac, token_hash, serial, finca_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_backend_user_can_access_any_topic(self, client):
+        resp = client.post("/api/mqtt/acl", json={
+            "username": "backend",
+            "topic": "aquantia/finca01/telemetry",
+            "acc": 2,
+        })
+        assert resp.status_code == 200
+
+    def test_device_can_publish_to_own_finca_telemetry(self, client):
+        mac = "BB:11:22:33:44:55"
+        self._setup_device(mac, "SN-ACL-001", "finca01")
+        resp = client.post("/api/mqtt/acl", json={
+            "username": mac,
+            "topic": "aquantia/finca01/telemetry",
+            "acc": 2,
+        })
+        assert resp.status_code == 200
+
+    def test_device_cannot_publish_to_other_finca(self, client):
+        mac = "BB:11:22:33:44:66"
+        self._setup_device(mac, "SN-ACL-002", "finca01")
+        resp = client.post("/api/mqtt/acl", json={
+            "username": mac,
+            "topic": "aquantia/finca02/telemetry",
+            "acc": 2,
+        })
+        assert resp.status_code == 401
+
+    def test_device_can_subscribe_to_own_cmd(self, client):
+        mac = "BB:11:22:33:44:77"
+        self._setup_device(mac, "SN-ACL-003", "finca01")
+        resp = client.post("/api/mqtt/acl", json={
+            "username": mac,
+            "topic": "aquantia/finca01/cmd",
+            "acc": 1,
+        })
+        assert resp.status_code == 200
+
+    def test_malformed_topic_returns_401(self, client):
+        mac = "BB:11:22:33:44:88"
+        self._setup_device(mac, "SN-ACL-004", "finca01")
+        resp = client.post("/api/mqtt/acl", json={
+            "username": mac,
+            "topic": "bad-topic",
+            "acc": 2,
+        })
+        assert resp.status_code == 401
+
+    def test_missing_fields_returns_401(self, client):
+        resp = client.post("/api/mqtt/acl", json={})
+        assert resp.status_code == 401
