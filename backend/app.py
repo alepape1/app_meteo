@@ -1235,6 +1235,16 @@ def _db_rows_to_pipeline(rows, scenario):
     ]
 
 
+def _downsample_pipeline(readings, max_points):
+    """Muestrea uniformemente una lista de lecturas para reducir puntos enviados."""
+    n = len(readings)
+    if n <= max_points:
+        return readings
+    step = (n - 1) / (max_points - 1)
+    indices = sorted({0, n - 1} | {round(i * step) for i in range(1, max_points - 1)})
+    return [readings[i] for i in indices]
+
+
 def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
     """Devuelve lecturas de pipeline deduplicadas por timestamp para una MAC."""
     if not mac:
@@ -1363,9 +1373,11 @@ def pipeline_readings():
     if from_dt and to_dt:
         rows = _fetch_pipeline_rows(mac, from_dt=from_dt, to_dt=to_dt)
         readings = _db_rows_to_pipeline(list(rows), scenario)
+        max_points = int(request.args.get('max_points', 300))
+        readings = _downsample_pipeline(readings, max_points)
         return jsonify(readings)
 
-    n = min(int(request.args.get('n', 90)), 500)
+    n = min(int(request.args.get('n', 90)), 2000)
     rows = _fetch_pipeline_rows(mac, limit=n)
 
     readings = _db_rows_to_pipeline(list(reversed(rows)), scenario)

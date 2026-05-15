@@ -549,12 +549,14 @@ export default function PipelineView({ selectedMac }) {
     liveAbortRef.current = controller
     const signal = controller.signal
     try {
+      // 20 s de intervalo de telemetría → puntos por hora ≈ 180; cap 1500
+      const nPoints = Math.min(Math.ceil(liveHours * 180) + 10, 1500)
       const statusUrl = selectedMac
         ? `/api/pipeline/status?mac=${encodeURIComponent(selectedMac)}`
         : '/api/pipeline/status'
       const readingsUrl = selectedMac
-        ? `/api/pipeline/readings?n=90&mac=${encodeURIComponent(selectedMac)}`
-        : '/api/pipeline/readings?n=90'
+        ? `/api/pipeline/readings?n=${nPoints}&mac=${encodeURIComponent(selectedMac)}`
+        : `/api/pipeline/readings?n=${nPoints}`
 
       const [sRes, rRes] = await Promise.all([
         authFetchRef.current(statusUrl, { signal }),
@@ -571,7 +573,7 @@ export default function PipelineView({ selectedMac }) {
       if (e.name !== 'AbortError') { /* ignorar fallos transitorios del pipeline */ }
     }
     finally { setLoading(false) }
-  }, [selectedMac])
+  }, [selectedMac, liveHours])
 
   // Live auto-refresh
   useEffect(() => {
@@ -599,7 +601,7 @@ export default function PipelineView({ selectedMac }) {
       const from = toQueryStr(new Date(startDt))
       const to   = toQueryStr(new Date(endDt))
       const macPart = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
-      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${macPart}`)
+      const res  = await authFetchRef.current(`/api/pipeline/readings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&max_points=300${macPart}`)
       const data = await res.json()
       setHistReadings(Array.isArray(data) ? data : [])
     } catch {
