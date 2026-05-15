@@ -136,6 +136,7 @@ function AppInner({ user, logout }) {
   const [claimSerial] = useState(serialFromUrl || '')
   const [unackedAlerts, setUnackedAlerts] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   // Ref estable para authFetch: evita que el effect de polling de alertas
   // se destruya y recree cada vez que cambia la referencia de authFetch.
@@ -169,6 +170,7 @@ function AppInner({ user, logout }) {
   const showNoDevicesState = devicesLoaded && !hasDevices && activeView !== 'devices' && activeView !== 'claim'
 
   return (
+    <>
     <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
       {/* Backdrop móvil */}
       {sidebarOpen && (
@@ -243,7 +245,7 @@ function AppInner({ user, logout }) {
             {/* Logo de salida + usuario */}
             <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
               <button
-                onClick={logout}
+                onClick={() => setShowLogoutConfirm(true)}
                 title="Salir"
                 className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
               >
@@ -492,5 +494,32 @@ function AppInner({ user, logout }) {
         )}
       </div>
     </div>
+
+    {/* ── Modal confirmación logout ── */}
+    {showLogoutConfirm && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="bg-white border border-black/[.08] rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-5">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-navy-900 font-semibold text-base">¿Cerrar sesión?</h3>
+            <p className="text-navy-400 text-sm">Se cerrará tu sesión actual y tendrás que volver a iniciarla para acceder.</p>
+          </div>
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => setShowLogoutConfirm(false)}
+              className="px-4 py-2 rounded-xl text-sm font-medium text-navy-500 hover:bg-navy-50 hover:text-navy-900 transition-all"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => { setShowLogoutConfirm(false); logout() }}
+              className="px-4 py-2 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 text-white transition-all"
+            >
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

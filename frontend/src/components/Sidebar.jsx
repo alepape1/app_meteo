@@ -67,6 +67,7 @@ export default function Sidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [hoveredView, setHoveredView] = useState(null)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   const infoView = hoveredView || activeView
   const sectionInfo = NAV_DESCRIPTIONS[infoView]
@@ -236,7 +237,7 @@ export default function Sidebar({
       <div className="px-3 py-3 border-t border-navy-800 shrink-0">
         {!collapsed ? (
           <button
-            onClick={onLogout}
+            onClick={() => setShowLogoutConfirm(true)}
             className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white hover:bg-navy-800 hover:text-white transition-all"
           >
             <span className="inline-flex items-center justify-center text-navy-500 group-hover:text-red-400 transition-colors drop-shadow-sm">
@@ -246,7 +247,7 @@ export default function Sidebar({
           </button>
         ) : (
           <button
-            onClick={onLogout}
+            onClick={() => setShowLogoutConfirm(true)}
             title="Cerrar sesión"
             className="w-full flex items-center justify-center p-2 rounded-xl text-red-400 hover:bg-navy-800 hover:text-red-300 transition-all"
           >
@@ -254,6 +255,32 @@ export default function Sidebar({
           </button>
         )}
       </div>
+
+      {/* ── Modal confirmación logout ── */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-navy-900 border border-navy-700 rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-5">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-white font-semibold text-base">¿Cerrar sesión?</h3>
+              <p className="text-navy-300 text-sm">Se cerrará tu sesión actual y tendrás que volver a iniciarla para acceder.</p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-navy-300 hover:bg-navy-800 hover:text-white transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { setShowLogoutConfirm(false); onLogout() }}
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 text-white transition-all"
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

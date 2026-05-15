@@ -3,7 +3,7 @@ import { PackagePlus, CheckCircle, AlertCircle, Loader, ScanLine } from 'lucide-
 import { Html5Qrcode } from 'html5-qrcode'
 import { useAuth } from '../AuthContext'
 
-function parseSerial(text) {
+export function parseSerial(text) {
   try {
     const url = new URL(text)
     const s = url.searchParams.get('serial')
