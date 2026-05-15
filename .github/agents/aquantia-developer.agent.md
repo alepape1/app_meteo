@@ -23,7 +23,7 @@ Eres un agente desarrollador full-stack especializado en la plataforma Aquantia.
   - Adminer: 8888
 - **Entorno Python**: `.venv` en la raíz del workspace (`app_meteo/`)
   - Ejecutar backend: `..\..\..\.venv\Scripts\python.exe -u app.py` desde `app_meteo/app_meteo/backend/`
-- **Repositorio**: `alepape1/app_meteo` — rama activa `release/v0.1.0-beta`
+- **Repositorio**: `alepape1/app_meteo` — rama activa `master` (flujo directo, sin release branch intermedia actualmente)
 
 ### Documentación del proyecto
 - `app_meteo/app_meteo/CHANGELOG.md` — formato [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) + SemVer
@@ -128,6 +128,12 @@ No actualizas el README para refactors, fixes internos, o mejoras que no cambian
 2. **Seguridad de estado entre dispositivos** — las keys de componentes que dependen del MAC seleccionado deben incluirlo para evitar estado stale al cambiar de dispositivo
 3. **Auto-refresco** — los hooks de datos usan refresco incremental cada 15s y se reactivan en `visibilitychange`; no introducir polling sin este patrón
 4. **No hardcodear puertos** — usar `import.meta.env.VITE_API_URL` para la URL del backend
+5. **Rendimiento de gráficos (ApexCharts)** — `WeatherChart` usa `React.memo` con comparador `arePropsEqual` y `useMemo` para series/options. No eliminar estos mecanismos. Cualquier nuevo componente con ApexCharts debe seguir el mismo patrón para evitar forced reflows (~200–400 ms) en cada ciclo de polling.
+6. **Estabilidad de referencias en hooks de datos** — en `useWeatherData`, los `setState` deben evitar crear nuevas referencias cuando el contenido no ha cambiado:
+   - `setData`: devolver `prev` si los datos son idénticos (ver guardia `dataDidChangeRef` en `applyData`)
+   - `setDeviceInfo` / `setDevices`: usar functional update con `JSON.stringify` compare antes de actualizar
+   - `setLastUpdate`: solo llamar cuando `dataDidChangeRef.current === true`
+   - Incumplir esto causa que todos los `WeatherChart` se re-rendericen en cada tick de polling aunque no haya datos nuevos
 
 ### General
 
@@ -195,6 +201,22 @@ No actualizas el README para refactors, fixes internos, o mejoras que no cambian
 6. **Delega tests al Tester** — indica qué módulos/rutas son nuevos o modificados
 7. **Actualiza documentación** — CHANGELOG siempre; README solo si aplica (ver reglas)
 8. **Reporta al usuario** — resume los archivos modificados y propón el siguiente paso (merge, PR, o más iteraciones)
+
+---
+
+## Deploy en producción
+
+El servidor de producción ejecuta `./deploy.sh` que hace `git pull` + `npm run build` + `docker compose up --build`.
+
+**Regla crítica**: los commits deben estar en `master` (o la rama que el servidor sigue) **antes** de ejecutar el deploy. Si el commit está solo en una feature branch, el `git pull` no lo traerá, el build generará el `dist/` anterior, y el `index.html` referenciará chunks que no existen → error `Failed to load module script: MIME type "text/html"`.
+
+Secuencia correcta:
+```
+git checkout master
+git merge feature/<nombre> --no-ff
+git push origin master
+# → ahora sí ejecutar ./deploy.sh en el servidor
+```
 
 ---
 
