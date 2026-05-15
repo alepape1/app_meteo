@@ -407,8 +407,8 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       hover: { size: 4.5 },
     },
     fill: {
-      type: 'solid',
-      opacity: 0,
+      type: 'gradient',
+      gradient: { opacityFrom: 0.08, opacityTo: 0.01, shadeIntensity: 0 },
     },
     xaxis: {
       type: 'datetime',
@@ -434,13 +434,13 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
     yaxis: [
       {
         seriesName: 'Presión (bar)',
-        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#14b8a6', fontFamily: '"DM Sans"' } },
+        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0891b2', fontFamily: '"DM Sans"' } },
         min: pressureAxis.min,
         max: pressureAxis.max,
         forceNiceScale: true,
         decimalsInFloat: 2,
         labels: {
-          style: { colors: '#14b8a6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          style: { colors: '#0891b2', fontSize: '11px', fontFamily: '"DM Sans"' },
           formatter: v => {
             const n = Number(v)
             return Number.isFinite(n) ? `${n.toFixed(2)}` : ''
@@ -450,13 +450,13 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
       {
         seriesName: 'Caudal (L/min)',
         opposite: true,
-        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#3b82f6', fontFamily: '"DM Sans"' } },
+        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#2563eb', fontFamily: '"DM Sans"' } },
         min: flowAxis.min,
         max: flowAxis.max,
         forceNiceScale: true,
         decimalsInFloat: 1,
         labels: {
-          style: { colors: '#3b82f6', fontSize: '11px', fontFamily: '"DM Sans"' },
+          style: { colors: '#2563eb', fontSize: '11px', fontFamily: '"DM Sans"' },
           formatter: v => {
             const n = Number(v)
             return Number.isFinite(n) ? `${n.toFixed(1)}` : ''
