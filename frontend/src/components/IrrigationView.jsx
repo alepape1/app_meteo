@@ -105,8 +105,10 @@ function getAdvice(temp, humidity, wind, et0Num) {
 function WaterDroplet({ consumptionPct = 0, size = 68 }) {
   const uid = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
   const pct = Math.max(0, consumptionPct)
+  // Mínimo 10% de relleno visual para que la ola siempre sea visible
+  const fillPct = Math.max(10, Math.min(pct, 110))
   // yWave: 12 (lleno) → 98 (vacío), viewBox 0 0 80 104
-  const yWave = 98 - (Math.min(pct, 100) / 100) * 86
+  const yWave = 98 - (Math.min(fillPct, 100) / 100) * 86
 
   const isOver = pct >= 100
   const isNear = pct >= 85
