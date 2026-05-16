@@ -1011,11 +1011,11 @@ def irrigation_stats():
     """)
     since = cursor.fetchone()["since"]
 
-    # Consumo diario usando caudal real cuando está disponible
+    # Consumo diario: usa flow_delta_l (pulsos reales) si disponible, si no estima con pipeline_flow
     cursor.execute("""
         SELECT DATE(timestamp) AS day,
                COUNT(*) AS cnt,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1025,10 +1025,10 @@ def irrigation_stats():
     """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     daily_rows = cursor.fetchall()
 
-    # Total mensual con caudal real
+    # Total mensual con pulsos reales (flow_delta_l) o estimación
     cursor.execute("""
         SELECT COUNT(*) AS total_active,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS total_liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS total_liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1036,10 +1036,10 @@ def irrigation_stats():
     """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     monthly_row = cursor.fetchone()
 
-    # Total hoy con caudal real
+    # Total hoy con pulsos reales (flow_delta_l) o estimación
     cursor.execute("""
         SELECT COUNT(*) AS today_active,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS today_liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS today_liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1052,10 +1052,10 @@ def irrigation_stats():
     # Umbral 0.1 L/min para filtrar ruido del sensor
     LEAK_THRESHOLD_LPM = 0.1
     cursor.execute("""
-        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS leak_liters
+        SELECT COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, 0) / 60.0 * %s)), 0) AS leak_liters
         FROM home_weather_station
         WHERE relay_active = 0
-          AND pipeline_flow > %s
+          AND (flow_delta_l > 0 OR pipeline_flow > %s)
           AND device_mac = %s
           AND timestamp >= %s
     """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
@@ -1063,10 +1063,10 @@ def irrigation_stats():
 
     # Fugas de hoy
     cursor.execute("""
-        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS today_leak_liters
+        SELECT COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, 0) / 60.0 * %s)), 0) AS today_leak_liters
         FROM home_weather_station
         WHERE relay_active = 0
-          AND pipeline_flow > %s
+          AND (flow_delta_l > 0 OR pipeline_flow > %s)
           AND device_mac = %s
           AND DATE(timestamp) = CURRENT_DATE
           AND timestamp >= %s

@@ -300,6 +300,7 @@ def create_tables(conn: _CompatConn):
         ("pipeline_flow_ok",     "ALTER TABLE home_weather_station ADD COLUMN pipeline_flow_ok BOOLEAN DEFAULT NULL"),
         ("pipeline_scenario",    "ALTER TABLE home_weather_station ADD COLUMN pipeline_scenario TEXT DEFAULT NULL"),
         ("flow_total_l",         "ALTER TABLE home_weather_station ADD COLUMN flow_total_l REAL DEFAULT NULL"),
+        ("flow_delta_l",         "ALTER TABLE home_weather_station ADD COLUMN flow_delta_l REAL DEFAULT NULL"),
     ]:
         if _col not in _hws_cols:
             cur.execute(_ddl)

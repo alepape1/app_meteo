@@ -38,7 +38,7 @@ const toQueryStr = d => {
   return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
-export const clampInput = (value, min, max) => {
+const clampInput = (value, min, max) => {
   const n = Number.parseInt(value, 10)
   if (!Number.isFinite(n)) return min
   return Math.min(max, Math.max(min, n))
@@ -877,6 +877,25 @@ export default function PipelineView({ selectedMac }) {
 
       {/* ── Banner de estado ── */}
       {mode === 'live' && <StatusBanner detection={det} />}
+
+      {/* ── Badge diagnóstico de fuente de sensor ── */}
+      {mode === 'live' && cur?.pipeline_source && (() => {
+        const src = cur.pipeline_source
+        const SRC_CFG = {
+          real:       { label: 'Sensor real',                  cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+          real_flow:  { label: 'Caudal real · Presión simulada', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+          fallback:   { label: 'Sensor sin respuesta · Datos estimados', cls: 'bg-red-50 text-red-700 border-red-200' },
+          sim:        { label: 'Datos simulados (sin sensor físico)',     cls: 'bg-slate-50 text-slate-500 border-slate-200' },
+        }
+        const info = SRC_CFG[src] ?? { label: src, cls: 'bg-slate-50 text-slate-500 border-slate-200' }
+        return (
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium w-fit ${info.cls}`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${src === 'real' ? 'bg-emerald-500' : src === 'real_flow' ? 'bg-amber-400' : src === 'fallback' ? 'bg-red-500' : 'bg-slate-400'}`} />
+            <span>Fuente presión:</span>
+            <span className="font-semibold">{info.label}</span>
+          </div>
+        )
+      })()}
 
       {/* ── Cards de lectura actual + selector de escenario ── */}
       {mode === 'live' && (
