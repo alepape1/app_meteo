@@ -83,7 +83,7 @@ function WeatherChart({
       id: chartId,
       type,
       toolbar: { show: false },
-      animations: { enabled: true, speed: 400, easing: 'easeinout', dynamicAnimation: { enabled: false } },
+      animations: { enabled: false },
       background: 'transparent',
       fontFamily: '"DM Sans", system-ui, sans-serif',
       zoom: { enabled: true },
@@ -267,7 +267,7 @@ function WeatherChart({
 
       {hasData ? (
         <ReactApexChart
-          key={`${chartId}-${timestamps[0] ?? ''}`}
+          key={`${chartId}-${timestamps.at(-1) ?? ''}`}
           options={options}
           series={builtSeries}
           type={type}
@@ -283,6 +283,11 @@ function WeatherChart({
 }
 
 function arePropsEqual(prev, next) {
+  // Cuando el chart está oculto (paused), bloqueamos cualquier re-render.
+  // Al volver al dashboard paused pasa a false y next.paused no se cumple,
+  // por lo que la comparación continúa normalmente y el chart se actualiza.
+  if (next.paused) return true
+
   if (
     prev.title !== next.title ||
     prev.type !== next.type ||

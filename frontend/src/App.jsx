@@ -412,7 +412,7 @@ function AppInner({ user, logout }) {
           {/* ── Charts ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <WeatherChart
-              title="Temperatura" icon={Thermometer} timestamps={ts}
+              title="Temperatura" icon={Thermometer} timestamps={ts} paused={activeView !== 'dashboard'}
               series={[
                 { name: latest.temperature_source || 'Exterior', data: data.temperature },
                 { name: 'Barométrica', data: data.temperature_bar },
@@ -422,7 +422,7 @@ function AppInner({ user, logout }) {
               yUnit="°C" type="area" hideLegend
             />
             <WeatherChart
-              title="Humedad Relativa" icon={Droplets} timestamps={ts}
+              title="Humedad Relativa" icon={Droplets} timestamps={ts} paused={activeView !== 'dashboard'}
               series={[
                 { name: isAgrometeo ? 'HDC1080' : 'HTU2x', data: data.humidity },
               ]}
@@ -430,7 +430,7 @@ function AppInner({ user, logout }) {
               yUnit="%" yMin={0} yMax={100} type="area"
             />
             <WeatherChart
-              title="Presión Atmosférica" icon={Gauge} timestamps={ts}
+              title="Presión Atmosférica" icon={Gauge} timestamps={ts} paused={activeView !== 'dashboard'}
               series={[
                 { name: latest.pressure_source || 'Presión principal', data: data.pressure },
                 { name: 'BMP280', data: data.bmp280_pressure },
@@ -439,7 +439,7 @@ function AppInner({ user, logout }) {
               yUnit=" hPa" minYRange={2} type="area"
             />
             <WeatherChart
-              title="Luz Ambiente" icon={Sun} timestamps={ts}
+              title="Luz Ambiente" icon={Sun} timestamps={ts} paused={activeView !== 'dashboard'}
               series={[{ name: 'Lux', data: data.light }]}
               colors={['#BA7517']}
               yUnit=" lx" yMin={0} type="area"
@@ -447,13 +447,13 @@ function AppInner({ user, logout }) {
             {isAgrometeo ? (
               <>
                 <WeatherChart
-                  title="Punto de Rocío" icon={Droplets} timestamps={ts}
+                  title="Punto de Rocío" icon={Droplets} timestamps={ts} paused={activeView !== 'dashboard'}
                   series={[{ name: 'Pto. rocío', data: data.dew_point }]}
                   colors={['#0c8ecc']}
                   yUnit="°C" type="area"
                 />
                 <WeatherChart
-                  title="Humedad Absoluta" icon={Droplets} timestamps={ts}
+                  title="Humedad Absoluta" icon={Droplets} timestamps={ts} paused={activeView !== 'dashboard'}
                   series={[{ name: 'Hum. absoluta', data: data.abs_humidity }]}
                   colors={['#10b981']}
                   yUnit=" g/m³" yMin={0} type="area"
@@ -462,7 +462,7 @@ function AppInner({ user, logout }) {
             ) : (
               <>
                 <WeatherChart
-                  title="Velocidad del Viento" icon={Wind} timestamps={ts}
+                  title="Velocidad del Viento" icon={Wind} timestamps={ts} paused={activeView !== 'dashboard'}
                   series={[
                     { name: 'Velocidad', data: data.windSpeed },
                     { name: 'Filtrada',  data: data.windSpeedFiltered },
@@ -471,7 +471,7 @@ function AppInner({ user, logout }) {
                   yUnit=" m/s" type="line"
                 />
                 <WeatherChart
-                  title="Dirección del Viento" icon={Compass} timestamps={ts}
+                  title="Dirección del Viento" icon={Compass} timestamps={ts} paused={activeView !== 'dashboard'}
                   series={[
                     { name: 'Dirección', data: data.windDirection },
                     { name: 'Filtrada',  data: data.windDirectionFiltered },
@@ -480,7 +480,7 @@ function AppInner({ user, logout }) {
                   yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
                 />
                 <WeatherChart
-                  title="Humedad del Suelo" icon={Sprout} timestamps={ts}
+                  title="Humedad del Suelo" icon={Sprout} timestamps={ts} paused={activeView !== 'dashboard'}
                   series={[{ name: 'Suelo', data: data.soil_moisture }]}
                   colors={['#10b981']}
                   yUnit="%" yMin={0} yMax={100} type="area"

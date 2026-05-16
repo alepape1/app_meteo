@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, startTransition } from 'react'
 import { useAuth } from '../AuthContext'
 
 const EMPTY = {
@@ -46,8 +46,8 @@ export function useWeatherData() {
   const [error, setError] = useState(null)
   const [deviceInfo, setDeviceInfo] = useState(null)
   const [devices, setDevices] = useState([])
-  // Ref para saber si applyData hizo un cambio real (evita setLastUpdate innecesario)
-  const dataDidChangeRef = useRef(false)
+  // Último timestamp recibido del servidor, para decidir si actualizar lastUpdate
+  const lastIncomingTsRef = useRef(null)
   const [devicesLoaded, setDevicesLoaded] = useState(false)
   const [selectedMac, setSelectedMac] = useState(null)
   // Guarda los parámetros del último fetchFiltered activo.
@@ -57,73 +57,76 @@ export function useWeatherData() {
   const applyData = useCallback((json, mode = 'replace', maxPoints = MAX_POINTS) => {
     const normalized = { ...EMPTY, ...(json || {}) }
 
-    setData(prev => {
-      if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
-        dataDidChangeRef.current = true
-        const replaced = {}
-        Object.keys(EMPTY).forEach((key) => {
-          replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-maxPoints) : []
-        })
-        return replaced
-      }
-
-      const prevTimestamps = prev.timestamp.map(v => String(v))
-      const incomingTimestamps = Array.isArray(normalized.timestamp)
-        ? normalized.timestamp.map(v => String(v))
-        : []
-
-      const seen = new Set(prevTimestamps)
-      const appendIndexes = []
-      incomingTimestamps.forEach((ts, index) => {
-        if (!seen.has(ts)) appendIndexes.push(index)
-      })
-
-      // Si no hay puntos nuevos y el último timestamp coincide, comprobar si
-      // algún valor real cambió antes de crear nuevos arrays. Si nada cambió,
-      // devolver prev para que React no dispare un re-render.
-      if (appendIndexes.length === 0 && incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1)) {
-        const anyChanged = Object.keys(EMPTY).some((key) => {
-          const prevArr = Array.isArray(prev[key]) ? prev[key] : []
-          const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
-          return prevArr.length > 0 && String(prevArr.at(-1)) !== String(nextArr.at(-1))
-        })
-        if (!anyChanged) {
-          dataDidChangeRef.current = false
-          return prev
-        }
-      }
-      dataDidChangeRef.current = true
-
-      const merged = {}
-      Object.keys(EMPTY).forEach((key) => {
-        const prevArr = Array.isArray(prev[key]) ? prev[key] : []
-        const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
-
-        if (appendIndexes.length > 0) {
-          merged[key] = [
-            ...prevArr,
-            ...appendIndexes.map(i => (i < nextArr.length ? nextArr[i] : null)),
-          ].slice(-MAX_POINTS)
-          return
-        }
-
-        if (incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1) && prevArr.length > 0) {
-          const updated = prevArr.slice()
-          updated[updated.length - 1] = nextArr.at(-1) ?? updated.at(-1)
-          merged[key] = updated
-          return
-        }
-
-        merged[key] = prevArr
-      })
-
-      return merged
-    })
-
-    if (dataDidChangeRef.current) {
+    // Detección de cambio antes del startTransition: compara el último timestamp
+    // entrante con el que ya teníamos. En modo replace siempre hay cambio.
+    const incomingLastTs = Array.isArray(normalized.timestamp)
+      ? String(normalized.timestamp.at(-1) ?? '')
+      : ''
+    if (mode !== 'append' || incomingLastTs !== lastIncomingTsRef.current) {
+      lastIncomingTsRef.current = incomingLastTs
       setLastUpdate(new Date().toLocaleTimeString('es-ES'))
       setError(null)
     }
+
+    // startTransition: marca la actualización de datos como no urgente para que
+    // React pueda repartir los re-renders de los charts entre frames y no bloquee
+    // el hilo principal con varios forced-reflow simultáneos.
+    startTransition(() => {
+      setData(prev => {
+        if (mode !== 'append' || !Array.isArray(prev.timestamp) || prev.timestamp.length === 0) {
+          const replaced = {}
+          Object.keys(EMPTY).forEach((key) => {
+            replaced[key] = Array.isArray(normalized[key]) ? normalized[key].slice(-maxPoints) : []
+          })
+          return replaced
+        }
+
+        const prevTimestamps = prev.timestamp.map(v => String(v))
+        const incomingTimestamps = Array.isArray(normalized.timestamp)
+          ? normalized.timestamp.map(v => String(v))
+          : []
+
+        const seen = new Set(prevTimestamps)
+        const appendIndexes = []
+        incomingTimestamps.forEach((ts, index) => {
+          if (!seen.has(ts)) appendIndexes.push(index)
+        })
+
+        if (appendIndexes.length === 0 && incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1)) {
+          const anyChanged = Object.keys(EMPTY).some((key) => {
+            const prevArr = Array.isArray(prev[key]) ? prev[key] : []
+            const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
+            return prevArr.length > 0 && String(prevArr.at(-1)) !== String(nextArr.at(-1))
+          })
+          if (!anyChanged) return prev
+        }
+
+        const merged = {}
+        Object.keys(EMPTY).forEach((key) => {
+          const prevArr = Array.isArray(prev[key]) ? prev[key] : []
+          const nextArr = Array.isArray(normalized[key]) ? normalized[key] : []
+
+          if (appendIndexes.length > 0) {
+            merged[key] = [
+              ...prevArr,
+              ...appendIndexes.map(i => (i < nextArr.length ? nextArr[i] : null)),
+            ].slice(-MAX_POINTS)
+            return
+          }
+
+          if (incomingTimestamps.at(-1) && incomingTimestamps.at(-1) === prevTimestamps.at(-1) && prevArr.length > 0) {
+            const updated = prevArr.slice()
+            updated[updated.length - 1] = nextArr.at(-1) ?? updated.at(-1)
+            merged[key] = updated
+            return
+          }
+
+          merged[key] = prevArr
+        })
+
+        return merged
+      })
+    })
   }, [])
 
   // Ref al AbortController activo para peticiones de muestras/latest/filtrar.
