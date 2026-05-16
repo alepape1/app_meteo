@@ -115,11 +115,11 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
   const rtRssi = data.rssi.slice(-REALTIME_N)
   const rtHeap = data.free_heap.slice(-REALTIME_N)
 
-  const hexHW   = '#534AB7'
+  const hexHW   = '#1a3350'
   const hexNet  = '#1a3350'
-  const hexWifi = '#0c8ecc'
-  const hexHeap = '#10b981'
-  const hexUp   = '#BA7517'
+  const hexWifi = '#1a3350'
+  const hexHeap = '#1a3350'
+  const hexUp   = '#1a3350'
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -130,7 +130,7 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         {/* Hardware */}
         <DeviceCard
           hex={hexHW}
-          grad="from-[#534AB7] to-[#7b73d4]"
+          grad="from-[#001530] to-[#3d506a]"
           icon={CircuitBoard}
           title="Hardware"
           right={deviceInfo?.last_seen && (
@@ -181,7 +181,7 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         {/* Señal WiFi */}
         <DeviceCard
           hex={hexWifi}
-          grad="from-brand-500 to-brand-300"
+          grad="from-[#001530] to-[#3d506a]"
           icon={Wifi}
           title="Señal WiFi"
         >
@@ -198,7 +198,7 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         {/* Memoria libre */}
         <DeviceCard
           hex={hexHeap}
-          grad="from-emerald-500 to-teal-400"
+          grad="from-[#001530] to-[#3d506a]"
           icon={HardDrive}
           title="Memoria libre"
         >
@@ -215,7 +215,7 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         {/* Uptime */}
         <DeviceCard
           hex={hexUp}
-          grad="from-[#BA7517] to-[#e8a042]"
+          grad="from-[#001530] to-[#3d506a]"
           icon={Clock}
           title="Uptime"
         >

@@ -196,7 +196,7 @@ function AppInner({ user, logout }) {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-[#cfd0d3] border-b border-black/[.12] shadow-[0_1px_8px_rgba(0,0,0,0.10)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
+        <header className="bg-[#a5b8cb] border-b border-[#8a9aaa]/60 shadow-[0_1px_8px_rgba(0,0,0,0.10)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
 
           {/* Izquierda: hamburguesa */}
           <div className="flex items-center gap-2 min-w-0">
