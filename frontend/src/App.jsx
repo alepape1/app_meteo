@@ -196,7 +196,7 @@ function AppInner({ user, logout }) {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-brand-200/60 shadow-[0_1px_12px_rgba(12,142,204,0.07)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
+        <header className="bg-[#cfd0d3] border-b border-black/[.12] shadow-[0_1px_8px_rgba(0,0,0,0.10)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
 
           {/* Izquierda: hamburguesa */}
           <div className="flex items-center gap-2 min-w-0">
@@ -243,18 +243,14 @@ function AppInner({ user, logout }) {
             </button>
 
             {/* Logo de salida + usuario */}
-            <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
+            <div className="pl-2 border-l border-black/[.08]">
               <button
                 onClick={() => setShowLogoutConfirm(true)}
-                title="Salir"
-                className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
+                className="group flex flex-col items-center gap-0.5 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
               >
                 <ShutdownDropSVG />
-                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold text-red-600 opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100">
-                  Salir
-                </span>
+                <span className="text-[10px] text-navy-500 hidden sm:block truncate max-w-[72px] leading-none">{user?.display_name}</span>
               </button>
-              <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
             </div>
           </div>
         </header>
