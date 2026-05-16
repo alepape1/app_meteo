@@ -175,34 +175,46 @@ function buildOption({ builtSeries, colors, accentColor, isScatter, type, resolv
 }
 
 function useEChart(containerRef, option, height) {
-  const chartRef = useRef(null)
+  const chartRef    = useRef(null)
+  const latestOpt   = useRef(option)
+
+  // Always keep latestOpt current; push to chart when it already exists
+  useEffect(() => {
+    latestOpt.current = option
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true })
+  }, [option])
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const chart = echarts.init(el, null, { renderer: 'canvas' })
-    chartRef.current = chart
-    chart.setOption(option, { notMerge: false, lazyUpdate: true })
 
-    const ro = new ResizeObserver(() => chart.resize())
+    function tryInit() {
+      if (chartRef.current) return
+      // Skip init when container is hidden (display:none gives 0x0)
+      if (el.clientWidth === 0 || el.clientHeight === 0) return
+      const chart = echarts.init(el, null, { renderer: 'canvas' })
+      chartRef.current = chart
+      chart.setOption(latestOpt.current, { notMerge: false, lazyUpdate: true })
+    }
+
+    tryInit()
+
+    const ro = new ResizeObserver(() => {
+      tryInit()
+      chartRef.current?.resize()
+    })
     ro.observe(el)
 
     return () => {
       ro.disconnect()
-      chart.dispose()
+      chartRef.current?.dispose()
       chartRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (!chartRef.current) return
-    chartRef.current.setOption(option, { notMerge: false, lazyUpdate: true })
-  }, [option])
-
-  useEffect(() => {
-    if (!chartRef.current) return
-    chartRef.current.resize()
+    chartRef.current?.resize()
   }, [height])
 }
 
