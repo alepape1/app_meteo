@@ -267,7 +267,7 @@ function WeatherChart({
 
       {hasData ? (
         <ReactApexChart
-          key={`${chartId}-${timestamps.at(-1) ?? ''}`}
+          key={chartId}
           options={options}
           series={builtSeries}
           type={type}
