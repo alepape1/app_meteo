@@ -92,10 +92,11 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
                 pipeline_scenario,
                 soil_moisture,
+                flow_total_l,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -124,6 +125,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_flow_ok"),
             scenario_val,
             payload.get("soil_moisture"),
+            payload.get("flow_total_l"),
             payload.get("dew_point"),
             payload.get("heat_index"),
             payload.get("abs_humidity"),
