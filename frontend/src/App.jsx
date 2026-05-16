@@ -171,7 +171,7 @@ function AppInner({ user, logout }) {
 
   return (
     <>
-    <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
+    <div className="flex h-screen app-bg overflow-hidden font-sans">
       {/* Backdrop móvil */}
       {sidebarOpen && (
         <div
@@ -196,7 +196,7 @@ function AppInner({ user, logout }) {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white border-b border-black/[.08] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
+        <header className="bg-white/80 backdrop-blur-md border-b border-brand-200/60 shadow-[0_1px_12px_rgba(12,142,204,0.07)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
 
           {/* Izquierda: hamburguesa */}
           <div className="flex items-center gap-2 min-w-0">
@@ -213,12 +213,12 @@ function AppInner({ user, logout }) {
 
             {/* Indicador online/offline */}
             {error ? (
-              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
+              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-white/70 px-2.5 py-1.5 rounded-full border border-navy-100 backdrop-blur-sm">
                 <WifiOff size={11} />
                 <span className="hidden sm:inline">Sin conexión</span>
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 text-xs text-navy-400 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
+              <span className="flex items-center gap-1.5 text-xs text-navy-500 bg-white/70 px-2.5 py-1.5 rounded-full border border-brand-200/50 backdrop-blur-sm">
                 {isDeviceOnline
                   ? <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
                   : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
@@ -237,7 +237,7 @@ function AppInner({ user, logout }) {
               onClick={() => fetchSamples(150)}
               disabled={loading}
               title="Refrescar"
-              className="flex items-center justify-center rounded-lg border border-black/[.08] bg-white p-2 text-navy-500 hover:border-brand-300 hover:text-navy-900 disabled:opacity-40 transition-all"
+              className="flex items-center justify-center rounded-lg border border-brand-200/50 bg-white/70 backdrop-blur-sm p-2 text-navy-500 hover:border-brand-400 hover:text-brand-600 disabled:opacity-40 transition-all"
             >
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>

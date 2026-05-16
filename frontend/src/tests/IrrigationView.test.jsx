@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('../AuthContext', () => ({
   useAuth: () => ({ authFetch: vi.fn() }),
 }))
-vi.mock('react-apexcharts', () => ({ default: () => null }))
 
 import {
   calcET0,

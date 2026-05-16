@@ -7,7 +7,6 @@ const mockFetch = vi.fn()
 vi.mock('../AuthContext', () => ({
   useAuth: () => ({ authFetch: mockFetch }),
 }))
-vi.mock('react-apexcharts', () => ({ default: () => null }))
 
 import { toMs, clampInput } from '../components/PipelineView'
 import PipelineView from '../components/PipelineView'

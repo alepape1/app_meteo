@@ -1,11 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import ReactApexChart from 'react-apexcharts'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
   BarChart2,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
+import * as echarts from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { LegacyGridContainLabel } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([BarChart, GridComponent, TooltipComponent, LegacyGridContainLabel, CanvasRenderer])
+
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+const ha = hexAlpha
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -255,49 +268,75 @@ const SECTORS = [
 
 function SectorCard({ sector }) {
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="text-sm font-semibold text-navy-900">{sector.name}</p>
-          <p className="text-xs text-navy-300">{sector.crop} · {sector.area}</p>
-        </div>
-        <span className="text-xs text-navy-300 bg-navy-50 px-2 py-0.5 rounded-full border border-navy-100">
-          offline
-        </span>
-      </div>
-      <div className="space-y-2.5">
-        <div>
-          <div className="flex justify-between text-xs text-navy-300 mb-1">
-            <span>Humedad suelo</span><span>— %</span>
+    <div
+      className="relative rounded-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha('#1a3350', 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#1a3350', 0.07)}`,
+      }}
+    >
+      <div
+        className="h-[3px] bg-gradient-to-r from-[#001530] to-[#3d506a]"
+        style={{ boxShadow: `0 0 8px 2px ${ha('#1a3350', 0.5)}` }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha('#1a3350', 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+      <div className="relative p-4" style={{ zIndex: 1 }}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-sm font-semibold text-navy-900">{sector.name}</p>
+            <p className="text-xs text-navy-300">{sector.crop} · {sector.area}</p>
           </div>
-          <div className="h-1.5 bg-navy-50 rounded-full">
-            <div className="h-full bg-navy-100 rounded-full" style={{ width: '0%' }} />
+          <span className="text-xs text-navy-300 bg-navy-50 px-2 py-0.5 rounded-full border border-navy-100">
+            offline
+          </span>
+        </div>
+        <div className="space-y-2.5">
+          <div>
+            <div className="flex justify-between text-xs text-navy-300 mb-1">
+              <span>Humedad suelo</span><span>— %</span>
+            </div>
+            <div className="h-1.5 bg-navy-50 rounded-full">
+              <div className="h-full bg-navy-100 rounded-full" style={{ width: '0%' }} />
+            </div>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">CE suelo</span>
+            <span className="text-navy-300">— dS/m</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">Temp. suelo</span>
+            <span className="text-navy-300">— °C</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">Kc cultivo</span>
+            <span className="font-medium text-navy-500">{sector.kc}</span>
           </div>
         </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">CE suelo</span>
-          <span className="text-navy-300">— dS/m</span>
+        <div className="mt-3 pt-3 border-t border-navy-50 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Lock size={12} className="text-navy-300" />
+            <span className="text-xs text-navy-300">Válvula cerrada</span>
+          </div>
+          <button
+            disabled
+            className="text-xs text-navy-300 bg-navy-50 border border-navy-100 px-2.5 py-1 rounded-lg opacity-50 cursor-not-allowed"
+          >
+            Regar
+          </button>
         </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">Temp. suelo</span>
-          <span className="text-navy-300">— °C</span>
-        </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">Kc cultivo</span>
-          <span className="font-medium text-navy-500">{sector.kc}</span>
-        </div>
-      </div>
-      <div className="mt-3 pt-3 border-t border-navy-50 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Lock size={12} className="text-navy-300" />
-          <span className="text-xs text-navy-300">Válvula cerrada</span>
-        </div>
-        <button
-          disabled
-          className="text-xs text-navy-300 bg-navy-50 border border-navy-100 px-2.5 py-1 rounded-lg opacity-50 cursor-not-allowed"
-        >
-          Regar
-        </button>
       </div>
     </div>
   )
@@ -425,69 +464,104 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
   const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
 
+  const valveHex = desired ? '#0c8ecc' : '#1a3350'
+
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <div className={`p-1.5 rounded-lg ${desired ? 'bg-brand-50' : 'bg-navy-50'}`}>
-          <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
-        </div>
-        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Válvula {index + 1}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-          actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
-        }`} />
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-navy-900">
-            {actual ? 'Abierta — Regando' : 'Cerrada'}
+    <div
+      className="relative rounded-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha(valveHex, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(valveHex, 0.07)}`,
+      }}
+    >
+      <div
+        className={`h-[3px] ${desired ? 'bg-gradient-to-r from-brand-500 to-brand-300' : 'bg-gradient-to-r from-[#1a3350] to-[#3d506a]'}`}
+        style={{ boxShadow: `0 0 8px 2px ${ha(valveHex, 0.5)}` }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha(valveHex, 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+      <div className="relative p-5" style={{ zIndex: 1 }}>
+        <div className="flex items-center gap-2 mb-4">
+          <span
+            className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+            style={{
+              background: `linear-gradient(135deg, ${ha(valveHex, 0.14)}, ${ha(valveHex, 0.06)})`,
+              border: `1px solid ${ha(valveHex, 0.22)}`,
+              boxShadow: `0 2px 8px ${ha(valveHex, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+            }}
+          >
+            <Power size={15} style={{ color: valveHex }} />
+          </span>
+          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+            Válvula {index + 1}
           </p>
-          <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
-          </p>
         </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+            actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
+          }`} />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-navy-900">
+              {actual ? 'Abierta — Regando' : 'Cerrada'}
+            </p>
+            <p className="text-xs text-navy-300">
+              {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
+            </p>
+          </div>
+        </div>
+
+        {(desired || sessionSeconds > 0) && (
+          <div className={`rounded-xl p-3 mb-4 ${
+            desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
+          }`}>
+            <div className="flex justify-between text-xs">
+              <span className="flex items-center gap-1 text-navy-400">
+                <Clock size={11} /> Tiempo abierta
+              </span>
+              <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
+            </div>
+            <div className="flex justify-between text-xs mt-1.5">
+              <span className="flex items-center gap-1 text-navy-400">
+                <Droplets size={11} /> Esta sesión
+              </span>
+              <span className="font-semibold text-brand-600">{sessionLiters} L</span>
+            </div>
+            <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
+          </div>
+        )}
+
+        <button
+          onClick={toggle}
+          disabled={actionLocked}
+          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+            desired
+              ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+              : 'bg-brand-500 text-white hover:bg-brand-600'
+          }`}
+        >
+          {desired ? <Lock size={14} /> : <Unlock size={14} />}
+          {busy
+            ? 'Enviando…'
+            : retryRemainingMs > 0
+              ? `Espera ${cooldownSeconds}s…`
+              : !synced
+                ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
+                : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+        </button>
       </div>
-
-      {(desired || sessionSeconds > 0) && (
-        <div className={`rounded-xl p-3 mb-4 ${
-          desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
-        }`}>
-          <div className="flex justify-between text-xs">
-            <span className="flex items-center gap-1 text-navy-400">
-              <Clock size={11} /> Tiempo abierta
-            </span>
-            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
-          </div>
-          <div className="flex justify-between text-xs mt-1.5">
-            <span className="flex items-center gap-1 text-navy-400">
-              <Droplets size={11} /> Esta sesión
-            </span>
-            <span className="font-semibold text-brand-600">{sessionLiters} L</span>
-          </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
-        </div>
-      )}
-
-      <button
-        onClick={toggle}
-        disabled={actionLocked}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-          desired
-            ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-            : 'bg-brand-500 text-white hover:bg-brand-600'
-        }`}
-      >
-        {desired ? <Lock size={14} /> : <Unlock size={14} />}
-        {busy
-          ? 'Enviando…'
-          : retryRemainingMs > 0
-            ? `Espera ${cooldownSeconds}s…`
-            : !synced
-              ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
-              : desired ? 'Cerrar válvula' : 'Abrir válvula'}
-      </button>
     </div>
   )
 }
@@ -696,6 +770,25 @@ function SavingsCard({ stats }) {
   )
 }
 
+// ── useEChart hook ────────────────────────────────────────────────────────────
+function useEChart(containerRef, option) {
+  const chartRef = useRef(null)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const chart = echarts.init(el, null, { renderer: 'canvas' })
+    chartRef.current = chart
+    chart.setOption(option, { notMerge: true })
+    const ro = new ResizeObserver(() => chart.resize())
+    ro.observe(el)
+    return () => { ro.disconnect(); chart.dispose(); chartRef.current = null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true })
+  }, [option])
+}
+
 // ── Gráfico de consumo con selector de período ────────────────────────────────
 const PERIODS = [
   { id: 'day',     label: 'Días',     hint: 'últimos 30 días' },
@@ -793,192 +886,174 @@ function ConsumptionChart({ selectedMac }) {
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
 
-  // ── Sessions view ──
-  if (period === 'session') {
-    const normalizedSessions = sessions
-      .map(s => ({
-        ...s,
-        startMs: toChartMs(s.start),
-        liters: toChartNum(s.liters),
-        duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
-      }))
-      .filter(s => s.startMs != null)
+  // ── Normalize data ──
+  const normalizedSessions = useMemo(() => sessions
+    .map(s => ({
+      ...s,
+      startMs: toChartMs(s.start),
+      liters: toChartNum(s.liters),
+      duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
+    }))
+    .filter(s => s.startMs != null),
+  [sessions])
 
-    const sessionSeries = [{
-      name: 'Consumo',
-      data: normalizedSessions.map(s => ({ x: s.startMs, y: s.liters })),
-    }]
-
-    const sessionChartKey = `session-${normalizedSessions.length}-${normalizedSessions[normalizedSessions.length - 1]?.startMs ?? 'empty'}`
-
-    const sessionOptions = {
-      chart: {
-        type: 'bar', toolbar: { show: false }, background: 'transparent',
-        fontFamily: '"DM Sans", system-ui, sans-serif',
-        animations: { enabled: false },
-      },
-      colors: ['#10b981'],
-      plotOptions: {
-        bar: {
-          borderRadius: 6,
-          borderRadiusApplication: 'end',
-          columnWidth: getBarColumnWidth(normalizedSessions.length, 'session'),
-          colors: {
-            backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
-            backgroundBarRadius: 6,
-          },
-        },
-      },
-      dataLabels: { enabled: false },
-      xaxis: {
-        type: 'datetime',
-        labels: {
-          style: { fontSize: '10px', colors: '#8a9aaa' },
-          datetimeUTC: false,
-          rotate: -35,
-          hideOverlappingLabels: true,
-          formatter: val => fmtPeriodLabel(val, 'session'),
-        },
-        axisBorder: { show: false }, axisTicks: { show: false },
-      },
-      yaxis: {
-        labels: {
-          style: { fontSize: '11px', colors: '#8a9aaa' },
-          formatter: v => `${toChartNum(v).toFixed(0)} L`,
-        },
-      },
-      grid: {
-        borderColor: '#f3f3ef',
-        strokeDashArray: 3,
-        xaxis: { lines: { show: false } },
-        padding: { left: 0, right: 8, bottom: 8 },
-      },
-      tooltip: {
-        theme: 'light',
-        x: { formatter: val => fmtPeriodLabel(val, 'session') },
-        custom: ({ dataPointIndex }) => {
-          const s = normalizedSessions[dataPointIndex]
-          if (!s) return ''
-          return `<div style="padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:12px">
-            <div style="font-weight:600;color:#1e2d3d;margin-bottom:4px">${fmtDuration(s.duration_s)}</div>
-            <div style="color:#5a7a9a">${s.liters.toFixed(1)} L consumidos</div>
-          </div>`
-        },
-      },
-    }
-
-    const totalL = normalizedSessions.reduce((a, s) => a + s.liters, 0)
-
-    return (
-      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
-          <BarChart2 size={15} className="text-navy-300 shrink-0" />
-          <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
-          {normalizedSessions.length > 0 && (
-            <span className="text-xs text-navy-300">
-              {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
-            </span>
-          )}
-          <div className="ml-auto flex gap-1">
-            {PERIODS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                  period === p.id
-                    ? 'bg-brand-500 text-white'
-                    : 'text-navy-400 hover:bg-navy-50'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {normalizedSessions.length > 0 ? (
-          <div className="overflow-x-auto px-2 pb-2">
-            <div style={{ minWidth: `${getChartMinWidth(normalizedSessions.length, 'session')}px` }}>
-              <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={250} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
-            Sin sesiones de riego registradas
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ── Días / Semanas / Meses view ──
-  const normalizedHistory = history
+  const normalizedHistory = useMemo(() => history
     .map(d => ({
       ...d,
       period: String(d.period ?? ''),
       liters: toChartNum(d.liters),
       seconds: Math.max(0, Math.round(toChartNum(d.seconds))),
     }))
-    .filter(d => d.period)
+    .filter(d => d.period),
+  [history])
 
-  const series = [{ name: 'Consumo', data: normalizedHistory.map(d => ({ x: d.period, y: d.liters })) }]
-  const historyChartKey = `${period}-${normalizedHistory.length}-${normalizedHistory[normalizedHistory.length - 1]?.period ?? 'empty'}`
+  const accentColor = period === 'session' ? '#10b981' : '#0c8ecc'
 
-  const options = {
-    chart: {
-      type: 'bar', toolbar: { show: false }, background: 'transparent',
-      fontFamily: '"DM Sans", system-ui, sans-serif',
-      animations: { enabled: false },
-    },
-    colors: ['#0c8ecc'],
-    plotOptions: {
-      bar: {
-        borderRadius: 6,
-        borderRadiusApplication: 'end',
-        columnWidth: getBarColumnWidth(normalizedHistory.length, period),
-        colors: {
-          backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
-          backgroundBarRadius: 6,
+  const hasData = period === 'session'
+    ? normalizedSessions.length > 0
+    : normalizedHistory.length > 0
+
+  const option = useMemo(() => {
+    const seriesData = period === 'session'
+      ? normalizedSessions.map(s => [s.startMs, s.liters])
+      : normalizedHistory.map(d => ({ value: d.liters, name: d.period }))
+
+    const xAxisCategories = period !== 'session'
+      ? normalizedHistory.map(d => d.period)
+      : undefined
+
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 8, bottom: 36, left: 8, right: 12, containLabel: true },
+      xAxis: {
+        type: period === 'session' ? 'time' : 'category',
+        ...(xAxisCategories ? { data: xAxisCategories } : {}),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => fmtPeriodLabel(v, period),
+          rotate: -30,
+          hideOverlap: true,
+          interval: 'auto',
         },
       },
-    },
-    dataLabels: { enabled: false },
-    xaxis: {
-      type: 'category',
-      labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => fmtPeriodLabel(v, period),
-        rotate: -30,
-        hideOverlappingLabels: true,
-        trim: true,
+      yAxis: {
+        type: 'value',
+        splitLine: {
+          lineStyle: { color: hexAlpha(accentColor, 0.07), type: [4, 6] },
+        },
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => `${Math.round(v)} L`,
+        },
       },
-      axisBorder: { show: false }, axisTicks: { show: false },
-    },
-    yaxis: {
-      labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => `${toChartNum(v).toFixed(0)} L`,
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        padding: 0,
+        extraCssText: 'box-shadow:none;',
+        axisPointer: {
+          type: 'shadow',
+          shadowStyle: { color: hexAlpha(accentColor, 0.06) },
+        },
+        formatter: (params) => {
+          if (!params?.length) return ''
+          const p = params[0]
+          const val = Number(Array.isArray(p.value) ? p.value[1] : p.value)
+          const label = period === 'session'
+            ? fmtPeriodLabel(p.value?.[0] ?? p.axisValue, 'session')
+            : fmtPeriodLabel(p.axisValue ?? p.name, period)
+          return `<div style="font-family:'DM Sans',sans-serif;background:${hexAlpha(accentColor, 0.22)};backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:0;overflow:hidden;min-width:140px;">
+            <div style="padding:5px 12px 4px;border-bottom:1px solid rgba(255,255,255,0.08);background:${hexAlpha(accentColor, 0.18)};color:rgba(148,163,184,0.9);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">${label}</div>
+            <div style="padding:6px 12px 8px;display:flex;align-items:center;gap:8px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:${accentColor};box-shadow:0 0 6px ${accentColor}88;flex-shrink:0;"></span>
+              <span style="color:#fff;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;">${Number.isFinite(val) ? val.toFixed(1) : '—'} L</span>
+            </div>
+          </div>`
+        },
       },
-    },
-    grid: {
-      borderColor: '#f3f3ef',
-      strokeDashArray: 3,
-      xaxis: { lines: { show: false } },
-      padding: { left: 0, right: 8, bottom: 8 },
-    },
-    tooltip: {
-      theme: 'light',
-      x: { formatter: v => fmtPeriodLabel(v, period) },
-      y: { formatter: v => `${toChartNum(v).toFixed(1)} L` },
-      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
-    },
-  }
+      series: [{
+        type: 'bar',
+        data: seriesData,
+        itemStyle: {
+          color: accentColor,
+          borderRadius: [6, 6, 0, 0],
+        },
+        barMaxWidth: 40,
+        emphasis: { disabled: true },
+      }],
+    }
+  }, [period, normalizedSessions, normalizedHistory, accentColor])
+
+  const containerRef = useRef(null)
+  useEChart(containerRef, option)
+
+  const totalL = period === 'session'
+    ? normalizedSessions.reduce((a, s) => a + s.liters, 0)
+    : 0
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
-        <BarChart2 size={15} className="text-navy-300 shrink-0" />
-        <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
-        <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
+    <div
+      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha(accentColor, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(accentColor, 0.07)}`,
+      }}
+    >
+      {/* Top accent bar with glow */}
+      <div
+        style={{
+          height: 3,
+          background: accentColor,
+          boxShadow: `0 0 8px 2px ${ha(accentColor, 0.5)}`,
+        }}
+      />
+
+      {/* Header wash overlay */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha(accentColor, 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+
+      {/* Header */}
+      <div className="relative flex items-center gap-3 px-5 pt-3.5 pb-2 flex-wrap" style={{ zIndex: 1 }}>
+        <span
+          className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+          style={{
+            background: `linear-gradient(135deg, ${ha(accentColor, 0.14)}, ${ha(accentColor, 0.06)})`,
+            border: `1px solid ${ha(accentColor, 0.22)}`,
+            boxShadow: `0 2px 8px ${ha(accentColor, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+          }}
+        >
+          <BarChart2 size={15} style={{ color: accentColor }} />
+        </span>
+        <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Historial de consumo</h3>
+        {period === 'session' && normalizedSessions.length > 0 && (
+          <span className="text-xs text-navy-300">
+            {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
+          </span>
+        )}
+        {period !== 'session' && hint && (
+          <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
+        )}
         <div className="ml-auto flex gap-1">
           {PERIODS.map(p => (
             <button
@@ -995,17 +1070,16 @@ function ConsumptionChart({ selectedMac }) {
           ))}
         </div>
       </div>
-      {normalizedHistory.length > 0 ? (
-        <div className="overflow-x-auto px-2 pb-2">
-          <div style={{ minWidth: `${getChartMinWidth(normalizedHistory.length, period)}px` }}>
-            <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={250} />
+
+      {/* Chart container — always rendered so ECharts can measure */}
+      <div style={{ position: 'relative', height: 250 }}>
+        <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+        {!hasData && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-slate-300 text-xs">Sin datos de riego en este período</span>
           </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
-          Sin datos de riego en este período
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -1176,85 +1250,151 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
         <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
 
         {/* ET₀ estimado */}
-        <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="bg-brand-50 p-1.5 rounded-lg">
-              <Zap size={15} className="text-brand-500" />
-            </div>
-            <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-              ET₀ estimado hoy
-            </p>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {et0 ?? '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
-          </p>
-          {et0Num != null && (
-            <div className="mt-3 pt-3 border-t border-navy-50">
-              <div className="h-1.5 bg-brand-50 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-brand-500 rounded-full"
-                  style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-navy-300 mt-1.5">
-                {et0Num < 3
-                  ? 'Baja evapotranspiración'
-                  : et0Num < 5
-                  ? 'Evapotranspiración media'
-                  : 'Alta evapotranspiración'}
+        <div
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+            border: `1px solid ${ha('#0c8ecc', 0.2)}`,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#0c8ecc', 0.07)}`,
+          }}
+        >
+          <div
+            className="h-[3px] bg-gradient-to-r from-brand-500 to-brand-300"
+            style={{ boxShadow: `0 0 8px 2px ${ha('#0c8ecc', 0.5)}` }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 3,
+              left: 0,
+              right: 0,
+              height: 52,
+              background: `linear-gradient(180deg, ${ha('#0c8ecc', 0.055)} 0%, transparent 100%)`,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div className="relative p-5" style={{ zIndex: 1 }}>
+            <div className="flex items-center gap-2 mb-4">
+              <span
+                className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+                style={{
+                  background: `linear-gradient(135deg, ${ha('#0c8ecc', 0.14)}, ${ha('#0c8ecc', 0.06)})`,
+                  border: `1px solid ${ha('#0c8ecc', 0.22)}`,
+                  boxShadow: `0 2px 8px ${ha('#0c8ecc', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+                }}
+              >
+                <Zap size={15} style={{ color: '#0c8ecc' }} />
+              </span>
+              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+                ET₀ estimado hoy
               </p>
             </div>
-          )}
-          <p className="text-xs text-navy-300 mt-2">
-            Penman-Monteith FAO-56 · datos en tiempo real
-          </p>
+            <p className="text-3xl font-bold text-navy-900 leading-none">
+              {et0 ?? '—'}
+              <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
+            </p>
+            {et0Num != null && (
+              <div className="mt-3 pt-3 border-t border-navy-50">
+                <div className="h-1.5 bg-brand-50 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-500 rounded-full"
+                    style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-navy-300 mt-1.5">
+                  {et0Num < 3
+                    ? 'Baja evapotranspiración'
+                    : et0Num < 5
+                    ? 'Evapotranspiración media'
+                    : 'Alta evapotranspiración'}
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-navy-300 mt-2">
+              Penman-Monteith FAO-56 · datos en tiempo real
+            </p>
+          </div>
         </div>
 
         {/* Consumo de agua hoy / mes */}
-        <div className="bg-white rounded-2xl border border-[#c5c2ef] shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="bg-[#EEEDFE] p-1.5 rounded-lg">
-                <Droplets size={15} className="text-[#534AB7]" />
+        <div
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+            border: `1px solid ${ha('#534AB7', 0.2)}`,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#534AB7', 0.07)}`,
+          }}
+        >
+          <div
+            className="h-[3px] bg-gradient-to-r from-[#534AB7] to-[#7b73d4]"
+            style={{ boxShadow: `0 0 8px 2px ${ha('#534AB7', 0.5)}` }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 3,
+              left: 0,
+              right: 0,
+              height: 52,
+              background: `linear-gradient(180deg, ${ha('#534AB7', 0.055)} 0%, transparent 100%)`,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div className="relative p-5" style={{ zIndex: 1 }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, ${ha('#534AB7', 0.14)}, ${ha('#534AB7', 0.06)})`,
+                    border: `1px solid ${ha('#534AB7', 0.22)}`,
+                    boxShadow: `0 2px 8px ${ha('#534AB7', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+                  }}
+                >
+                  <Droplets size={15} style={{ color: '#534AB7' }} />
+                </span>
+                <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+                  Consumo de agua
+                </p>
               </div>
-              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-                Consumo de agua
-              </p>
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="flex items-center gap-1.5 text-xs text-navy-400 hover:text-red-500 bg-navy-50 hover:bg-red-50 border border-navy-100 hover:border-red-200 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                <RotateCcw size={11} />
+                Resetear
+              </button>
             </div>
-            <button
-              onClick={() => setShowResetConfirm(true)}
-              className="flex items-center gap-1.5 text-xs text-navy-400 hover:text-red-500 bg-navy-50 hover:bg-red-50 border border-navy-100 hover:border-red-200 px-2.5 py-1 rounded-lg transition-colors"
-            >
-              <RotateCcw size={11} />
-              Resetear
-            </button>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {stats ? stats.today_liters.toFixed(1) : '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
-          </p>
-          {stats ? (
-            <>
-              <p className="text-sm text-navy-500 mt-2 font-medium">
-                {stats.monthly_liters.toFixed(1)}{' '}
-                <span className="text-navy-300 font-normal text-xs">L este mes</span>
-              </p>
-              <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-                <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
-                {stats.monthly_seconds > 0 && (
-                  <p className="text-xs text-navy-300">
-                    {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
-                    {' '}activa este mes
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
-              Calculando…
+            <p className="text-3xl font-bold text-navy-900 leading-none">
+              {stats ? stats.today_liters.toFixed(1) : '—'}
+              <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
             </p>
-          )}
+            {stats ? (
+              <>
+                <p className="text-sm text-navy-500 mt-2 font-medium">
+                  {stats.monthly_liters.toFixed(1)}{' '}
+                  <span className="text-navy-300 font-normal text-xs">L este mes</span>
+                </p>
+                <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
+                  <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
+                  {stats.monthly_seconds > 0 && (
+                    <p className="text-xs text-navy-300">
+                      {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
+                      {' '}activa este mes
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
+                Calculando…
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Ahorro mensual — droplet interactivo */}

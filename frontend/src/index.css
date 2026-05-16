@@ -8,6 +8,14 @@
 body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; }
 #root { height: 100vh; }
 
+/* ── App background — brand blue tint + dot grid ────────────────────────── */
+.app-bg {
+  background-color: #e8f4fb;
+  background-image:
+    radial-gradient(circle, rgba(12, 142, 204, 0.10) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 .apexcharts-canvas .apexcharts-gridline,
 .apexcharts-canvas .apexcharts-xcrosshairs,
 .apexcharts-canvas .apexcharts-ycrosshairs {
