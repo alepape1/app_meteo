@@ -1266,6 +1266,8 @@ def _db_rows_to_pipeline(rows, scenario):
             "pipeline_pressure_ok": row.get("pipeline_pressure_ok"),
             "flow_total_l": row.get("flow_total_l"),
             "flow_session_l": row.get("flow_session_l"),
+            "flow_irrig_l": row.get("flow_irrig_l"),
+            "flow_leak_l": row.get("flow_leak_l"),
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -1303,13 +1305,13 @@ def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
         SELECT timestamp, relay_active,
                pipeline_pressure, pipeline_flow,
                pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
-               flow_total_l, flow_session_l
+               flow_total_l, flow_session_l, flow_irrig_l, flow_leak_l
         FROM (
             SELECT DISTINCT ON (timestamp)
                    id, timestamp, relay_active,
                    pipeline_pressure, pipeline_flow,
                    pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
-                   flow_total_l, flow_session_l
+                   flow_total_l, flow_session_l, flow_irrig_l, flow_leak_l
             FROM home_weather_station
             WHERE {' AND '.join(where)}
             ORDER BY timestamp, id DESC
@@ -1444,6 +1446,7 @@ def get_pipeline_config():
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
         "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
         "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
+        "reset_flow_counters": cfg.get('reset_flow_counters', 'false') == 'true',
     })
 
 
@@ -1592,6 +1595,43 @@ def set_pipeline_config():
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })
+
+
+@app.route("/api/flow/reset", methods=["POST"])
+@login_required
+def request_flow_reset():
+    """Solicita al ESP32 que resetee los contadores de flujo (riego + fuga + sesión).
+
+    El ESP32 leerá reset_flow_counters=true en el próximo sync de config (~20s)
+    y confirmará el reset vía GET /api/flow/reset-ack.
+    """
+    mac = (request.get_json(silent=True) or {}).get('mac') or request.args.get('mac')
+    if not mac:
+        return jsonify({"error": "mac requerido"}), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'true')"
+        " ON CONFLICT (key) DO UPDATE SET value = 'true'"
+    )
+    db.commit()
+    logger.info("Flow counters reset solicitado para mac=%s", mac)
+    return jsonify({"ok": True, "pending": True})
+
+
+@app.route("/api/flow/reset-ack", methods=["GET"])
+def flow_reset_ack():
+    """Llamado por el ESP32 tras ejecutar el reset de contadores.
+    Limpia el flag para que no se vuelva a enviar reset_flow_counters=true.
+    No requiere autenticación (solo accesible desde la red local donde corre el ESP32).
+    """
+    db = get_db()
+    db.execute(
+        "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'false')"
+        " ON CONFLICT (key) DO UPDATE SET value = 'false'"
+    )
+    db.commit()
+    logger.info("Flow counters reset confirmado por ESP32 (mac=%s)", request.args.get('mac', '?'))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/pipeline/scenario", methods=["POST"])

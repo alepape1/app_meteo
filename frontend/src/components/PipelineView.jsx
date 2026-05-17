@@ -843,6 +843,20 @@ export default function PipelineView({ selectedMac }) {
   const applyMode          = async (m)    => applyConfig({ mode: m })
   const applyIrrigationType = async (type) => applyConfig({ irrigation_type: type })
 
+  const [resetFlowBusy, setResetFlowBusy] = useState(false)
+  const resetFlowCounters = async () => {
+    if (!selectedMac) return
+    setResetFlowBusy(true)
+    try {
+      await authFetchRef.current('/api/flow/reset', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ mac: selectedMac }),
+      })
+    } catch { /* ignorar fallos transitorios */ }
+    finally { setResetFlowBusy(false) }
+  }
+
   const cur = status?.current
   const det = status?.detection
   const cfg = status?.config
@@ -921,6 +935,31 @@ export default function PipelineView({ selectedMac }) {
             unit="L"
             sub="Desde última apertura de válvula"
           />
+          <ReadingCard
+            title="Litros riego"
+            icon={Droplets}
+            value={cur?.flow_irrig_l != null ? cur.flow_irrig_l.toFixed(2) : null}
+            unit="L"
+            sub="Acumulado con válvula abierta"
+          />
+          <ReadingCard
+            title="Litros fuga"
+            icon={AlertTriangle}
+            value={cur?.flow_leak_l != null ? cur.flow_leak_l.toFixed(2) : null}
+            unit="L"
+            sub="Acumulado con válvula cerrada"
+          />
+          <div className="flex items-center">
+            <button
+              onClick={resetFlowCounters}
+              disabled={resetFlowBusy || !selectedMac}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-black/[.1] bg-white hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Resetea los contadores de litros riego, fuga y ciclo en el ESP32"
+            >
+              <RefreshCw size={14} className={resetFlowBusy ? 'animate-spin' : ''} />
+              {resetFlowBusy ? 'Enviando...' : 'Reset contadores'}
+            </button>
+          </div>
           <ScenarioSelector
             current={scenario}
             onSelect={applyScenario}
