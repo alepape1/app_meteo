@@ -141,7 +141,8 @@ export function getWaterColors(pct) {
 
 // ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
 // consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
-function WaterDroplet({ consumptionPct = 0, size = 120 }) {
+// mode: 'normal' | 'flowing-irrigation' | 'flowing-leak'
+function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
   const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
   const svgRef   = useRef(null)
   const frontRef = useRef(null)
@@ -151,15 +152,18 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
   const stop0    = useRef(null)
   const stop1    = useRef(null)
   const outRef   = useRef(null)
+  const glowRef  = useRef(null)
   const rafId    = useRef(null)
   const anim     = useRef({ displayedPct: 0, phase: 0, introStart: null, target: 0 })
+  const modeRef  = useRef(mode)
+
+  useEffect(() => { modeRef.current = mode }, [mode])
 
   useEffect(() => {
     anim.current.target = Math.max(0, consumptionPct)
   }, [consumptionPct])
 
   useEffect(() => {
-    const WAVE_AMP = 9, WAVE_SPEED = 0.5
     const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
     // Always show at least 20% visual fill so animation is perceptible
     const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
@@ -169,10 +173,23 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
 
     function tick(now) {
       const a = anim.current
+      const currentMode = modeRef.current
+      const isFlowing = currentMode !== 'normal'
+      const isLeak    = currentMode === 'flowing-leak'
+
+      const WAVE_AMP   = isFlowing ? 13 : 9
+      const WAVE_SPEED = isFlowing ? 1.1 : 0.5
+
+      // In flow mode, animate fill level oscillating to convey active flow
+      if (isFlowing) {
+        const t = (now / 3200) % 1
+        a.target = 32 + 38 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2))
+      }
+
       const introP = Math.min(1, (now - a.introStart) / INTRO_MS)
       const eased  = 1 - Math.pow(1 - introP, 3)
 
-      a.displayedPct += (a.target * eased - a.displayedPct) * 0.08
+      a.displayedPct += ((isFlowing ? a.target : a.target * eased) - a.displayedPct) * (isFlowing ? 0.04 : 0.08)
       a.phase += 0.035 * WAVE_SPEED
 
       const p     = Math.max(0, Math.min(1.25, a.displayedPct / 100))
@@ -182,14 +199,46 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
       if (midRef.current)   midRef.current.setAttribute('d',   buildWave(WAVE_AMP * 0.8, 2.0, a.phase + 2.0, yBase + 2, +1))
       if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 1.2, 1.2, a.phase + 1.2, yBase + 5, -1))
 
-      const c = getWaterColors(a.displayedPct)
+      let c
+      if (isLeak) {
+        const leakPulse = 0.65 + 0.35 * Math.abs(Math.sin(now / 800))
+        c = {
+          top: `rgba(255,100,80,${leakPulse})`,
+          deep: '#a31818',
+          stroke: '#b91c1c',
+          bg: '#fee2e2',
+        }
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', `rgba(220,38,38,${leakPulse * 0.6})`)
+          glowRef.current.setAttribute('stroke-width', `${6 + 4 * Math.abs(Math.sin(now / 600))}`)
+        }
+      } else if (isFlowing) {
+        const flowPulse = 0.75 + 0.25 * Math.abs(Math.sin(now / 900))
+        c = {
+          top: `rgba(16,185,129,${flowPulse})`,
+          deep: '#065f46',
+          stroke: '#059669',
+          bg: '#d1fae5',
+        }
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', `rgba(16,185,129,${flowPulse * 0.5})`)
+          glowRef.current.setAttribute('stroke-width', `${5 + 3 * Math.abs(Math.sin(now / 700))}`)
+        }
+      } else {
+        c = getWaterColors(a.displayedPct)
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', '#3fb6f0')
+          glowRef.current.setAttribute('stroke-width', '6')
+        }
+      }
+
       if (stop0.current) stop0.current.setAttribute('stop-color', c.top)
       if (stop1.current) stop1.current.setAttribute('stop-color', c.deep)
       if (outRef.current) outRef.current.setAttribute('stroke', c.stroke)
       if (bgRef.current)  bgRef.current.setAttribute('fill', c.bg)
 
       if (svgRef.current)
-        svgRef.current.style.animation = a.displayedPct >= 100
+        svgRef.current.style.animation = (!isFlowing && a.displayedPct >= 100)
           ? `shk-${uid} 1.8s ease-in-out infinite` : ''
 
       rafId.current = requestAnimationFrame(tick)
@@ -232,7 +281,7 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
           </filter>
         </defs>
         {/* glow halo exterior */}
-        <path d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
+        <path ref={glowRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
         <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
           <rect x="0" y="0" width="132" height="156" fill={`url(#ct-${uid})`} opacity="0.6" />
@@ -609,8 +658,18 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
 }
 
 // ── SavingsCard — droplet interactivo con ahorro mensual ─────────────────────
-function SavingsCard({ stats }) {
+function SavingsCard({ stats, latest }) {
   const [expanded, setExpanded] = useState(false)
+
+  // Detect active flow from live sensor data
+  const liveFlow   = latest?.pipeline_flow ?? 0
+  const relayOn    = latest?.relay_active > 0
+  const hasFlow    = liveFlow > 0.1
+  const flowMode   = hasFlow
+    ? (relayOn ? 'flowing-irrigation' : 'flowing-leak')
+    : 'normal'
+  const isLeak     = hasFlow && !relayOn
+  const isIrrigate = hasFlow && relayOn
 
   if (!stats) return (
     <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex items-center justify-center min-h-[200px]">
@@ -637,6 +696,12 @@ function SavingsCard({ stats }) {
     danger: { text: 'text-red-500',     border: 'border-red-200',   pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
   }[state]
 
+  const borderClass = isLeak
+    ? 'border-red-300'
+    : isIrrigate
+    ? 'border-emerald-300'
+    : cc.border
+
   const pillText = consumptionPct >= 100
     ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
     : consumptionPct >= 85
@@ -650,7 +715,7 @@ function SavingsCard({ stats }) {
 
   return (
     <div
-      className={`bg-white rounded-2xl border ${cc.border} shadow-sm p-5 cursor-pointer select-none transition-shadow hover:shadow-md`}
+      className={`bg-white rounded-2xl border ${borderClass} shadow-sm p-5 cursor-pointer select-none transition-shadow hover:shadow-md`}
       onClick={() => setExpanded(e => !e)}
       role="button"
       aria-expanded={expanded}
@@ -661,11 +726,15 @@ function SavingsCard({ stats }) {
           80%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
           100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
         }
+        @keyframes flow-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.7; transform: scale(1.04); }
+        }
       `}</style>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="bg-sky-50 p-1.5 rounded-lg">
-            <Leaf size={15} className="text-sky-500" />
+          <div className={`p-1.5 rounded-lg ${isLeak ? 'bg-red-50' : isIrrigate ? 'bg-emerald-50' : 'bg-sky-50'}`}>
+            <Leaf size={15} className={isLeak ? 'text-red-500' : isIrrigate ? 'text-emerald-500' : 'text-sky-500'} />
           </div>
           <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
             Ahorro este mes
@@ -677,32 +746,70 @@ function SavingsCard({ stats }) {
         }
       </div>
 
-      {hasLeak && (
+      {/* Live flow banner */}
+      {isLeak && (
+        <div
+          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-300 rounded-lg px-3 py-1.5"
+          style={{ animation: 'flow-pulse 1.4s ease-in-out infinite' }}
+        >
+          <AlertTriangle size={13} className="shrink-0" />
+          ¡FUGA ACTIVA! · {liveFlow.toFixed(2)} L/min con válvula cerrada
+        </div>
+      )}
+      {isIrrigate && (
+        <div
+          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg px-3 py-1.5"
+          style={{ animation: 'flow-pulse 1.8s ease-in-out infinite' }}
+        >
+          <Droplets size={13} className="shrink-0" />
+          Regando ahora · {liveFlow.toFixed(2)} L/min
+        </div>
+      )}
+
+      {hasLeak && !isLeak && (
         <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
           <AlertTriangle size={13} className="shrink-0" />
           Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
         </div>
       )}
+
       <div className="flex items-center gap-4">
-        <WaterDroplet consumptionPct={consumptionPct} size={90} />
+        <WaterDroplet consumptionPct={consumptionPct} size={90} mode={flowMode} />
         <div className="flex-1 min-w-0">
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {savings_liters.toFixed(0)}
-            <span className="text-base font-normal text-navy-300 ml-1">L</span>
-          </p>
-          <p className="text-xs text-navy-400 mt-1 leading-snug">
-            {leadText}
-          </p>
-          <span
-            className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={cc.pillStyle}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
-              style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
-            />
-            {pillText}
-          </span>
+          {hasFlow ? (
+            <>
+              <p className="text-3xl font-bold leading-none" style={{ color: isLeak ? '#b91c1c' : '#059669' }}>
+                {liveFlow.toFixed(2)}
+                <span className="text-base font-normal text-navy-300 ml-1">L/min</span>
+              </p>
+              <p className="text-xs text-navy-400 mt-1 leading-snug">
+                {isLeak ? 'caudal detectado · válvula cerrada' : 'caudal activo · válvula abierta'}
+              </p>
+              <p className="text-xs text-navy-300 mt-1">
+                Ahorro acumulado: <span className="font-medium text-navy-600">{savings_liters.toFixed(0)} L ({savingsPct}%)</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-navy-900 leading-none">
+                {savings_liters.toFixed(0)}
+                <span className="text-base font-normal text-navy-300 ml-1">L</span>
+              </p>
+              <p className="text-xs text-navy-400 mt-1 leading-snug">
+                {leadText}
+              </p>
+              <span
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
+                style={cc.pillStyle}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
+                  style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
+                />
+                {pillText}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -1388,6 +1495,47 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
                     </p>
                   )}
                 </div>
+                {stats.last_session && (
+                  <div className="mt-3 pt-3 border-t border-navy-50 space-y-1.5">
+                    <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider">Último ciclo</p>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Inicio</span>
+                      <span className="font-medium text-navy-600">
+                        {(() => {
+                          const ms = Date.parse(stats.last_session.start)
+                          if (!ms || isNaN(ms)) return '—'
+                          return new Date(ms).toLocaleString('es-ES', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })
+                        })()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Fin</span>
+                      <span className="font-medium text-navy-600">
+                        {(() => {
+                          const ms = Date.parse(stats.last_session.end)
+                          if (!ms || isNaN(ms)) return '—'
+                          return new Date(ms).toLocaleString('es-ES', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })
+                        })()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Duración</span>
+                      <span className="font-medium text-navy-600">
+                        {fmtDuration(stats.last_session.duration_s)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Consumo</span>
+                      <span className="font-semibold text-[#534AB7]">
+                        {stats.last_session.liters.toFixed(1)} L
+                      </span>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
@@ -1398,7 +1546,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
         </div>
 
         {/* Ahorro mensual — droplet interactivo */}
-        <SavingsCard stats={stats} />
+        <SavingsCard stats={stats} latest={latest} />
 
       </div>
 

@@ -1073,6 +1073,32 @@ def irrigation_stats():
     """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
     leak_today_row = cursor.fetchone()
 
+    # Último ciclo de riego (sesión más reciente con relay_active > 0)
+    cursor.execute("""
+        WITH base AS (
+            SELECT timestamp,
+                   COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * 20) AS row_liters,
+                   EXTRACT(EPOCH FROM timestamp - LAG(timestamp) OVER (ORDER BY timestamp)) AS gap
+            FROM home_weather_station
+            WHERE relay_active > 0
+              AND device_mac = %s
+              AND timestamp >= now() - INTERVAL '31 days'
+        ), grouped AS (
+            SELECT timestamp, row_liters,
+                   SUM(CASE WHEN gap > 60 THEN 1 ELSE 0 END) OVER (ORDER BY timestamp) AS grp
+            FROM base
+        )
+        SELECT MIN(timestamp) AS start_ts,
+               MAX(timestamp) AS end_ts,
+               COUNT(*) * 20  AS duration_s,
+               ROUND(SUM(row_liters)::numeric, 1) AS liters
+        FROM grouped
+        GROUP BY grp
+        ORDER BY MAX(timestamp) DESC
+        LIMIT 1
+    """, (NOMINAL_FLOW_LPM, mac))
+    last_session_row = cursor.fetchone()
+
     cursor.close()
 
     total_active = int(monthly_row["total_active"] or 0)
@@ -1112,6 +1138,12 @@ def irrigation_stats():
         "leak_liters": leak_liters,
         "today_leak_liters": today_leak_liters,
         "total_liters": total_liters,
+        "last_session": {
+            "start": str(last_session_row["start_ts"]).replace(' ', 'T') if last_session_row else None,
+            "end":   str(last_session_row["end_ts"]).replace(' ', 'T')   if last_session_row else None,
+            "duration_s": int(last_session_row["duration_s"]) if last_session_row else None,
+            "liters": float(last_session_row["liters"])        if last_session_row else None,
+        } if last_session_row else None,
     })
 
 
