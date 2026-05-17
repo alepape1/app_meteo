@@ -2,26 +2,31 @@ import { createElement, useState } from 'react'
 import {
   ChevronLeft, ChevronRight,
   Zap, Cpu, LayoutDashboard, Droplets, Radio, Settings, Activity,
-  Server, Bell, Layers, Power,
+  Server, Bell, Layers, Power, Leaf,
 } from 'lucide-react'
 import BrandLogo from './BrandLogo'
 import TimeRangeControl from './TimeRangeControl'
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Meteorología',      icon: LayoutDashboard },
-  { id: 'riego',     label: 'Riego',             icon: Droplets },
-  { id: 'pipeline',  label: 'Pipeline',          icon: Activity },
-  { id: 'nodos',     label: 'Nodos LoRa',        icon: Radio },
-  { id: 'alerts',    label: 'Alertas',           icon: Bell },
-  { id: 'device',    label: 'ESP32',             icon: Cpu },
-  { id: 'devices',   label: 'Mis dispositivos',  icon: Layers },
-  { id: 'settings',  label: 'Configuración',     icon: Settings },
+  { id: 'dashboard',   label: 'Meteorología',      icon: LayoutDashboard },
+  { id: 'plantacion',  label: 'Plantación',        icon: Leaf },
+  { id: 'riego',       label: 'Riego',             icon: Droplets },
+  { id: 'pipeline',    label: 'Pipeline',          icon: Activity },
+  { id: 'nodos',       label: 'Nodos LoRa',        icon: Radio },
+  { id: 'alerts',      label: 'Alertas',           icon: Bell },
+  { id: 'device',      label: 'ESP32',             icon: Cpu },
+  { id: 'devices',     label: 'Mis dispositivos',  icon: Layers },
+  { id: 'settings',    label: 'Configuración',     icon: Settings },
 ]
 
 const NAV_DESCRIPTIONS = {
   dashboard: {
     title: 'Meteorología',
     text: 'Monitoriza el clima en tiempo real, consulta las gráficas históricas, cambia el rango temporal y analiza la evolución de cada sensor del dispositivo seleccionado.',
+  },
+  plantacion: {
+    title: 'Plantación',
+    text: 'Consulta el estado del suelo: humedad, nutrientes NPK, pH, conductividad eléctrica y temperatura radicular.',
   },
   riego: {
     title: 'Riego',

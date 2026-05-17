@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, WifiOff, Menu } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -14,6 +14,7 @@ import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
+import PlantationView from './components/PlantationView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -276,9 +277,10 @@ function AppInner({ user, logout }) {
           </main>
         ) : (
           <>
-            {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-            {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
-            {activeView === 'nodos'     && <NodesView />}
+            {activeView === 'device'      && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
+            {activeView === 'riego'       && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
+            {activeView === 'nodos'       && <NodesView />}
+            {activeView === 'plantacion'  && <PlantationView data={data} latest={latest} timestamps={ts} paused={activeView !== 'plantacion'} />}
             {activeView === 'pipeline'  && <PipelineView selectedMac={selectedMac} />}
             {activeView === 'alerts'    && <AlertsPanel />}
             {activeView === 'settings'  && <SettingsView />}
@@ -396,13 +398,7 @@ function AppInner({ user, logout }) {
                 value={latest.heat_index}
                 min={minOf(data.heat_index)} max={maxOf(data.heat_index)}
               />
-            ) : (
-              <StatCard
-                title="Suelo" icon={Sprout} color="green" unit="%"
-                value={latest.soil_moisture}
-                min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
-              />
-            )}
+            ) : null}
           </div>
 
           {/* ── Charts ── */}
@@ -475,12 +471,7 @@ function AppInner({ user, logout }) {
                   colors={['#534AB7', '#8b83dc']}
                   yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
                 />
-                <WeatherChart
-                  title="Humedad del Suelo" icon={Sprout} timestamps={ts} paused={activeView !== 'dashboard'}
-                  series={[{ name: 'Suelo', data: data.soil_moisture }]}
-                  colors={['#10b981']}
-                  yUnit="%" yMin={0} yMax={100} type="area"
-                />
+
               </>
             )}
           </div>
