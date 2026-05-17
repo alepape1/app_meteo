@@ -1,6 +1,13 @@
 import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu } from 'lucide-react'
 import WeatherChart from './WeatherChart'
 
+function ha(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
 function SignalBars({ rssi }) {
   if (rssi == null) return <span className="text-navy-200 text-sm">—</span>
   const level = rssi >= -50 ? 4 : rssi >= -60 ? 3 : rssi >= -70 ? 2 : rssi >= -80 ? 1 : 0
@@ -57,8 +64,46 @@ function formatRevision(rev) {
 function InfoRow({ label, value }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
-      <span className="text-xs text-navy-300">{label}</span>
-      <span className="text-xs font-medium text-navy-900 font-mono">{value ?? '—'}</span>
+      <span className="text-[11px] text-navy-300">{label}</span>
+      <span className="text-[11px] font-semibold text-navy-700 font-mono">{value ?? '—'}</span>
+    </div>
+  )
+}
+
+function DeviceCard({ hex, grad, icon: Icon, title, children, right }) {
+  return (
+    <div
+      className="rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha(hex, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(hex, 0.07)}`,
+      }}
+    >
+      <div
+        className={`h-[3px] bg-gradient-to-r ${grad}`}
+        style={{ boxShadow: `0 0 8px 2px ${ha(hex, 0.5)}` }}
+      />
+      <div
+        className="px-4 pt-3 pb-2.5 flex items-center gap-2.5"
+        style={{ background: `linear-gradient(to bottom, ${ha(hex, 0.055)}, transparent)` }}
+      >
+        <div
+          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+          style={{
+            background: `linear-gradient(135deg, ${ha(hex, 0.2)}, ${ha(hex, 0.07)})`,
+            border: `1px solid ${ha(hex, 0.28)}`,
+            boxShadow: `0 2px 8px ${ha(hex, 0.22)}, 0 0 0 3px ${ha(hex, 0.06)}`,
+          }}
+        >
+          <Icon size={15} style={{ color: hex, filter: `drop-shadow(0 0 4px ${ha(hex, 0.5)})` }} />
+        </div>
+        <h3 className="text-[11.5px] font-extrabold uppercase tracking-widest text-navy-600 leading-none flex-1">
+          {title}
+        </h3>
+        {right}
+      </div>
+      <div className="px-4 pb-4">{children}</div>
     </div>
   )
 }
@@ -70,85 +115,122 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
   const rtRssi = data.rssi.slice(-REALTIME_N)
   const rtHeap = data.free_heap.slice(-REALTIME_N)
 
+  const hexHW   = '#1a3350'
+  const hexNet  = '#1a3350'
+  const hexWifi = '#1a3350'
+  const hexHeap = '#1a3350'
+  const hexUp   = '#1a3350'
+
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
 
       {/* Info estática */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <CircuitBoard size={16} className="text-navy-300" />
-            <h3 className="font-semibold text-navy-900 text-sm">Hardware</h3>
-            {deviceInfo?.last_seen && (
-              <span className="ml-auto text-xs text-navy-300">últ. boot: {deviceInfo.last_seen}</span>
-            )}
-          </div>
-          <InfoRow label="Modelo"    value={deviceInfo?.chip_model} />
-          <InfoRow label="Revisión"  value={formatRevision(deviceInfo?.chip_revision)} />
-          <InfoRow label="CPU"       value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
-          <InfoRow label="Flash"     value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
-          <InfoRow label="SDK"       value={deviceInfo?.sdk_version} />
+
+        {/* Hardware */}
+        <DeviceCard
+          hex={hexHW}
+          grad="from-[#001530] to-[#3d506a]"
+          icon={CircuitBoard}
+          title="Hardware"
+          right={deviceInfo?.last_seen && (
+            <span className="text-[11px] text-navy-300 shrink-0">últ. boot: {deviceInfo.last_seen}</span>
+          )}
+        >
+          <InfoRow label="Modelo"   value={deviceInfo?.chip_model} />
+          <InfoRow label="Revisión" value={formatRevision(deviceInfo?.chip_revision)} />
+          <InfoRow label="CPU"      value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
+          <InfoRow label="Flash"    value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
+          <InfoRow label="SDK"      value={deviceInfo?.sdk_version} />
           {deviceInfo?.firmware_version && (
             <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
-              <span className="flex items-center gap-1 text-xs text-navy-300">
+              <span className="flex items-center gap-1 text-[11px] text-navy-300">
                 <Cpu size={11} />Firmware
               </span>
-              <span className="text-xs font-medium font-mono px-1.5 py-0.5 rounded bg-brand-50 text-brand-600">
+              <span
+                className="text-[11px] font-semibold font-mono px-1.5 py-0.5 rounded"
+                style={{
+                  background: ha(hexHW, 0.1),
+                  color: hexHW,
+                  border: `1px solid ${ha(hexHW, 0.22)}`,
+                }}
+              >
                 v{deviceInfo.firmware_version}
               </span>
             </div>
           )}
-        </div>
+        </DeviceCard>
 
-        <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Server size={16} className="text-navy-300" />
-            <h3 className="font-semibold text-navy-900 text-sm">Red</h3>
-          </div>
+        {/* Red */}
+        <DeviceCard
+          hex={hexNet}
+          grad="from-[#001530] to-[#3d506a]"
+          icon={Server}
+          title="Red"
+        >
           <InfoRow label="IP"        value={deviceInfo?.ip_address} />
           <InfoRow label="MAC"       value={deviceInfo?.mac_address} />
           <InfoRow label="RSSI act." value={latest.rssi != null ? `${Math.round(latest.rssi)} dBm` : null} />
-        </div>
+        </DeviceCard>
+
       </div>
 
       {/* Métricas dinámicas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Wifi size={16} className="text-navy-300" />
-            <h3 className="font-semibold text-navy-900 text-sm">Señal WiFi</h3>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 mb-3 leading-none">
+
+        {/* Señal WiFi */}
+        <DeviceCard
+          hex={hexWifi}
+          grad="from-[#001530] to-[#3d506a]"
+          icon={Wifi}
+          title="Señal WiFi"
+        >
+          <p
+            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+            style={{ textShadow: `0 0 20px ${ha(hexWifi, 0.18)}` }}
+          >
             {latest.rssi != null ? Math.round(latest.rssi) : '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">dBm</span>
+            <span className="text-base font-medium text-navy-300 ml-1.5">dBm</span>
           </p>
           <SignalBars rssi={latest.rssi} />
-        </div>
+        </DeviceCard>
 
-        <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <HardDrive size={16} className="text-navy-300" />
-            <h3 className="font-semibold text-navy-900 text-sm">Memoria libre</h3>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 mb-3 leading-none">
+        {/* Memoria libre */}
+        <DeviceCard
+          hex={hexHeap}
+          grad="from-[#001530] to-[#3d506a]"
+          icon={HardDrive}
+          title="Memoria libre"
+        >
+          <p
+            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+            style={{ textShadow: `0 0 20px ${ha(hexHeap, 0.18)}` }}
+          >
             {latest.free_heap != null ? Math.round(latest.free_heap / 1024) : '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">KB</span>
+            <span className="text-base font-medium text-navy-300 ml-1.5">KB</span>
           </p>
           <HeapBar freeHeap={latest.free_heap} />
-        </div>
+        </DeviceCard>
 
-        <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock size={16} className="text-navy-300" />
-            <h3 className="font-semibold text-navy-900 text-sm">Uptime</h3>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 mb-1 leading-none">
+        {/* Uptime */}
+        <DeviceCard
+          hex={hexUp}
+          grad="from-[#001530] to-[#3d506a]"
+          icon={Clock}
+          title="Uptime"
+        >
+          <p
+            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+            style={{ textShadow: `0 0 20px ${ha(hexUp, 0.18)}` }}
+          >
             {formatUptime(latest.uptime_s)}
+            <span className="text-base font-medium text-navy-300 ml-1.5"> </span>
           </p>
-          <p className="text-xs text-navy-300 mt-2">
+          <p className="text-xs text-navy-300">
             {latest.uptime_s != null ? `${Number(latest.uptime_s).toLocaleString()} s` : '—'}
           </p>
-        </div>
+        </DeviceCard>
+
       </div>
 
       {/* Gráficas tiempo real */}

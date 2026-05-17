@@ -20,12 +20,23 @@ import logging
 import os
 import ssl
 import threading
+import time
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 from database import get_db_connection
 
 logger = logging.getLogger(__name__)
+
+# Cooldown para alertas mqtt_reconnect: evita spam cuando el broker cierra la
+# conexión entre envíos de telemetría (keepalive < intervalo de telemetría).
+# Clave: device_mac  Valor: monotonic() del último insert permitido.
+_reconnect_cooldown: dict[str, float] = {}
+_RECONNECT_COOLDOWN_S = 600  # 10 minutos entre alertas de reconexión por dispositivo
+
+# Último flow_total_l conocido por dispositivo para calcular el delta por intervalo.
+# Se resetea a None cuando se detecta un reinicio del ESP (total nuevo < total previo).
+_last_flow_total: dict[str, float] = {}
 
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
@@ -73,6 +84,23 @@ def _handle_telemetry(finca_id: str, payload: dict):
         valid_scenarios = {"normal", "leak", "burst", "obstruction"}
         scenario_val = raw_scenario if raw_scenario in valid_scenarios else None
 
+        # Delta de litros por intervalo usando el acumulado absoluto del caudalímetro.
+        # Si el ESP reinicia, flow_total_l cae a 0 → el delta ES flow_total_l (litros
+        # contados desde el arranque hasta este mensaje, sin contar el hueco del reinicio).
+        flow_delta_l = None
+        raw_flow_total = payload.get("flow_total_l")
+        if raw_flow_total is not None and device_mac:
+            try:
+                new_total = float(raw_flow_total)
+                if device_mac in _last_flow_total:
+                    delta = new_total - _last_flow_total[device_mac]
+                    flow_delta_l = new_total if delta < 0 else delta
+                else:
+                    flow_delta_l = None  # primer mensaje: sin referencia previa
+                _last_flow_total[device_mac] = new_total
+            except (TypeError, ValueError):
+                pass
+
         db.execute("""
             INSERT INTO home_weather_station(
                 temperature, pressure, temperature_barometer, humidity,
@@ -85,10 +113,11 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
                 pipeline_scenario,
                 soil_moisture,
+                flow_total_l, flow_delta_l, flow_session_l, flow_irrig_l, flow_leak_l,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -117,6 +146,11 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_flow_ok"),
             scenario_val,
             payload.get("soil_moisture"),
+            payload.get("flow_total_l"),
+            flow_delta_l,
+            payload.get("flow_session_l"),
+            payload.get("flow_irrig_l"),
+            payload.get("flow_leak_l"),
             payload.get("dew_point"),
             payload.get("heat_index"),
             payload.get("abs_humidity"),
@@ -223,6 +257,25 @@ def _handle_telemetry(finca_id: str, payload: dict):
 
 def _handle_alert(finca_id: str, payload: dict):
     """Inserta alerta en la tabla alerts."""
+    alert_type = payload.get("type", "unknown")
+    device_mac = payload.get("device_mac") or ""
+
+    # mqtt_reconnect se dispara cada vez que el dispositivo reconecta al broker,
+    # lo que ocurre frecuentemente cuando el keepalive del cliente (15s por defecto
+    # en PubSubClient) es menor que el intervalo de telemetría (20s). No indica
+    # un problema real si el uptime del dispositivo es continuo.
+    # Se permite como máximo una alerta cada _RECONNECT_COOLDOWN_S por dispositivo.
+    if alert_type == "mqtt_reconnect":
+        now = time.monotonic()
+        last = _reconnect_cooldown.get(device_mac, 0.0)
+        if now - last < _RECONNECT_COOLDOWN_S:
+            logger.debug(
+                "Alerta mqtt_reconnect suprimida (cooldown %.0fs restantes) mac=%s",
+                _RECONNECT_COOLDOWN_S - (now - last), device_mac,
+            )
+            return
+        _reconnect_cooldown[device_mac] = now
+
     db = get_db_connection()
     try:
         frames = payload.get("frames")
@@ -232,8 +285,8 @@ def _handle_alert(finca_id: str, payload: dict):
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             finca_id,
-            payload.get("device_mac"),
-            payload.get("type", "unknown"),
+            device_mac or None,
+            alert_type,
             payload.get("severity", "info"),
             payload.get("message", ""),
             payload.get("pipeline_mode"),
@@ -241,7 +294,7 @@ def _handle_alert(finca_id: str, payload: dict):
         ))
         db.commit()
         logger.info("Alerta MQTT recibida: finca_id=%s type=%s severity=%s frames=%d",
-                    finca_id, payload.get("type"), payload.get("severity"),
+                    finca_id, alert_type, payload.get("severity"),
                     len(frames) if frames else 0)
     finally:
         db.close()

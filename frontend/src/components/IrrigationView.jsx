@@ -1,11 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import ReactApexChart from 'react-apexcharts'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
   BarChart2,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
+import * as echarts from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { LegacyGridContainLabel } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([BarChart, GridComponent, TooltipComponent, LegacyGridContainLabel, CanvasRenderer])
+
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+const ha = hexAlpha
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -128,7 +141,8 @@ export function getWaterColors(pct) {
 
 // ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
 // consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
-function WaterDroplet({ consumptionPct = 0, size = 120 }) {
+// mode: 'normal' | 'flowing-irrigation' | 'flowing-leak'
+function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
   const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
   const svgRef   = useRef(null)
   const frontRef = useRef(null)
@@ -138,15 +152,18 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
   const stop0    = useRef(null)
   const stop1    = useRef(null)
   const outRef   = useRef(null)
+  const glowRef  = useRef(null)
   const rafId    = useRef(null)
   const anim     = useRef({ displayedPct: 0, phase: 0, introStart: null, target: 0 })
+  const modeRef  = useRef(mode)
+
+  useEffect(() => { modeRef.current = mode }, [mode])
 
   useEffect(() => {
     anim.current.target = Math.max(0, consumptionPct)
   }, [consumptionPct])
 
   useEffect(() => {
-    const WAVE_AMP = 9, WAVE_SPEED = 0.5
     const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
     // Always show at least 20% visual fill so animation is perceptible
     const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
@@ -156,10 +173,23 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
 
     function tick(now) {
       const a = anim.current
+      const currentMode = modeRef.current
+      const isFlowing = currentMode !== 'normal'
+      const isLeak    = currentMode === 'flowing-leak'
+
+      const WAVE_AMP   = isFlowing ? 13 : 9
+      const WAVE_SPEED = isFlowing ? 1.1 : 0.5
+
+      // In flow mode, animate fill level oscillating to convey active flow
+      if (isFlowing) {
+        const t = (now / 3200) % 1
+        a.target = 32 + 38 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2))
+      }
+
       const introP = Math.min(1, (now - a.introStart) / INTRO_MS)
       const eased  = 1 - Math.pow(1 - introP, 3)
 
-      a.displayedPct += (a.target * eased - a.displayedPct) * 0.08
+      a.displayedPct += ((isFlowing ? a.target : a.target * eased) - a.displayedPct) * (isFlowing ? 0.04 : 0.08)
       a.phase += 0.035 * WAVE_SPEED
 
       const p     = Math.max(0, Math.min(1.25, a.displayedPct / 100))
@@ -169,14 +199,46 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
       if (midRef.current)   midRef.current.setAttribute('d',   buildWave(WAVE_AMP * 0.8, 2.0, a.phase + 2.0, yBase + 2, +1))
       if (backRef.current)  backRef.current.setAttribute('d',  buildWave(WAVE_AMP * 1.2, 1.2, a.phase + 1.2, yBase + 5, -1))
 
-      const c = getWaterColors(a.displayedPct)
+      let c
+      if (isLeak) {
+        const leakPulse = 0.65 + 0.35 * Math.abs(Math.sin(now / 800))
+        c = {
+          top: `rgba(255,100,80,${leakPulse})`,
+          deep: '#a31818',
+          stroke: '#b91c1c',
+          bg: '#fee2e2',
+        }
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', `rgba(220,38,38,${leakPulse * 0.6})`)
+          glowRef.current.setAttribute('stroke-width', `${6 + 4 * Math.abs(Math.sin(now / 600))}`)
+        }
+      } else if (isFlowing) {
+        const flowPulse = 0.75 + 0.25 * Math.abs(Math.sin(now / 900))
+        c = {
+          top: `rgba(16,185,129,${flowPulse})`,
+          deep: '#065f46',
+          stroke: '#059669',
+          bg: '#d1fae5',
+        }
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', `rgba(16,185,129,${flowPulse * 0.5})`)
+          glowRef.current.setAttribute('stroke-width', `${5 + 3 * Math.abs(Math.sin(now / 700))}`)
+        }
+      } else {
+        c = getWaterColors(a.displayedPct)
+        if (glowRef.current) {
+          glowRef.current.setAttribute('stroke', '#3fb6f0')
+          glowRef.current.setAttribute('stroke-width', '6')
+        }
+      }
+
       if (stop0.current) stop0.current.setAttribute('stop-color', c.top)
       if (stop1.current) stop1.current.setAttribute('stop-color', c.deep)
       if (outRef.current) outRef.current.setAttribute('stroke', c.stroke)
       if (bgRef.current)  bgRef.current.setAttribute('fill', c.bg)
 
       if (svgRef.current)
-        svgRef.current.style.animation = a.displayedPct >= 100
+        svgRef.current.style.animation = (!isFlowing && a.displayedPct >= 100)
           ? `shk-${uid} 1.8s ease-in-out infinite` : ''
 
       rafId.current = requestAnimationFrame(tick)
@@ -219,7 +281,7 @@ function WaterDroplet({ consumptionPct = 0, size = 120 }) {
           </filter>
         </defs>
         {/* glow halo exterior */}
-        <path d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
+        <path ref={glowRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
         <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
           <rect x="0" y="0" width="132" height="156" fill={`url(#ct-${uid})`} opacity="0.6" />
@@ -255,49 +317,75 @@ const SECTORS = [
 
 function SectorCard({ sector }) {
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="text-sm font-semibold text-navy-900">{sector.name}</p>
-          <p className="text-xs text-navy-300">{sector.crop} · {sector.area}</p>
-        </div>
-        <span className="text-xs text-navy-300 bg-navy-50 px-2 py-0.5 rounded-full border border-navy-100">
-          offline
-        </span>
-      </div>
-      <div className="space-y-2.5">
-        <div>
-          <div className="flex justify-between text-xs text-navy-300 mb-1">
-            <span>Humedad suelo</span><span>— %</span>
+    <div
+      className="relative rounded-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha('#1a3350', 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#1a3350', 0.07)}`,
+      }}
+    >
+      <div
+        className="h-[3px] bg-gradient-to-r from-[#001530] to-[#3d506a]"
+        style={{ boxShadow: `0 0 8px 2px ${ha('#1a3350', 0.5)}` }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha('#1a3350', 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+      <div className="relative p-4" style={{ zIndex: 1 }}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-sm font-semibold text-navy-900">{sector.name}</p>
+            <p className="text-xs text-navy-300">{sector.crop} · {sector.area}</p>
           </div>
-          <div className="h-1.5 bg-navy-50 rounded-full">
-            <div className="h-full bg-navy-100 rounded-full" style={{ width: '0%' }} />
+          <span className="text-xs text-navy-300 bg-navy-50 px-2 py-0.5 rounded-full border border-navy-100">
+            offline
+          </span>
+        </div>
+        <div className="space-y-2.5">
+          <div>
+            <div className="flex justify-between text-xs text-navy-300 mb-1">
+              <span>Humedad suelo</span><span>— %</span>
+            </div>
+            <div className="h-1.5 bg-navy-50 rounded-full">
+              <div className="h-full bg-navy-100 rounded-full" style={{ width: '0%' }} />
+            </div>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">CE suelo</span>
+            <span className="text-navy-300">— dS/m</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">Temp. suelo</span>
+            <span className="text-navy-300">— °C</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-navy-300">Kc cultivo</span>
+            <span className="font-medium text-navy-500">{sector.kc}</span>
           </div>
         </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">CE suelo</span>
-          <span className="text-navy-300">— dS/m</span>
+        <div className="mt-3 pt-3 border-t border-navy-50 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Lock size={12} className="text-navy-300" />
+            <span className="text-xs text-navy-300">Válvula cerrada</span>
+          </div>
+          <button
+            disabled
+            className="text-xs text-navy-300 bg-navy-50 border border-navy-100 px-2.5 py-1 rounded-lg opacity-50 cursor-not-allowed"
+          >
+            Regar
+          </button>
         </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">Temp. suelo</span>
-          <span className="text-navy-300">— °C</span>
-        </div>
-        <div className="flex justify-between text-xs">
-          <span className="text-navy-300">Kc cultivo</span>
-          <span className="font-medium text-navy-500">{sector.kc}</span>
-        </div>
-      </div>
-      <div className="mt-3 pt-3 border-t border-navy-50 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Lock size={12} className="text-navy-300" />
-          <span className="text-xs text-navy-300">Válvula cerrada</span>
-        </div>
-        <button
-          disabled
-          className="text-xs text-navy-300 bg-navy-50 border border-navy-100 px-2.5 py-1 rounded-lg opacity-50 cursor-not-allowed"
-        >
-          Regar
-        </button>
       </div>
     </div>
   )
@@ -425,69 +513,104 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
   const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
 
+  const valveHex = desired ? '#0c8ecc' : '#1a3350'
+
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <div className={`p-1.5 rounded-lg ${desired ? 'bg-brand-50' : 'bg-navy-50'}`}>
-          <Power size={15} className={desired ? 'text-brand-500' : 'text-navy-300'} />
-        </div>
-        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Válvula {index + 1}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-          actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
-        }`} />
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-navy-900">
-            {actual ? 'Abierta — Regando' : 'Cerrada'}
+    <div
+      className="relative rounded-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha(valveHex, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(valveHex, 0.07)}`,
+      }}
+    >
+      <div
+        className={`h-[3px] ${desired ? 'bg-gradient-to-r from-brand-500 to-brand-300' : 'bg-gradient-to-r from-[#1a3350] to-[#3d506a]'}`}
+        style={{ boxShadow: `0 0 8px 2px ${ha(valveHex, 0.5)}` }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha(valveHex, 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+      <div className="relative p-5" style={{ zIndex: 1 }}>
+        <div className="flex items-center gap-2 mb-4">
+          <span
+            className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+            style={{
+              background: `linear-gradient(135deg, ${ha(valveHex, 0.14)}, ${ha(valveHex, 0.06)})`,
+              border: `1px solid ${ha(valveHex, 0.22)}`,
+              boxShadow: `0 2px 8px ${ha(valveHex, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+            }}
+          >
+            <Power size={15} style={{ color: valveHex }} />
+          </span>
+          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+            Válvula {index + 1}
           </p>
-          <p className="text-xs text-navy-300">
-            {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
-          </p>
         </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+            actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
+          }`} />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-navy-900">
+              {actual ? 'Abierta — Regando' : 'Cerrada'}
+            </p>
+            <p className="text-xs text-navy-300">
+              {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
+            </p>
+          </div>
+        </div>
+
+        {(desired || sessionSeconds > 0) && (
+          <div className={`rounded-xl p-3 mb-4 ${
+            desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
+          }`}>
+            <div className="flex justify-between text-xs">
+              <span className="flex items-center gap-1 text-navy-400">
+                <Clock size={11} /> Tiempo abierta
+              </span>
+              <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
+            </div>
+            <div className="flex justify-between text-xs mt-1.5">
+              <span className="flex items-center gap-1 text-navy-400">
+                <Droplets size={11} /> Esta sesión
+              </span>
+              <span className="font-semibold text-brand-600">{sessionLiters} L</span>
+            </div>
+            <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
+          </div>
+        )}
+
+        <button
+          onClick={toggle}
+          disabled={actionLocked}
+          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+            desired
+              ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+              : 'bg-brand-500 text-white hover:bg-brand-600'
+          }`}
+        >
+          {desired ? <Lock size={14} /> : <Unlock size={14} />}
+          {busy
+            ? 'Enviando…'
+            : retryRemainingMs > 0
+              ? `Espera ${cooldownSeconds}s…`
+              : !synced
+                ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
+                : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+        </button>
       </div>
-
-      {(desired || sessionSeconds > 0) && (
-        <div className={`rounded-xl p-3 mb-4 ${
-          desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
-        }`}>
-          <div className="flex justify-between text-xs">
-            <span className="flex items-center gap-1 text-navy-400">
-              <Clock size={11} /> Tiempo abierta
-            </span>
-            <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
-          </div>
-          <div className="flex justify-between text-xs mt-1.5">
-            <span className="flex items-center gap-1 text-navy-400">
-              <Droplets size={11} /> Esta sesión
-            </span>
-            <span className="font-semibold text-brand-600">{sessionLiters} L</span>
-          </div>
-          <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
-        </div>
-      )}
-
-      <button
-        onClick={toggle}
-        disabled={actionLocked}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-          desired
-            ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-            : 'bg-brand-500 text-white hover:bg-brand-600'
-        }`}
-      >
-        {desired ? <Lock size={14} /> : <Unlock size={14} />}
-        {busy
-          ? 'Enviando…'
-          : retryRemainingMs > 0
-            ? `Espera ${cooldownSeconds}s…`
-            : !synced
-              ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
-              : desired ? 'Cerrar válvula' : 'Abrir válvula'}
-      </button>
     </div>
   )
 }
@@ -535,8 +658,18 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
 }
 
 // ── SavingsCard — droplet interactivo con ahorro mensual ─────────────────────
-function SavingsCard({ stats }) {
+function SavingsCard({ stats, latest }) {
   const [expanded, setExpanded] = useState(false)
+
+  // Detect active flow from live sensor data
+  const liveFlow   = latest?.pipeline_flow ?? 0
+  const relayOn    = latest?.relay_active > 0
+  const hasFlow    = liveFlow > 0.1
+  const flowMode   = hasFlow
+    ? (relayOn ? 'flowing-irrigation' : 'flowing-leak')
+    : 'normal'
+  const isLeak     = hasFlow && !relayOn
+  const isIrrigate = hasFlow && relayOn
 
   if (!stats) return (
     <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex items-center justify-center min-h-[200px]">
@@ -563,6 +696,12 @@ function SavingsCard({ stats }) {
     danger: { text: 'text-red-500',     border: 'border-red-200',   pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
   }[state]
 
+  const borderClass = isLeak
+    ? 'border-red-300'
+    : isIrrigate
+    ? 'border-emerald-300'
+    : cc.border
+
   const pillText = consumptionPct >= 100
     ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
     : consumptionPct >= 85
@@ -576,7 +715,7 @@ function SavingsCard({ stats }) {
 
   return (
     <div
-      className={`bg-white rounded-2xl border ${cc.border} shadow-sm p-5 cursor-pointer select-none transition-shadow hover:shadow-md`}
+      className={`bg-white rounded-2xl border ${borderClass} shadow-sm p-5 cursor-pointer select-none transition-shadow hover:shadow-md`}
       onClick={() => setExpanded(e => !e)}
       role="button"
       aria-expanded={expanded}
@@ -587,11 +726,15 @@ function SavingsCard({ stats }) {
           80%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
           100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
         }
+        @keyframes flow-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.7; transform: scale(1.04); }
+        }
       `}</style>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="bg-sky-50 p-1.5 rounded-lg">
-            <Leaf size={15} className="text-sky-500" />
+          <div className={`p-1.5 rounded-lg ${isLeak ? 'bg-red-50' : isIrrigate ? 'bg-emerald-50' : 'bg-sky-50'}`}>
+            <Leaf size={15} className={isLeak ? 'text-red-500' : isIrrigate ? 'text-emerald-500' : 'text-sky-500'} />
           </div>
           <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
             Ahorro este mes
@@ -603,32 +746,70 @@ function SavingsCard({ stats }) {
         }
       </div>
 
-      {hasLeak && (
+      {/* Live flow banner */}
+      {isLeak && (
+        <div
+          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-300 rounded-lg px-3 py-1.5"
+          style={{ animation: 'flow-pulse 1.4s ease-in-out infinite' }}
+        >
+          <AlertTriangle size={13} className="shrink-0" />
+          ¡FUGA ACTIVA! · {liveFlow.toFixed(2)} L/min con válvula cerrada
+        </div>
+      )}
+      {isIrrigate && (
+        <div
+          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg px-3 py-1.5"
+          style={{ animation: 'flow-pulse 1.8s ease-in-out infinite' }}
+        >
+          <Droplets size={13} className="shrink-0" />
+          Regando ahora · {liveFlow.toFixed(2)} L/min
+        </div>
+      )}
+
+      {hasLeak && !isLeak && (
         <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
           <AlertTriangle size={13} className="shrink-0" />
           Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
         </div>
       )}
+
       <div className="flex items-center gap-4">
-        <WaterDroplet consumptionPct={consumptionPct} size={90} />
+        <WaterDroplet consumptionPct={consumptionPct} size={90} mode={flowMode} />
         <div className="flex-1 min-w-0">
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {savings_liters.toFixed(0)}
-            <span className="text-base font-normal text-navy-300 ml-1">L</span>
-          </p>
-          <p className="text-xs text-navy-400 mt-1 leading-snug">
-            {leadText}
-          </p>
-          <span
-            className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={cc.pillStyle}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
-              style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
-            />
-            {pillText}
-          </span>
+          {hasFlow ? (
+            <>
+              <p className="text-3xl font-bold leading-none" style={{ color: isLeak ? '#b91c1c' : '#059669' }}>
+                {liveFlow.toFixed(2)}
+                <span className="text-base font-normal text-navy-300 ml-1">L/min</span>
+              </p>
+              <p className="text-xs text-navy-400 mt-1 leading-snug">
+                {isLeak ? 'caudal detectado · válvula cerrada' : 'caudal activo · válvula abierta'}
+              </p>
+              <p className="text-xs text-navy-300 mt-1">
+                Ahorro acumulado: <span className="font-medium text-navy-600">{savings_liters.toFixed(0)} L ({savingsPct}%)</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-navy-900 leading-none">
+                {savings_liters.toFixed(0)}
+                <span className="text-base font-normal text-navy-300 ml-1">L</span>
+              </p>
+              <p className="text-xs text-navy-400 mt-1 leading-snug">
+                {leadText}
+              </p>
+              <span
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
+                style={cc.pillStyle}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
+                  style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
+                />
+                {pillText}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -694,6 +875,25 @@ function SavingsCard({ stats }) {
       <p className="text-xs text-navy-300 mt-3 text-center">Toca para ver detalles</p>
     </div>
   )
+}
+
+// ── useEChart hook ────────────────────────────────────────────────────────────
+function useEChart(containerRef, option) {
+  const chartRef = useRef(null)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const chart = echarts.init(el, null, { renderer: 'canvas' })
+    chartRef.current = chart
+    chart.setOption(option, { notMerge: true })
+    const ro = new ResizeObserver(() => chart.resize())
+    ro.observe(el)
+    return () => { ro.disconnect(); chart.dispose(); chartRef.current = null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true })
+  }, [option])
 }
 
 // ── Gráfico de consumo con selector de período ────────────────────────────────
@@ -793,192 +993,174 @@ function ConsumptionChart({ selectedMac }) {
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
 
-  // ── Sessions view ──
-  if (period === 'session') {
-    const normalizedSessions = sessions
-      .map(s => ({
-        ...s,
-        startMs: toChartMs(s.start),
-        liters: toChartNum(s.liters),
-        duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
-      }))
-      .filter(s => s.startMs != null)
+  // ── Normalize data ──
+  const normalizedSessions = useMemo(() => sessions
+    .map(s => ({
+      ...s,
+      startMs: toChartMs(s.start),
+      liters: toChartNum(s.liters),
+      duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
+    }))
+    .filter(s => s.startMs != null),
+  [sessions])
 
-    const sessionSeries = [{
-      name: 'Consumo',
-      data: normalizedSessions.map(s => ({ x: s.startMs, y: s.liters })),
-    }]
-
-    const sessionChartKey = `session-${normalizedSessions.length}-${normalizedSessions[normalizedSessions.length - 1]?.startMs ?? 'empty'}`
-
-    const sessionOptions = {
-      chart: {
-        type: 'bar', toolbar: { show: false }, background: 'transparent',
-        fontFamily: '"DM Sans", system-ui, sans-serif',
-        animations: { enabled: false },
-      },
-      colors: ['#10b981'],
-      plotOptions: {
-        bar: {
-          borderRadius: 6,
-          borderRadiusApplication: 'end',
-          columnWidth: getBarColumnWidth(normalizedSessions.length, 'session'),
-          colors: {
-            backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
-            backgroundBarRadius: 6,
-          },
-        },
-      },
-      dataLabels: { enabled: false },
-      xaxis: {
-        type: 'datetime',
-        labels: {
-          style: { fontSize: '10px', colors: '#8a9aaa' },
-          datetimeUTC: false,
-          rotate: -35,
-          hideOverlappingLabels: true,
-          formatter: val => fmtPeriodLabel(val, 'session'),
-        },
-        axisBorder: { show: false }, axisTicks: { show: false },
-      },
-      yaxis: {
-        labels: {
-          style: { fontSize: '11px', colors: '#8a9aaa' },
-          formatter: v => `${toChartNum(v).toFixed(0)} L`,
-        },
-      },
-      grid: {
-        borderColor: '#f3f3ef',
-        strokeDashArray: 3,
-        xaxis: { lines: { show: false } },
-        padding: { left: 0, right: 8, bottom: 8 },
-      },
-      tooltip: {
-        theme: 'light',
-        x: { formatter: val => fmtPeriodLabel(val, 'session') },
-        custom: ({ dataPointIndex }) => {
-          const s = normalizedSessions[dataPointIndex]
-          if (!s) return ''
-          return `<div style="padding:8px 12px;font-family:'DM Sans',sans-serif;font-size:12px">
-            <div style="font-weight:600;color:#1e2d3d;margin-bottom:4px">${fmtDuration(s.duration_s)}</div>
-            <div style="color:#5a7a9a">${s.liters.toFixed(1)} L consumidos</div>
-          </div>`
-        },
-      },
-    }
-
-    const totalL = normalizedSessions.reduce((a, s) => a + s.liters, 0)
-
-    return (
-      <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
-          <BarChart2 size={15} className="text-navy-300 shrink-0" />
-          <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
-          {normalizedSessions.length > 0 && (
-            <span className="text-xs text-navy-300">
-              {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
-            </span>
-          )}
-          <div className="ml-auto flex gap-1">
-            {PERIODS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                  period === p.id
-                    ? 'bg-brand-500 text-white'
-                    : 'text-navy-400 hover:bg-navy-50'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {normalizedSessions.length > 0 ? (
-          <div className="overflow-x-auto px-2 pb-2">
-            <div style={{ minWidth: `${getChartMinWidth(normalizedSessions.length, 'session')}px` }}>
-              <ReactApexChart key={sessionChartKey} options={sessionOptions} series={sessionSeries} type="bar" height={250} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
-            Sin sesiones de riego registradas
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // ── Días / Semanas / Meses view ──
-  const normalizedHistory = history
+  const normalizedHistory = useMemo(() => history
     .map(d => ({
       ...d,
       period: String(d.period ?? ''),
       liters: toChartNum(d.liters),
       seconds: Math.max(0, Math.round(toChartNum(d.seconds))),
     }))
-    .filter(d => d.period)
+    .filter(d => d.period),
+  [history])
 
-  const series = [{ name: 'Consumo', data: normalizedHistory.map(d => ({ x: d.period, y: d.liters })) }]
-  const historyChartKey = `${period}-${normalizedHistory.length}-${normalizedHistory[normalizedHistory.length - 1]?.period ?? 'empty'}`
+  const accentColor = period === 'session' ? '#10b981' : '#0c8ecc'
 
-  const options = {
-    chart: {
-      type: 'bar', toolbar: { show: false }, background: 'transparent',
-      fontFamily: '"DM Sans", system-ui, sans-serif',
-      animations: { enabled: false },
-    },
-    colors: ['#0c8ecc'],
-    plotOptions: {
-      bar: {
-        borderRadius: 6,
-        borderRadiusApplication: 'end',
-        columnWidth: getBarColumnWidth(normalizedHistory.length, period),
-        colors: {
-          backgroundBarColors: ['rgba(15, 23, 42, 0.04)'],
-          backgroundBarRadius: 6,
+  const hasData = period === 'session'
+    ? normalizedSessions.length > 0
+    : normalizedHistory.length > 0
+
+  const option = useMemo(() => {
+    const seriesData = period === 'session'
+      ? normalizedSessions.map(s => [s.startMs, s.liters])
+      : normalizedHistory.map(d => ({ value: d.liters, name: d.period }))
+
+    const xAxisCategories = period !== 'session'
+      ? normalizedHistory.map(d => d.period)
+      : undefined
+
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      grid: { top: 8, bottom: 36, left: 8, right: 12, containLabel: true },
+      xAxis: {
+        type: period === 'session' ? 'time' : 'category',
+        ...(xAxisCategories ? { data: xAxisCategories } : {}),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => fmtPeriodLabel(v, period),
+          rotate: -30,
+          hideOverlap: true,
+          interval: 'auto',
         },
       },
-    },
-    dataLabels: { enabled: false },
-    xaxis: {
-      type: 'category',
-      labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => fmtPeriodLabel(v, period),
-        rotate: -30,
-        hideOverlappingLabels: true,
-        trim: true,
+      yAxis: {
+        type: 'value',
+        splitLine: {
+          lineStyle: { color: hexAlpha(accentColor, 0.07), type: [4, 6] },
+        },
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => `${Math.round(v)} L`,
+        },
       },
-      axisBorder: { show: false }, axisTicks: { show: false },
-    },
-    yaxis: {
-      labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa' },
-        formatter: v => `${toChartNum(v).toFixed(0)} L`,
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        padding: 0,
+        extraCssText: 'box-shadow:none;',
+        axisPointer: {
+          type: 'shadow',
+          shadowStyle: { color: hexAlpha(accentColor, 0.06) },
+        },
+        formatter: (params) => {
+          if (!params?.length) return ''
+          const p = params[0]
+          const val = Number(Array.isArray(p.value) ? p.value[1] : p.value)
+          const label = period === 'session'
+            ? fmtPeriodLabel(p.value?.[0] ?? p.axisValue, 'session')
+            : fmtPeriodLabel(p.axisValue ?? p.name, period)
+          return `<div style="font-family:'DM Sans',sans-serif;background:${hexAlpha(accentColor, 0.22)};backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:0;overflow:hidden;min-width:140px;">
+            <div style="padding:5px 12px 4px;border-bottom:1px solid rgba(255,255,255,0.08);background:${hexAlpha(accentColor, 0.18)};color:rgba(148,163,184,0.9);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">${label}</div>
+            <div style="padding:6px 12px 8px;display:flex;align-items:center;gap:8px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:${accentColor};box-shadow:0 0 6px ${accentColor}88;flex-shrink:0;"></span>
+              <span style="color:#fff;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;">${Number.isFinite(val) ? val.toFixed(1) : '—'} L</span>
+            </div>
+          </div>`
+        },
       },
-    },
-    grid: {
-      borderColor: '#f3f3ef',
-      strokeDashArray: 3,
-      xaxis: { lines: { show: false } },
-      padding: { left: 0, right: 8, bottom: 8 },
-    },
-    tooltip: {
-      theme: 'light',
-      x: { formatter: v => fmtPeriodLabel(v, period) },
-      y: { formatter: v => `${toChartNum(v).toFixed(1)} L` },
-      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
-    },
-  }
+      series: [{
+        type: 'bar',
+        data: seriesData,
+        itemStyle: {
+          color: accentColor,
+          borderRadius: [6, 6, 0, 0],
+        },
+        barMaxWidth: 40,
+        emphasis: { disabled: true },
+      }],
+    }
+  }, [period, normalizedSessions, normalizedHistory, accentColor])
+
+  const containerRef = useRef(null)
+  useEChart(containerRef, option)
+
+  const totalL = period === 'session'
+    ? normalizedSessions.reduce((a, s) => a + s.liters, 0)
+    : 0
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-2 flex-wrap">
-        <BarChart2 size={15} className="text-navy-300 shrink-0" />
-        <h3 className="font-semibold text-navy-900 text-sm">Historial de consumo</h3>
-        <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
+    <div
+      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${ha(accentColor, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(accentColor, 0.07)}`,
+      }}
+    >
+      {/* Top accent bar with glow */}
+      <div
+        style={{
+          height: 3,
+          background: accentColor,
+          boxShadow: `0 0 8px 2px ${ha(accentColor, 0.5)}`,
+        }}
+      />
+
+      {/* Header wash overlay */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: 0,
+          right: 0,
+          height: 52,
+          background: `linear-gradient(180deg, ${ha(accentColor, 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+
+      {/* Header */}
+      <div className="relative flex items-center gap-3 px-5 pt-3.5 pb-2 flex-wrap" style={{ zIndex: 1 }}>
+        <span
+          className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+          style={{
+            background: `linear-gradient(135deg, ${ha(accentColor, 0.14)}, ${ha(accentColor, 0.06)})`,
+            border: `1px solid ${ha(accentColor, 0.22)}`,
+            boxShadow: `0 2px 8px ${ha(accentColor, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+          }}
+        >
+          <BarChart2 size={15} style={{ color: accentColor }} />
+        </span>
+        <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Historial de consumo</h3>
+        {period === 'session' && normalizedSessions.length > 0 && (
+          <span className="text-xs text-navy-300">
+            {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
+          </span>
+        )}
+        {period !== 'session' && hint && (
+          <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
+        )}
         <div className="ml-auto flex gap-1">
           {PERIODS.map(p => (
             <button
@@ -995,17 +1177,16 @@ function ConsumptionChart({ selectedMac }) {
           ))}
         </div>
       </div>
-      {normalizedHistory.length > 0 ? (
-        <div className="overflow-x-auto px-2 pb-2">
-          <div style={{ minWidth: `${getChartMinWidth(normalizedHistory.length, period)}px` }}>
-            <ReactApexChart key={historyChartKey} options={options} series={series} type="bar" height={250} />
+
+      {/* Chart container — always rendered so ECharts can measure */}
+      <div style={{ position: 'relative', height: 250 }}>
+        <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+        {!hasData && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-slate-300 text-xs">Sin datos de riego en este período</span>
           </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center text-navy-200 text-xs" style={{ height: 220 }}>
-          Sin datos de riego en este período
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -1176,89 +1357,196 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
         <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
 
         {/* ET₀ estimado */}
-        <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="bg-brand-50 p-1.5 rounded-lg">
-              <Zap size={15} className="text-brand-500" />
-            </div>
-            <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-              ET₀ estimado hoy
-            </p>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {et0 ?? '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
-          </p>
-          {et0Num != null && (
-            <div className="mt-3 pt-3 border-t border-navy-50">
-              <div className="h-1.5 bg-brand-50 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-brand-500 rounded-full"
-                  style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-navy-300 mt-1.5">
-                {et0Num < 3
-                  ? 'Baja evapotranspiración'
-                  : et0Num < 5
-                  ? 'Evapotranspiración media'
-                  : 'Alta evapotranspiración'}
+        <div
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+            border: `1px solid ${ha('#0c8ecc', 0.2)}`,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#0c8ecc', 0.07)}`,
+          }}
+        >
+          <div
+            className="h-[3px] bg-gradient-to-r from-brand-500 to-brand-300"
+            style={{ boxShadow: `0 0 8px 2px ${ha('#0c8ecc', 0.5)}` }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 3,
+              left: 0,
+              right: 0,
+              height: 52,
+              background: `linear-gradient(180deg, ${ha('#0c8ecc', 0.055)} 0%, transparent 100%)`,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div className="relative p-5" style={{ zIndex: 1 }}>
+            <div className="flex items-center gap-2 mb-4">
+              <span
+                className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+                style={{
+                  background: `linear-gradient(135deg, ${ha('#0c8ecc', 0.14)}, ${ha('#0c8ecc', 0.06)})`,
+                  border: `1px solid ${ha('#0c8ecc', 0.22)}`,
+                  boxShadow: `0 2px 8px ${ha('#0c8ecc', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+                }}
+              >
+                <Zap size={15} style={{ color: '#0c8ecc' }} />
+              </span>
+              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+                ET₀ estimado hoy
               </p>
             </div>
-          )}
-          <p className="text-xs text-navy-300 mt-2">
-            Penman-Monteith FAO-56 · datos en tiempo real
-          </p>
+            <p className="text-3xl font-bold text-navy-900 leading-none">
+              {et0 ?? '—'}
+              <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
+            </p>
+            {et0Num != null && (
+              <div className="mt-3 pt-3 border-t border-navy-50">
+                <div className="h-1.5 bg-brand-50 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-500 rounded-full"
+                    style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-navy-300 mt-1.5">
+                  {et0Num < 3
+                    ? 'Baja evapotranspiración'
+                    : et0Num < 5
+                    ? 'Evapotranspiración media'
+                    : 'Alta evapotranspiración'}
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-navy-300 mt-2">
+              Penman-Monteith FAO-56 · datos en tiempo real
+            </p>
+          </div>
         </div>
 
         {/* Consumo de agua hoy / mes */}
-        <div className="bg-white rounded-2xl border border-[#c5c2ef] shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="bg-[#EEEDFE] p-1.5 rounded-lg">
-                <Droplets size={15} className="text-[#534AB7]" />
+        <div
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+            border: `1px solid ${ha('#534AB7', 0.2)}`,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#534AB7', 0.07)}`,
+          }}
+        >
+          <div
+            className="h-[3px] bg-gradient-to-r from-[#534AB7] to-[#7b73d4]"
+            style={{ boxShadow: `0 0 8px 2px ${ha('#534AB7', 0.5)}` }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 3,
+              left: 0,
+              right: 0,
+              height: 52,
+              background: `linear-gradient(180deg, ${ha('#534AB7', 0.055)} 0%, transparent 100%)`,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div className="relative p-5" style={{ zIndex: 1 }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, ${ha('#534AB7', 0.14)}, ${ha('#534AB7', 0.06)})`,
+                    border: `1px solid ${ha('#534AB7', 0.22)}`,
+                    boxShadow: `0 2px 8px ${ha('#534AB7', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+                  }}
+                >
+                  <Droplets size={15} style={{ color: '#534AB7' }} />
+                </span>
+                <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
+                  Consumo de agua
+                </p>
               </div>
-              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-                Consumo de agua
-              </p>
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="flex items-center gap-1.5 text-xs text-navy-400 hover:text-red-500 bg-navy-50 hover:bg-red-50 border border-navy-100 hover:border-red-200 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                <RotateCcw size={11} />
+                Resetear
+              </button>
             </div>
-            <button
-              onClick={() => setShowResetConfirm(true)}
-              className="flex items-center gap-1.5 text-xs text-navy-400 hover:text-red-500 bg-navy-50 hover:bg-red-50 border border-navy-100 hover:border-red-200 px-2.5 py-1 rounded-lg transition-colors"
-            >
-              <RotateCcw size={11} />
-              Resetear
-            </button>
-          </div>
-          <p className="text-3xl font-bold text-navy-900 leading-none">
-            {stats ? stats.today_liters.toFixed(1) : '—'}
-            <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
-          </p>
-          {stats ? (
-            <>
-              <p className="text-sm text-navy-500 mt-2 font-medium">
-                {stats.monthly_liters.toFixed(1)}{' '}
-                <span className="text-navy-300 font-normal text-xs">L este mes</span>
-              </p>
-              <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-                <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
-                {stats.monthly_seconds > 0 && (
-                  <p className="text-xs text-navy-300">
-                    {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
-                    {' '}activa este mes
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
-              Calculando…
+            <p className="text-3xl font-bold text-navy-900 leading-none">
+              {stats ? stats.today_liters.toFixed(1) : '—'}
+              <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
             </p>
-          )}
+            {stats ? (
+              <>
+                <p className="text-sm text-navy-500 mt-2 font-medium">
+                  {stats.monthly_liters.toFixed(1)}{' '}
+                  <span className="text-navy-300 font-normal text-xs">L este mes</span>
+                </p>
+                <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
+                  <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
+                  {stats.monthly_seconds > 0 && (
+                    <p className="text-xs text-navy-300">
+                      {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
+                      {' '}activa este mes
+                    </p>
+                  )}
+                </div>
+                {stats.last_session && (
+                  <div className="mt-3 pt-3 border-t border-navy-50 space-y-1.5">
+                    <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider">Último ciclo</p>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Inicio</span>
+                      <span className="font-medium text-navy-600">
+                        {(() => {
+                          const ms = Date.parse(stats.last_session.start)
+                          if (!ms || isNaN(ms)) return '—'
+                          return new Date(ms).toLocaleString('es-ES', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })
+                        })()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Fin</span>
+                      <span className="font-medium text-navy-600">
+                        {(() => {
+                          const ms = Date.parse(stats.last_session.end)
+                          if (!ms || isNaN(ms)) return '—'
+                          return new Date(ms).toLocaleString('es-ES', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })
+                        })()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Duración</span>
+                      <span className="font-medium text-navy-600">
+                        {fmtDuration(stats.last_session.duration_s)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-navy-300">Consumo</span>
+                      <span className="font-semibold text-[#534AB7]">
+                        {stats.last_session.liters.toFixed(1)} L
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
+                Calculando…
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Ahorro mensual — droplet interactivo */}
-        <SavingsCard stats={stats} />
+        <SavingsCard stats={stats} latest={latest} />
 
       </div>
 

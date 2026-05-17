@@ -1011,11 +1011,11 @@ def irrigation_stats():
     """)
     since = cursor.fetchone()["since"]
 
-    # Consumo diario usando caudal real cuando está disponible
+    # Consumo diario: usa flow_delta_l (pulsos reales) si disponible, si no estima con pipeline_flow
     cursor.execute("""
         SELECT DATE(timestamp) AS day,
                COUNT(*) AS cnt,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1025,10 +1025,10 @@ def irrigation_stats():
     """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     daily_rows = cursor.fetchall()
 
-    # Total mensual con caudal real
+    # Total mensual con pulsos reales (flow_delta_l) o estimación
     cursor.execute("""
         SELECT COUNT(*) AS total_active,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS total_liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS total_liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1036,10 +1036,10 @@ def irrigation_stats():
     """, (NOMINAL_FLOW_LPM, INTERVAL_S, mac, since))
     monthly_row = cursor.fetchone()
 
-    # Total hoy con caudal real
+    # Total hoy con pulsos reales (flow_delta_l) o estimación
     cursor.execute("""
         SELECT COUNT(*) AS today_active,
-               COALESCE(SUM(COALESCE(pipeline_flow, %s) / 60.0 * %s), 0) AS today_liters
+               COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * %s)), 0) AS today_liters
         FROM home_weather_station
         WHERE relay_active > 0
           AND device_mac = %s
@@ -1052,10 +1052,10 @@ def irrigation_stats():
     # Umbral 0.1 L/min para filtrar ruido del sensor
     LEAK_THRESHOLD_LPM = 0.1
     cursor.execute("""
-        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS leak_liters
+        SELECT COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, 0) / 60.0 * %s)), 0) AS leak_liters
         FROM home_weather_station
         WHERE relay_active = 0
-          AND pipeline_flow > %s
+          AND (flow_delta_l > 0 OR pipeline_flow > %s)
           AND device_mac = %s
           AND timestamp >= %s
     """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
@@ -1063,15 +1063,41 @@ def irrigation_stats():
 
     # Fugas de hoy
     cursor.execute("""
-        SELECT COALESCE(SUM(COALESCE(pipeline_flow, 0) / 60.0 * %s), 0) AS today_leak_liters
+        SELECT COALESCE(SUM(COALESCE(flow_delta_l, COALESCE(pipeline_flow, 0) / 60.0 * %s)), 0) AS today_leak_liters
         FROM home_weather_station
         WHERE relay_active = 0
-          AND pipeline_flow > %s
+          AND (flow_delta_l > 0 OR pipeline_flow > %s)
           AND device_mac = %s
           AND DATE(timestamp) = CURRENT_DATE
           AND timestamp >= %s
     """, (INTERVAL_S, LEAK_THRESHOLD_LPM, mac, since))
     leak_today_row = cursor.fetchone()
+
+    # Último ciclo de riego (sesión más reciente con relay_active > 0)
+    cursor.execute("""
+        WITH base AS (
+            SELECT timestamp,
+                   COALESCE(flow_delta_l, COALESCE(pipeline_flow, %s) / 60.0 * 20) AS row_liters,
+                   EXTRACT(EPOCH FROM timestamp - LAG(timestamp) OVER (ORDER BY timestamp)) AS gap
+            FROM home_weather_station
+            WHERE relay_active > 0
+              AND device_mac = %s
+              AND timestamp >= now() - INTERVAL '31 days'
+        ), grouped AS (
+            SELECT timestamp, row_liters,
+                   SUM(CASE WHEN gap > 60 THEN 1 ELSE 0 END) OVER (ORDER BY timestamp) AS grp
+            FROM base
+        )
+        SELECT MIN(timestamp) AS start_ts,
+               MAX(timestamp) AS end_ts,
+               COUNT(*) * 20  AS duration_s,
+               ROUND(SUM(row_liters)::numeric, 1) AS liters
+        FROM grouped
+        GROUP BY grp
+        ORDER BY MAX(timestamp) DESC
+        LIMIT 1
+    """, (NOMINAL_FLOW_LPM, mac))
+    last_session_row = cursor.fetchone()
 
     cursor.close()
 
@@ -1112,6 +1138,12 @@ def irrigation_stats():
         "leak_liters": leak_liters,
         "today_leak_liters": today_leak_liters,
         "total_liters": total_liters,
+        "last_session": {
+            "start": str(last_session_row["start_ts"]).replace(' ', 'T') if last_session_row else None,
+            "end":   str(last_session_row["end_ts"]).replace(' ', 'T')   if last_session_row else None,
+            "duration_s": int(last_session_row["duration_s"]) if last_session_row else None,
+            "liters": float(last_session_row["liters"])        if last_session_row else None,
+        } if last_session_row else None,
     })
 
 
@@ -1264,6 +1296,10 @@ def _db_rows_to_pipeline(rows, scenario):
             "pipeline_source": row.get("pipeline_source"),
             "pipeline_flow_ok": row.get("pipeline_flow_ok"),
             "pipeline_pressure_ok": row.get("pipeline_pressure_ok"),
+            "flow_total_l": row.get("flow_total_l"),
+            "flow_session_l": row.get("flow_session_l"),
+            "flow_irrig_l": row.get("flow_irrig_l"),
+            "flow_leak_l": row.get("flow_leak_l"),
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -1300,12 +1336,14 @@ def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
     query = f"""
         SELECT timestamp, relay_active,
                pipeline_pressure, pipeline_flow,
-               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
+               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+               flow_total_l, flow_session_l, flow_irrig_l, flow_leak_l
         FROM (
             SELECT DISTINCT ON (timestamp)
                    id, timestamp, relay_active,
                    pipeline_pressure, pipeline_flow,
-                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
+                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                   flow_total_l, flow_session_l, flow_irrig_l, flow_leak_l
             FROM home_weather_station
             WHERE {' AND '.join(where)}
             ORDER BY timestamp, id DESC
@@ -1440,6 +1478,7 @@ def get_pipeline_config():
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
         "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
         "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
+        "reset_flow_counters": cfg.get('reset_flow_counters', 'false') == 'true',
     })
 
 
@@ -1588,6 +1627,43 @@ def set_pipeline_config():
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })
+
+
+@app.route("/api/flow/reset", methods=["POST"])
+@jwt_required()
+def request_flow_reset():
+    """Solicita al ESP32 que resetee los contadores de flujo (riego + fuga + sesión).
+
+    El ESP32 leerá reset_flow_counters=true en el próximo sync de config (~20s)
+    y confirmará el reset vía GET /api/flow/reset-ack.
+    """
+    mac = (request.get_json(silent=True) or {}).get('mac') or request.args.get('mac')
+    if not mac:
+        return jsonify({"error": "mac requerido"}), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'true')"
+        " ON CONFLICT (key) DO UPDATE SET value = 'true'"
+    )
+    db.commit()
+    logger.info("Flow counters reset solicitado para mac=%s", mac)
+    return jsonify({"ok": True, "pending": True})
+
+
+@app.route("/api/flow/reset-ack", methods=["GET"])
+def flow_reset_ack():
+    """Llamado por el ESP32 tras ejecutar el reset de contadores.
+    Limpia el flag para que no se vuelva a enviar reset_flow_counters=true.
+    No requiere autenticación (solo accesible desde la red local donde corre el ESP32).
+    """
+    db = get_db()
+    db.execute(
+        "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'false')"
+        " ON CONFLICT (key) DO UPDATE SET value = 'false'"
+    )
+    db.commit()
+    logger.info("Flow counters reset confirmado por ESP32 (mac=%s)", request.args.get('mac', '?'))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/pipeline/scenario", methods=["POST"])

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, Sprout, RefreshCw, WifiOff, Menu } from 'lucide-react'
+import { Thermometer, Droplets, Gauge, Wind, Compass, Sun, RefreshCw, WifiOff, Menu } from 'lucide-react'
 import { useWeatherData } from './hooks/useWeatherData'
 import { useAuth } from './AuthContext'
 import StatCard from './components/StatCard'
@@ -14,6 +14,7 @@ import AlertsPanel from './components/AlertsPanel'
 import ClaimDeviceView from './components/ClaimDeviceView'
 import DevicesView from './components/DevicesView'
 import LoginView from './components/LoginView'
+import PlantationView from './components/PlantationView'
 import './index.css'
 
 function degreesToCompass(deg) {
@@ -171,7 +172,7 @@ function AppInner({ user, logout }) {
 
   return (
     <>
-    <div className="flex h-screen bg-[#fafaf8] overflow-hidden font-sans">
+    <div className="flex h-screen app-bg overflow-hidden font-sans">
       {/* Backdrop móvil */}
       {sidebarOpen && (
         <div
@@ -196,7 +197,7 @@ function AppInner({ user, logout }) {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="bg-white border-b border-black/[.08] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
+        <header className="bg-[#a5b8cb] border-b border-[#8a9aaa]/60 shadow-[0_1px_8px_rgba(0,0,0,0.10)] px-4 py-3 flex items-center justify-between shrink-0 gap-2">
 
           {/* Izquierda: hamburguesa */}
           <div className="flex items-center gap-2 min-w-0">
@@ -213,12 +214,12 @@ function AppInner({ user, logout }) {
 
             {/* Indicador online/offline */}
             {error ? (
-              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
+              <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-white/70 px-2.5 py-1.5 rounded-full border border-navy-100 backdrop-blur-sm">
                 <WifiOff size={11} />
                 <span className="hidden sm:inline">Sin conexión</span>
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 text-xs text-navy-400 bg-navy-50 px-2.5 py-1.5 rounded-full border border-navy-100">
+              <span className="flex items-center gap-1.5 text-xs text-navy-500 bg-white/70 px-2.5 py-1.5 rounded-full border border-brand-200/50 backdrop-blur-sm">
                 {isDeviceOnline
                   ? <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0" />
                   : <span className="w-1.5 h-1.5 bg-navy-300 rounded-full shrink-0" />
@@ -237,24 +238,20 @@ function AppInner({ user, logout }) {
               onClick={() => fetchSamples(150)}
               disabled={loading}
               title="Refrescar"
-              className="flex items-center justify-center rounded-lg border border-black/[.08] bg-white p-2 text-navy-500 hover:border-brand-300 hover:text-navy-900 disabled:opacity-40 transition-all"
+              className="flex items-center justify-center rounded-lg border border-brand-200/50 bg-white/70 backdrop-blur-sm p-2 text-navy-500 hover:border-brand-400 hover:text-brand-600 disabled:opacity-40 transition-all"
             >
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>
 
             {/* Logo de salida + usuario */}
-            <div className="flex items-center gap-2 pl-2 border-l border-black/[.08]">
+            <div className="pl-2 border-l border-black/[.08]">
               <button
                 onClick={() => setShowLogoutConfirm(true)}
-                title="Salir"
-                className="group flex items-center gap-2 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
+                className="group flex flex-col items-center gap-0.5 rounded-xl px-1.5 py-1 transition-all hover:-translate-y-px active:translate-y-0"
               >
                 <ShutdownDropSVG />
-                <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-semibold text-red-600 opacity-0 transition-all duration-200 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100">
-                  Salir
-                </span>
+                <span className="text-[10px] text-navy-500 hidden sm:block truncate max-w-[72px] leading-none">{user?.display_name}</span>
               </button>
-              <span className="text-xs text-navy-400 hidden sm:block truncate max-w-[80px]">{user?.display_name}</span>
             </div>
           </div>
         </header>
@@ -280,9 +277,10 @@ function AppInner({ user, logout }) {
           </main>
         ) : (
           <>
-            {activeView === 'device'    && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
-            {activeView === 'riego'     && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
-            {activeView === 'nodos'     && <NodesView />}
+            {activeView === 'device'      && <DeviceStatus data={data} latest={latest} deviceInfo={deviceInfo} timestamps={ts} />}
+            {activeView === 'riego'       && <IrrigationView latest={latest} selectedMac={selectedMac} deviceInfo={selectedDevice ?? deviceInfo} />}
+            {activeView === 'nodos'       && <NodesView />}
+            {activeView === 'plantacion'  && <PlantationView data={data} latest={latest} timestamps={ts} paused={activeView !== 'plantacion'} />}
             {activeView === 'pipeline'  && <PipelineView selectedMac={selectedMac} />}
             {activeView === 'alerts'    && <AlertsPanel />}
             {activeView === 'settings'  && <SettingsView />}
@@ -400,13 +398,7 @@ function AppInner({ user, logout }) {
                 value={latest.heat_index}
                 min={minOf(data.heat_index)} max={maxOf(data.heat_index)}
               />
-            ) : (
-              <StatCard
-                title="Suelo" icon={Sprout} color="green" unit="%"
-                value={latest.soil_moisture}
-                min={minOf(data.soil_moisture)} max={maxOf(data.soil_moisture)}
-              />
-            )}
+            ) : null}
           </div>
 
           {/* ── Charts ── */}
@@ -479,12 +471,7 @@ function AppInner({ user, logout }) {
                   colors={['#534AB7', '#8b83dc']}
                   yUnit="°" yMin={0} yMax={360} type="scatter" height={210}
                 />
-                <WeatherChart
-                  title="Humedad del Suelo" icon={Sprout} timestamps={ts} paused={activeView !== 'dashboard'}
-                  series={[{ name: 'Suelo', data: data.soil_moisture }]}
-                  colors={['#10b981']}
-                  yUnit="%" yMin={0} yMax={100} type="area"
-                />
+
               </>
             )}
           </div>

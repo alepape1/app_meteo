@@ -1,11 +1,24 @@
-import { createElement, useState, useEffect, useCallback, useRef } from 'react'
-import ReactApexChart from 'react-apexcharts'
+import { createElement, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../AuthContext'
 import {
   Activity, AlertTriangle, CheckCircle, Gauge,
   Droplets, Zap, FlaskConical, RefreshCw, Info,
   Radio, Calendar, Search,
 } from 'lucide-react'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { LegacyGridContainLabel } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, GridComponent, TooltipComponent, LegacyGridContainLabel, CanvasRenderer])
+
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1,3), 16)
+  const g = parseInt(hex.slice(3,5), 16)
+  const b = parseInt(hex.slice(5,7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+const ha = hexAlpha
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 export function toMs(t) {
@@ -25,7 +38,7 @@ const toQueryStr = d => {
   return `${dd.getFullYear()}-${pad(dd.getMonth()+1)}-${pad(dd.getDate())} ${pad(dd.getHours())}:${pad(dd.getMinutes())}:${pad(dd.getSeconds())}`
 }
 
-export const clampInput = (value, min, max) => {
+const clampInput = (value, min, max) => {
   const n = Number.parseInt(value, 10)
   if (!Number.isFinite(n)) return min
   return Math.min(max, Math.max(min, n))
@@ -72,20 +85,57 @@ const IRRIGATION_TYPES = [
 
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
 
+const READING_ACCENT = '#0c8ecc'
+
 function ReadingCard({ title, icon, value, unit, sub }) {
+  const accent = READING_ACCENT
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="bg-brand-50 p-1.5 rounded-lg">
-          {icon && createElement(icon, { size: 14, className: 'text-brand-500' })}
+    <div
+      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc 0%, #ffffff 55%, #f0f4ff 100%)',
+        border: `1px solid ${hexAlpha(accent, 0.18)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${hexAlpha(accent, 0.07)}, inset 0 1px 0 rgba(255,255,255,0.9)`,
+      }}
+    >
+      {/* Accent bar */}
+      <div style={{ height: 3, background: accent, boxShadow: `0 0 8px 2px ${hexAlpha(accent, 0.5)}` }} />
+      {/* Header wash */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute', top: 3, left: 0, right: 0, height: 48,
+          background: `linear-gradient(to bottom, ${hexAlpha(accent, 0.055)}, transparent)`,
+          pointerEvents: 'none', zIndex: 0,
+        }}
+      />
+      <div className="relative p-4" style={{ zIndex: 1 }}>
+        <div className="flex items-center gap-2 mb-2">
+          <span
+            className="inline-flex items-center justify-center w-7 h-7 rounded-xl shrink-0"
+            style={{
+              background: `linear-gradient(135deg, ${hexAlpha(accent, 0.14)}, ${hexAlpha(accent, 0.06)})`,
+              border: `1px solid ${hexAlpha(accent, 0.22)}`,
+              boxShadow: `0 2px 8px ${hexAlpha(accent, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+            }}
+          >
+            {icon && createElement(icon, { size: 13, style: { color: accent } })}
+          </span>
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: '#64748b' }}>{title}</p>
         </div>
-        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">{title}</p>
+        <p
+          className="text-[2rem] font-extrabold leading-none"
+          style={{
+            color: '#0f172a',
+            textShadow: `0 0 18px ${hexAlpha(accent, 0.22)}`,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {value != null ? value : '—'}
+          <span className="text-sm font-normal ml-1" style={{ color: '#94a3b8' }}>{unit}</span>
+        </p>
+        {sub && <p className="text-xs mt-1.5 leading-relaxed" style={{ color: '#94a3b8' }}>{sub}</p>}
       </div>
-      <p className="text-3xl font-bold text-navy-900 leading-none">
-        {value != null ? value : '—'}
-        <span className="text-sm font-normal text-navy-300 ml-1">{unit}</span>
-      </p>
-      {sub && <p className="text-xs text-navy-300 mt-1.5 leading-relaxed">{sub}</p>}
     </div>
   )
 }
@@ -264,9 +314,12 @@ function ScenarioSelector({
   )
 }
 
+const STATS_ACCENT = '#1a3350'
+
 function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   if (!detection || detection.status === 'NO_DATA') return null
 
+  const accent = STATS_ACCENT
   const irrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
 
   const rows = [
@@ -281,32 +334,52 @@ function DetectionStats({ detection, irrigationType, leakDetectTrained }) {
   ]
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
-      <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest mb-3">
-        Estadísticos de detección
-      </p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2">
-        {rows.map(([label, val]) => (
-          <div key={label} className="flex justify-between text-xs">
-            <span className="text-navy-400">{label}</span>
-            <span className="font-mono font-medium text-navy-700">{val}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest mb-2">
-          Métodos activos
+    <div
+      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc 0%, #ffffff 55%, #f0f4ff 100%)',
+        border: `1px solid ${hexAlpha(accent, 0.18)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${hexAlpha(accent, 0.07)}, inset 0 1px 0 rgba(255,255,255,0.9)`,
+      }}
+    >
+      {/* Accent bar */}
+      <div style={{ height: 3, background: accent, boxShadow: `0 0 8px 2px ${hexAlpha(accent, 0.5)}` }} />
+      {/* Header wash */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute', top: 3, left: 0, right: 0, height: 48,
+          background: `linear-gradient(to bottom, ${hexAlpha(accent, 0.055)}, transparent)`,
+          pointerEvents: 'none', zIndex: 0,
+        }}
+      />
+      <div className="relative p-4" style={{ zIndex: 1 }}>
+        <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: '#64748b' }}>
+          Estadísticos de detección
         </p>
-        {[
-          ['Umbral absoluto', 'Caudal > 0.10 L/min con válvula cerrada → LEAK'],
-          ['dP/dt',           'Caída de presión > 20% en 20 s → BURST'],
-          ['EWMA (λ=0.15)',   'Deriva estadística > 2.5σ en presión/caudal → LEAK_SUSPECTED'],
-        ].map(([name, desc]) => (
-          <div key={name} className="flex gap-2 text-xs">
-            <span className="font-semibold text-navy-600 shrink-0">{name}:</span>
-            <span className="text-navy-400">{desc}</span>
-          </div>
-        ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2">
+          {rows.map(([label, val]) => (
+            <div key={label} className="flex justify-between text-xs">
+              <span style={{ color: '#64748b' }}>{label}</span>
+              <span className="font-mono font-medium" style={{ color: '#1e293b' }}>{val}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-3 space-y-1" style={{ borderTop: `1px solid ${hexAlpha(accent, 0.1)}` }}>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>
+            Métodos activos
+          </p>
+          {[
+            ['Umbral absoluto', 'Caudal > 0.10 L/min con válvula cerrada → LEAK'],
+            ['dP/dt',           'Caída de presión > 20% en 20 s → BURST'],
+            ['EWMA (λ=0.15)',   'Deriva estadística > 2.5σ en presión/caudal → LEAK_SUSPECTED'],
+          ].map(([name, desc]) => (
+            <div key={name} className="flex gap-2 text-xs">
+              <span className="font-semibold shrink-0" style={{ color: '#334155' }}>{name}:</span>
+              <span style={{ color: '#64748b' }}>{desc}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -322,6 +395,27 @@ function downsampleChart(arr) {
   for (let i = 1; i < CHART_MAX_POINTS - 1; i++) indices.add(Math.round(i * step))
   return [...indices].sort((a, b) => a - b).map(i => arr[i])
 }
+
+function useEChart(containerRef, option) {
+  const chartRef = useRef(null)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const chart = echarts.init(el, null, { renderer: 'canvas' })
+    chartRef.current = chart
+    chart.setOption(option, { notMerge: true })
+    const ro = new ResizeObserver(() => chart.resize())
+    ro.observe(el)
+    return () => { ro.disconnect(); chart.dispose(); chartRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true })
+  }, [option])
+}
+
+const PIPELINE_CHART_ACCENT1 = '#0891b2'
+const PIPELINE_CHART_ACCENT2 = '#2563eb'
 
 function PipelineChart({ readings, mode, histLoading, liveHours }) {
   const deduped = new Map()
@@ -377,148 +471,251 @@ function PipelineChart({ readings, mode, histLoading, liveHours }) {
   const pressureAxis = buildAxisRange(pressureValues, 4)
   const flowAxis = buildAxisRange(flowValues, 0.2)
 
-  const series = [
-    { name: 'Presión (bar)', data: pressure },
-    { name: 'Caudal (L/min)', data: flow },
-  ]
+  const hasData = pressure.length > 0 || flow.length > 0
+  const title = mode === 'live' ? 'Presión y Caudal — En vivo' : 'Presión y Caudal — Histórico'
 
-  const hasAnyPoint = pressure.length > 0 || flow.length > 0
-  const hasVisibleSeries = pressure.length > 1 || flow.length > 1
-  const chartKey = `${mode}-${samples.length}-${samples.at(-1)?.x ?? 'empty'}`
+  const containerRef = useRef(null)
 
-  const options = {
-    chart: {
-      type: 'area',
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      animations: { enabled: false },
-      background: '#ffffff',
-      fontFamily: '"DM Sans", system-ui, sans-serif',
-    },
-    colors: ['#0891b2', '#2563eb'],
-    stroke: {
-      show: true,
-      curve: 'smooth',
-      lineCap: 'round',
-      width: [2.5, 2.5],
-    },
-    markers: {
-      size: 0,
-      hover: { size: 4.5 },
-    },
-    fill: {
-      type: 'gradient',
-      gradient: { opacityFrom: 0.10, opacityTo: 0, shadeIntensity: 0 },
-    },
-    xaxis: {
-      type: 'datetime',
+  const option = useMemo(() => ({
+    animation: false,
+    backgroundColor: 'transparent',
+    grid: { top: 8, bottom: 28, left: 8, right: 12, containLabel: true },
+    xAxis: {
+      type: 'time',
       ...(mode === 'live' && samples.length > 0 && {
         min: samples[0].x,
         max: samples.at(-1).x + 30_000,
       }),
-      labels: {
-        style: { fontSize: '11px', colors: '#8a9aaa', fontFamily: '"DM Sans"' },
-        datetimeUTC: false,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisLabel: {
+        color: '#94a3b8',
+        fontSize: 10.5,
+        fontFamily: '"DM Sans", system-ui, sans-serif',
         formatter: (val) => {
-          if (val == null) return ''
-          const ms = typeof val === 'number' ? val : toMs(val)
-          if (ms == null) return ''
-          const d = new Date(ms)
-          if (Number.isNaN(d.getTime())) return ''
-          return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          const d = new Date(val)
+          return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
         },
       },
-      axisBorder: { show: false },
-      axisTicks:  { show: false },
     },
-    yaxis: [
+    yAxis: [
       {
-        seriesName: 'Presión (bar)',
-        title: { text: 'Presión (bar)', style: { fontSize: '11px', color: '#0891b2', fontFamily: '"DM Sans"' } },
+        type: 'value',
+        name: 'bar',
+        nameLocation: 'end',
+        nameTextStyle: { color: PIPELINE_CHART_ACCENT1, fontSize: 10, align: 'right' },
         min: pressureAxis.min,
         max: pressureAxis.max,
-        forceNiceScale: true,
-        decimalsInFloat: 2,
-        labels: {
-          style: { colors: '#0891b2', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => {
-            const n = Number(v)
-            return Number.isFinite(n) ? `${n.toFixed(2)}` : ''
-          },
+        splitLine: {
+          lineStyle: { color: hexAlpha(PIPELINE_CHART_ACCENT1, 0.07), type: [4, 6] },
+        },
+        axisLabel: {
+          color: PIPELINE_CHART_ACCENT1,
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '',
         },
       },
       {
-        seriesName: 'Caudal (L/min)',
-        opposite: true,
-        title: { text: 'Caudal (L/min)', style: { fontSize: '11px', color: '#2563eb', fontFamily: '"DM Sans"' } },
+        type: 'value',
+        name: 'L/min',
+        nameLocation: 'end',
+        nameTextStyle: { color: PIPELINE_CHART_ACCENT2, fontSize: 10 },
+        position: 'right',
         min: flowAxis.min,
         max: flowAxis.max,
-        forceNiceScale: true,
-        decimalsInFloat: 1,
-        labels: {
-          style: { colors: '#2563eb', fontSize: '11px', fontFamily: '"DM Sans"' },
-          formatter: v => {
-            const n = Number(v)
-            return Number.isFinite(n) ? `${n.toFixed(1)}` : ''
-          },
+        splitLine: { show: false },
+        axisLabel: {
+          color: PIPELINE_CHART_ACCENT2,
+          fontSize: 10.5,
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          formatter: v => Number.isFinite(Number(v)) ? Number(v).toFixed(1) : '',
         },
       },
     ],
-    legend: {
-      show: true,
-      position: 'top',
-      horizontalAlign: 'right',
-      fontSize: '12px',
-      fontFamily: '"DM Sans"',
-      labels: { colors: '#3d506a' },
-      markers: { size: 5, shape: 'circle', offsetX: -2 },
-      itemMargin: { horizontal: 8 },
-    },
     tooltip: {
-      theme: 'light',
-      shared: true,
-      intersect: false,
-      x: { format: 'dd MMM HH:mm:ss' },
-      y: [
-        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(3)} bar` : '—' },
-        { formatter: v => Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)} L/min` : '—' },
-      ],
-      style: { fontSize: '12px', fontFamily: '"DM Sans"' },
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: hexAlpha(PIPELINE_CHART_ACCENT1, 0.35), width: 1 } },
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      padding: 0,
+      extraCssText: 'box-shadow:none;',
+      formatter: (params) => {
+        if (!params?.length) return ''
+        const xVal = params[0].value?.[0] ?? params[0].axisValue
+        let timeLabel = ''
+        if (xVal != null) {
+          const d = new Date(xVal)
+          if (!isNaN(d.getTime())) {
+            timeLabel = d.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          }
+        }
+        const rows = params.map(p => {
+          const val = Array.isArray(p.value) ? p.value[1] : p.value
+          const n = Number(val)
+          const isFmt = Number.isFinite(n)
+          const unit = p.seriesName?.includes('Presión') ? ' bar' : ' L/min'
+          const decimals = p.seriesName?.includes('Presión') ? 3 : 2
+          const formatted = isFmt ? `${n.toFixed(decimals)}${unit}` : '—'
+          const color = p.color ?? PIPELINE_CHART_ACCENT1
+          return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;box-shadow:0 0 6px ${color}88;"></span>
+            <span style="color:rgba(148,163,184,0.85);font-size:11px;flex:1;">${p.seriesName}</span>
+            <span style="color:#fff;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;">${formatted}</span>
+          </div>`
+        }).filter(Boolean).join('')
+        const accent = PIPELINE_CHART_ACCENT1
+        return `<div style="font-family:'DM Sans',system-ui,sans-serif;background:${hexAlpha(accent, 0.22)};backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:0;overflow:hidden;min-width:180px;">
+          <div style="padding:6px 12px 5px;border-bottom:1px solid rgba(255,255,255,0.08);background:${hexAlpha(accent, 0.18)};color:rgba(148,163,184,0.9);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">${timeLabel}</div>
+          <div style="padding:6px 12px 8px;">${rows}</div>
+        </div>`
+      },
     },
-    grid: {
-      borderColor: '#e8eef5',
-      strokeDashArray: 3,
-      xaxis: { lines: { show: true } },
-      yaxis: { lines: { show: true } },
-      padding: { left: 6, right: 10 },
-    },
-    dataLabels: { enabled: false },
-  }
+    series: [
+      {
+        name: 'Presión (bar)',
+        type: 'line',
+        yAxisIndex: 0,
+        data: pressure.map(p => [p.x, p.y]),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { color: PIPELINE_CHART_ACCENT1, width: 2.5, cap: 'round' },
+        itemStyle: { color: PIPELINE_CHART_ACCENT1 },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0,    color: hexAlpha(PIPELINE_CHART_ACCENT1, 0.22) },
+              { offset: 0.75, color: hexAlpha(PIPELINE_CHART_ACCENT1, 0.04) },
+              { offset: 1,    color: hexAlpha(PIPELINE_CHART_ACCENT1, 0) },
+            ],
+          },
+        },
+        emphasis: { disabled: true },
+      },
+      {
+        name: 'Caudal (L/min)',
+        type: 'line',
+        yAxisIndex: 1,
+        data: flow.map(p => [p.x, p.y]),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { color: PIPELINE_CHART_ACCENT2, width: 2.5, type: [6, 4], cap: 'round' },
+        itemStyle: { color: PIPELINE_CHART_ACCENT2 },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0,    color: hexAlpha(PIPELINE_CHART_ACCENT2, 0.22) },
+              { offset: 0.75, color: hexAlpha(PIPELINE_CHART_ACCENT2, 0.04) },
+              { offset: 1,    color: hexAlpha(PIPELINE_CHART_ACCENT2, 0) },
+            ],
+          },
+        },
+        emphasis: { disabled: true },
+      },
+    ],
+  }), [samples, pressure, flow, mode, pressureAxis, flowAxis])
 
-  const title = mode === 'live' ? 'Presión y Caudal — En vivo' : 'Presión y Caudal — Histórico'
+  useEChart(containerRef, option)
+
+  const legendItems = [
+    { name: 'Presión (bar)', color: PIPELINE_CHART_ACCENT1 },
+    { name: 'Caudal (L/min)', color: PIPELINE_CHART_ACCENT2 },
+  ]
 
   return (
-    <div className="pipeline-chart bg-white rounded-2xl border border-black/[.06] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-5 pt-4 pb-1">
-        <Activity size={15} className="text-navy-300 shrink-0" />
-        <h3 className="text-sm font-semibold text-navy-900">{title}</h3>
-        <span className="ml-auto text-xs text-navy-200">
+    <div
+      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
+        border: `1px solid ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.18)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.07)}, inset 0 1px 0 rgba(255,255,255,0.9)`,
+      }}
+    >
+      {/* Dual-color accent bar */}
+      <div
+        style={{
+          height: 3,
+          background: `linear-gradient(90deg, ${PIPELINE_CHART_ACCENT1}, ${PIPELINE_CHART_ACCENT2})`,
+          boxShadow: `0 0 8px 2px ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.5)}`,
+        }}
+      />
+      {/* Header wash */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute', top: 3, left: 0, right: 0, height: 52,
+          background: `linear-gradient(180deg, ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.055)} 0%, transparent 100%)`,
+          pointerEvents: 'none', zIndex: 0,
+        }}
+      />
+
+      {/* Header */}
+      <div className="relative flex items-center gap-3 px-5 pt-3.5 pb-2" style={{ zIndex: 1 }}>
+        <span
+          className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+          style={{
+            background: `linear-gradient(135deg, ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.14)}, ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.06)})`,
+            border: `1px solid ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.22)}`,
+            boxShadow: `0 2px 8px ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
+          }}
+        >
+          <Activity size={15} style={{ color: PIPELINE_CHART_ACCENT1 }} />
+        </span>
+        <h3 className="font-semibold text-slate-700 text-sm tracking-tight">{title}</h3>
+        <span
+          className="ml-auto text-[10px] font-semibold tabular-nums px-2 py-0.5 rounded-md"
+          style={{
+            background: hexAlpha(PIPELINE_CHART_ACCENT1, 0.1),
+            color: PIPELINE_CHART_ACCENT1,
+            border: `1px solid ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.18)}`,
+          }}
+        >
           {histLoading ? 'Cargando…' : `${readings.length} muestras`}
         </span>
       </div>
-      {hasVisibleSeries ? (
-        <div className="px-2 pb-2">
-          <ReactApexChart key={chartKey} options={options} series={series} type="area" height={320} />
-        </div>
-      ) : (
-        <div className="flex items-center justify-center text-navy-300 text-sm text-center px-6" style={{ height: 260 }}>
-          {histLoading
-            ? 'Cargando datos…'
-            : hasAnyPoint
-              ? 'Aún no hay suficientes muestras válidas para dibujar una línea continua.'
-              : 'No se están recibiendo datos válidos de presión y caudal.'}
-        </div>
-      )}
+
+      {/* Legend pills */}
+      <div className="px-5 pb-2 flex flex-wrap gap-1.5" style={{ zIndex: 1, position: 'relative' }}>
+        {legendItems.map((item) => (
+          <span
+            key={item.name}
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+            style={{
+              background: hexAlpha(item.color, 0.08),
+              border: `1px solid ${hexAlpha(item.color, 0.22)}`,
+              color: item.color,
+            }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+              style={{ backgroundColor: item.color, boxShadow: `0 0 5px ${item.color}90` }}
+            />
+            {item.name}
+          </span>
+        ))}
+      </div>
+
+      {/* Chart area — always rendered */}
+      <div style={{ position: 'relative', height: 320 }}>
+        <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+        {!hasData && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{
+                background: hexAlpha(PIPELINE_CHART_ACCENT1, 0.08),
+                border: `1px solid ${hexAlpha(PIPELINE_CHART_ACCENT1, 0.15)}`,
+              }}
+            >
+              <Activity size={16} style={{ color: hexAlpha(PIPELINE_CHART_ACCENT1, 0.4) }} />
+            </div>
+            <span className="text-slate-300 text-xs">Sin datos</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -646,6 +843,20 @@ export default function PipelineView({ selectedMac }) {
   const applyMode          = async (m)    => applyConfig({ mode: m })
   const applyIrrigationType = async (type) => applyConfig({ irrigation_type: type })
 
+  const [resetFlowBusy, setResetFlowBusy] = useState(false)
+  const resetFlowCounters = async () => {
+    if (!selectedMac) return
+    setResetFlowBusy(true)
+    try {
+      await authFetchRef.current('/api/flow/reset', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ mac: selectedMac }),
+      })
+    } catch { /* ignorar fallos transitorios */ }
+    finally { setResetFlowBusy(false) }
+  }
+
   const cur = status?.current
   const det = status?.detection
   const cfg = status?.config
@@ -681,9 +892,28 @@ export default function PipelineView({ selectedMac }) {
       {/* ── Banner de estado ── */}
       {mode === 'live' && <StatusBanner detection={det} />}
 
+      {/* ── Badge diagnóstico de fuente de sensor ── */}
+      {mode === 'live' && cur?.pipeline_source && (() => {
+        const src = cur.pipeline_source
+        const SRC_CFG = {
+          real:       { label: 'Sensor real',                  cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+          real_flow:  { label: 'Caudal real · Presión simulada', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+          fallback:   { label: 'Sensor sin respuesta · Datos estimados', cls: 'bg-red-50 text-red-700 border-red-200' },
+          sim:        { label: 'Datos simulados (sin sensor físico)',     cls: 'bg-slate-50 text-slate-500 border-slate-200' },
+        }
+        const info = SRC_CFG[src] ?? { label: src, cls: 'bg-slate-50 text-slate-500 border-slate-200' }
+        return (
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium w-fit ${info.cls}`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${src === 'real' ? 'bg-emerald-500' : src === 'real_flow' ? 'bg-amber-400' : src === 'fallback' ? 'bg-red-500' : 'bg-slate-400'}`} />
+            <span>Fuente presión:</span>
+            <span className="font-semibold">{info.label}</span>
+          </div>
+        )
+      })()}
+
       {/* ── Cards de lectura actual + selector de escenario ── */}
       {mode === 'live' && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <ReadingCard
             title="Presión"
             icon={Gauge}
@@ -698,6 +928,38 @@ export default function PipelineView({ selectedMac }) {
             unit="L/min"
             sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
           />
+          <ReadingCard
+            title="Litros ciclo"
+            icon={FlaskConical}
+            value={cur?.flow_session_l != null ? cur.flow_session_l.toFixed(2) : null}
+            unit="L"
+            sub="Desde última apertura de válvula"
+          />
+          <ReadingCard
+            title="Litros riego"
+            icon={Droplets}
+            value={cur?.flow_irrig_l != null ? cur.flow_irrig_l.toFixed(2) : null}
+            unit="L"
+            sub="Acumulado con válvula abierta"
+          />
+          <ReadingCard
+            title="Litros fuga"
+            icon={AlertTriangle}
+            value={cur?.flow_leak_l != null ? cur.flow_leak_l.toFixed(2) : null}
+            unit="L"
+            sub="Acumulado con válvula cerrada"
+          />
+          <div className="flex items-center">
+            <button
+              onClick={resetFlowCounters}
+              disabled={resetFlowBusy || !selectedMac}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-black/[.1] bg-white hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Resetea los contadores de litros riego, fuga y ciclo en el ESP32"
+            >
+              <RefreshCw size={14} className={resetFlowBusy ? 'animate-spin' : ''} />
+              {resetFlowBusy ? 'Enviando...' : 'Reset contadores'}
+            </button>
+          </div>
           <ScenarioSelector
             current={scenario}
             onSelect={applyScenario}
