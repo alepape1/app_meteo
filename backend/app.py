@@ -1598,7 +1598,7 @@ def set_pipeline_config():
 
 
 @app.route("/api/flow/reset", methods=["POST"])
-@login_required
+@jwt_required()
 def request_flow_reset():
     """Solicita al ESP32 que resetee los contadores de flujo (riego + fuga + sesión).
 
