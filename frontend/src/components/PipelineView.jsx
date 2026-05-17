@@ -899,7 +899,7 @@ export default function PipelineView({ selectedMac }) {
 
       {/* ── Cards de lectura actual + selector de escenario ── */}
       {mode === 'live' && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <ReadingCard
             title="Presión"
             icon={Gauge}
@@ -913,6 +913,13 @@ export default function PipelineView({ selectedMac }) {
             value={cur?.flow_lpm}
             unit="L/min"
             sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
+          />
+          <ReadingCard
+            title="Litros ciclo"
+            icon={FlaskConical}
+            value={cur?.flow_session_l != null ? cur.flow_session_l.toFixed(2) : null}
+            unit="L"
+            sub="Desde última apertura de válvula"
           />
           <ScenarioSelector
             current={scenario}

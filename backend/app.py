@@ -1264,6 +1264,8 @@ def _db_rows_to_pipeline(rows, scenario):
             "pipeline_source": row.get("pipeline_source"),
             "pipeline_flow_ok": row.get("pipeline_flow_ok"),
             "pipeline_pressure_ok": row.get("pipeline_pressure_ok"),
+            "flow_total_l": row.get("flow_total_l"),
+            "flow_session_l": row.get("flow_session_l"),
         }
         for row in rows
         if row["pipeline_pressure"] is not None and row["pipeline_flow"] is not None
@@ -1300,12 +1302,14 @@ def _fetch_pipeline_rows(mac, limit=None, from_dt=None, to_dt=None):
     query = f"""
         SELECT timestamp, relay_active,
                pipeline_pressure, pipeline_flow,
-               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
+               pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+               flow_total_l, flow_session_l
         FROM (
             SELECT DISTINCT ON (timestamp)
                    id, timestamp, relay_active,
                    pipeline_pressure, pipeline_flow,
-                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok
+                   pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
+                   flow_total_l, flow_session_l
             FROM home_weather_station
             WHERE {' AND '.join(where)}
             ORDER BY timestamp, id DESC
