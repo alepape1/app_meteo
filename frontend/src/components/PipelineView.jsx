@@ -3,7 +3,8 @@ import { useAuth } from '../AuthContext'
 import {
   Activity, AlertTriangle, CheckCircle, Gauge,
   Droplets, Zap, FlaskConical, RefreshCw, Info,
-  Radio, Calendar, Search,
+  Radio, Calendar, Search, Cpu, Wifi, CloudRain, Waves,
+  Pipette, Filter, Siren, ShieldCheck,
 } from 'lucide-react'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -19,6 +20,35 @@ function hexAlpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`
 }
 const ha = hexAlpha
+
+// ── Animation styles ──────────────────────────────────────────────────────────
+const PIPELINE_STYLES = `
+@keyframes gaugeArcGlow {
+  0%, 100% { opacity: 0.75; }
+  50%       { opacity: 1;    }
+}
+@keyframes liveDotBlink {
+  0%, 100% { opacity: 1;   transform: scale(1);   }
+  50%       { opacity: 0.3; transform: scale(1.6); }
+}
+@keyframes liveRingPulse {
+  0%   { opacity: 0.4; transform: scale(1);    }
+  70%  { opacity: 0;   transform: scale(1.18); }
+  100% { opacity: 0;   transform: scale(1.18); }
+}
+`
+function InjectPipelineStyles() {
+  useEffect(() => {
+    const id = 'pipeline-anim-styles'
+    if (document.getElementById(id)) return
+    const el = document.createElement('style')
+    el.id = id
+    el.textContent = PIPELINE_STYLES
+    document.head.appendChild(el)
+    return () => document.getElementById(id)?.remove()
+  }, [])
+  return null
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 export function toMs(t) {
@@ -65,22 +95,22 @@ const COLOR = {
 }
 
 const SCENARIOS = [
-  { id: 'normal',      label: 'Normal',      hint: 'Sin anomalías' },
-  { id: 'leak',        label: 'Fuga',        hint: '~0.3 L/min fuga' },
-  { id: 'burst',       label: 'Rotura',      hint: 'Presión colapsa' },
-  { id: 'obstruction', label: 'Obstrucción', hint: 'Presión alta, caudal ~0' },
+  { id: 'normal',      label: 'Normal',      hint: 'Sin anomalías',           icon: ShieldCheck, color: '#10b981' },
+  { id: 'leak',        label: 'Fuga',        hint: '~0.3 L/min fuga',         icon: Droplets,    color: '#f59e0b' },
+  { id: 'burst',       label: 'Rotura',      hint: 'Presión colapsa',         icon: Zap,         color: '#ef4444' },
+  { id: 'obstruction', label: 'Obstrucción', hint: 'Presión alta, caudal ≈0', icon: Filter,      color: '#8b5cf6' },
 ]
 
 const PIPELINE_MODES = [
-  { id: 'sim', label: 'Simulación', hint: 'Usa el simulador del firmware' },
-  { id: 'real', label: 'Hardware', hint: 'Preparado para sensor físico' },
+  { id: 'sim',  label: 'Simulación', hint: 'Simulador firmware', icon: Cpu  },
+  { id: 'real', label: 'Hardware',   hint: 'Sensor físico',     icon: Wifi },
 ]
 
 const IRRIGATION_TYPES = [
-  { id: 'sprinkler',       label: 'Aspersión',       hint: '2.8 bar · 5 L/min' },
-  { id: 'drip',            label: 'Goteo',            hint: '1.5 bar · 2 L/min' },
-  { id: 'drip_tape',       label: 'Cinta de goteo',   hint: '0.8 bar · 0.8 L/min' },
-  { id: 'micro_sprinkler', label: 'Microaspersión',   hint: '2.2 bar · 3.5 L/min' },
+  { id: 'sprinkler',       label: 'Aspersión',     hint: '2.8 bar · 5 L/min',   icon: CloudRain },
+  { id: 'drip',            label: 'Goteo',         hint: '1.5 bar · 2 L/min',   icon: Droplets  },
+  { id: 'drip_tape',       label: 'Cinta goteo',   hint: '0.8 bar · 0.8 L/min', icon: Waves     },
+  { id: 'micro_sprinkler', label: 'Microaspersión',hint: '2.2 bar · 3.5 L/min', icon: Pipette   },
 ]
 
 // ── Subcomponentes ─────────────────────────────────────────────────────────────
@@ -140,6 +170,104 @@ function ReadingCard({ title, icon, value, unit, sub }) {
   )
 }
 
+// ── GaugeCard — animated SVG arc gauge ────────────────────────────────────────
+const GAUGE_R = 46; const GAUGE_CX = 60; const GAUGE_CY = 60
+const GAUGE_CIRC = 2 * Math.PI * GAUGE_R
+const GAUGE_ARC  = GAUGE_CIRC * 0.75  // 270° sweep
+
+function GaugeCard({ title, value, unit, icon: Icon, max, colorHex, sub, live }) {
+  const numVal = (value != null && Number.isFinite(Number(value))) ? Number(value) : null
+  const pct    = numVal != null ? Math.min(1, Math.max(0, numVal / max)) : 0
+  const offset = GAUGE_ARC * (1 - pct)
+  const origin = `${GAUGE_CX}px ${GAUGE_CY}px`
+
+  return (
+    <div
+      className="flex-1 flex flex-col items-center rounded-2xl p-3 transition-all duration-300"
+      style={{
+        background: 'linear-gradient(150deg, #f8fafc 0%, #ffffff 55%, #f0f4ff 100%)',
+        border: `1px solid ${ha(colorHex, 0.2)}`,
+        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(colorHex, 0.08)}, inset 0 1px 0 rgba(255,255,255,0.9)`,
+      }}
+    >
+      {/* Gauge */}
+      <div style={{ position: 'relative', width: 120, height: 120 }}>
+        {/* Pulse ring */}
+        {live && numVal != null && (
+          <div style={{
+            position: 'absolute', inset: -5, borderRadius: '50%',
+            border: `1.5px solid ${colorHex}`,
+            animation: 'liveRingPulse 2s ease-out infinite',
+          }} />
+        )}
+        <svg viewBox="0 0 120 120" style={{ width: '100%', height: '100%' }}>
+          {/* Track arc */}
+          <circle
+            cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
+            fill="none" stroke={ha(colorHex, 0.10)} strokeWidth="8"
+            strokeDasharray={`${GAUGE_ARC} ${GAUGE_CIRC}`} strokeLinecap="round"
+            style={{ transform: 'rotate(135deg)', transformOrigin: origin }}
+          />
+          {/* Value arc */}
+          <circle
+            cx={GAUGE_CX} cy={GAUGE_CY} r={GAUGE_R}
+            fill="none" stroke={colorHex} strokeWidth="8"
+            strokeDasharray={`${GAUGE_ARC} ${GAUGE_CIRC}`}
+            strokeDashoffset={offset} strokeLinecap="round"
+            style={{
+              transform: 'rotate(135deg)', transformOrigin: origin,
+              transition: 'stroke-dashoffset 0.9s cubic-bezier(0.4,0,0.2,1)',
+              filter: pct > 0.02 ? `drop-shadow(0 0 5px ${ha(colorHex, 0.65)})` : 'none',
+              animation: live && pct > 0.02 ? 'gaugeArcGlow 2s ease-in-out infinite' : 'none',
+            }}
+          />
+        </svg>
+        {/* Center label */}
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex',
+          flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingBottom: 8,
+        }}>
+          {Icon && createElement(Icon, { size: 13, style: { color: colorHex } })}
+          <span style={{
+            fontSize: numVal != null && numVal >= 10 ? '1.35rem' : '1.6rem',
+            fontWeight: 800, lineHeight: 1, color: '#0f172a',
+            fontVariantNumeric: 'tabular-nums', marginTop: 2,
+          }}>
+            {numVal != null ? numVal : '—'}
+          </span>
+          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 500 }}>{unit}</span>
+        </div>
+      </div>
+      <p style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 4, textAlign: 'center' }}>{title}</p>
+      {sub && <p style={{ fontSize: '0.6rem', color: '#94a3b8', textAlign: 'center', marginTop: 2, lineHeight: 1.3 }}>{sub}</p>}
+    </div>
+  )
+}
+
+// ── CompactCounter ─────────────────────────────────────────────────────────────
+function CompactCounter({ label, value, unit, icon: Icon, colorHex = '#64748b' }) {
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
+      style={{ background: ha(colorHex, 0.05), border: `1px solid ${ha(colorHex, 0.14)}` }}
+    >
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+        background: ha(colorHex, 0.1), border: `1px solid ${ha(colorHex, 0.18)}`,
+      }}>
+        {Icon && createElement(Icon, { size: 12, style: { color: colorHex } })}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p style={{ fontSize: '0.6rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{label}</p>
+        <p style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+          {value != null ? value : <span style={{ color: '#cbd5e1' }}>—</span>}
+          {value != null && <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 400, marginLeft: 3 }}>{unit}</span>}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function StatusBanner({ detection }) {
   if (!detection) return null
   const cfg = STATUS_CFG[detection.status] ?? STATUS_CFG.NO_DATA
@@ -190,6 +318,78 @@ function StatusBanner({ detection }) {
   )
 }
 
+function PillGroup({ label, items, active, onChange, busy, activeClass }) {
+  return (
+    <div>
+      <p style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 5 }}>{label}</p>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {items.map(item => {
+          const isActive = active === item.id
+          const Icon = item.icon
+          return (
+            <button
+              key={item.id}
+              onClick={() => onChange(item.id)}
+              disabled={busy || isActive}
+              title={item.hint}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 8, border: '1px solid',
+                fontSize: '0.7rem', fontWeight: 600, cursor: isActive ? 'default' : 'pointer',
+                transition: 'all 0.15s',
+                ...(isActive
+                  ? { background: activeClass, borderColor: activeClass, color: '#fff', boxShadow: `0 2px 8px ${ha(activeClass, 0.35)}` }
+                  : { background: ha('#64748b', 0.04), borderColor: ha('#64748b', 0.12), color: '#475569' }),
+                opacity: busy && !isActive ? 0.45 : 1,
+              }}
+            >
+              {Icon && createElement(Icon, { size: 11, style: { flexShrink: 0, opacity: isActive ? 1 : 0.6 } })}
+              {item.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function OptionCard({ item, isActive, onClick, disabled, accentColor }) {
+  const Icon = item.icon
+  const color = isActive ? (accentColor ?? item.color ?? '#3b82f6') : '#94a3b8'
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || isActive}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+        gap: 3, padding: '8px 10px', borderRadius: 10,
+        border: `1px solid ${isActive ? ha(color, 0.4) : ha('#64748b', 0.10)}`,
+        background: isActive ? ha(color, 0.08) : ha('#64748b', 0.025),
+        cursor: isActive ? 'default' : 'pointer',
+        transition: 'all 0.15s', textAlign: 'left',
+        boxShadow: isActive ? `0 0 0 1.5px ${ha(color, 0.25)}, 0 2px 8px ${ha(color, 0.12)}` : 'none',
+        opacity: (disabled && !isActive) ? 0.45 : 1,
+        flex: '1 1 calc(50% - 4px)', minWidth: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {Icon && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+            background: ha(color, 0.14), border: `1px solid ${ha(color, 0.22)}`,
+          }}>
+            {createElement(Icon, { size: 10, style: { color } })}
+          </span>
+        )}
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: isActive ? color : '#334155' }}>{item.label}</span>
+        {isActive && <CheckCircle size={10} style={{ color, marginLeft: 'auto', flexShrink: 0 }} />}
+      </div>
+      <span style={{ fontSize: '0.6rem', color: '#94a3b8', lineHeight: 1.3, paddingLeft: 25 }}>{item.hint}</span>
+    </button>
+  )
+}
+
 function ScenarioSelector({
   current, onSelect, busy, mode, onModeChange,
   irrigationType, onIrrigationChange, leakDetectTrained,
@@ -198,118 +398,135 @@ function ScenarioSelector({
   const currentIrrigLabel = IRRIGATION_TYPES.find(t => t.id === irrigationType)?.label ?? irrigationType
 
   return (
-    <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="bg-navy-50 p-1.5 rounded-lg">
-          <FlaskConical size={14} className="text-navy-400" />
-        </div>
-        <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-          Configuración pipeline
-        </p>
+    <div style={{
+      background: '#fff',
+      borderRadius: 16, border: '1px solid rgba(0,0,0,0.06)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{
+        borderBottom: '1px solid rgba(0,0,0,0.05)',
+        padding: '10px 14px',
+        display: 'flex', alignItems: 'center', gap: 7,
+        background: 'linear-gradient(to right, rgba(248,250,252,1), rgba(240,244,255,0.6))',
+      }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 24, height: 24, borderRadius: 7, background: ha('#0891b2', 0.10),
+          border: `1px solid ${ha('#0891b2', 0.2)}`, flexShrink: 0,
+        }}>
+          <FlaskConical size={12} style={{ color: '#0891b2' }} />
+        </span>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#334155', letterSpacing: '0.02em' }}>Configuración pipeline</span>
+        {busy && <RefreshCw size={11} style={{ color: '#94a3b8', marginLeft: 'auto', animation: 'spin 1s linear infinite' }} />}
       </div>
 
-      {/* ── Modo ── */}
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
-          Modo
-        </p>
-        <div className="flex flex-col gap-1.5">
-          {PIPELINE_MODES.map(item => (
-            <button
-              key={item.id}
-              onClick={() => onModeChange(item.id)}
-              disabled={busy || mode === item.id}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
-                ${mode === item.id
-                  ? 'bg-navy-700 text-white cursor-default'
-                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
-            >
-              <span>{item.label}</span>
-              <span className={`${mode === item.id ? 'text-navy-100' : 'text-navy-300'}`}>
-                {item.hint}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* ── Tipo de riego ── */}
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
-          Tipo de riego
-        </p>
-        <div className="flex flex-col gap-1.5">
-          {IRRIGATION_TYPES.map(item => (
-            <button
-              key={item.id}
-              onClick={() => onIrrigationChange(item.id)}
-              disabled={busy || irrigationType === item.id}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
-                ${irrigationType === item.id
-                  ? 'bg-brand-500 text-white cursor-default'
-                  : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
-            >
-              <span>{item.label}</span>
-              <span className={`${irrigationType === item.id ? 'text-brand-100' : 'text-navy-300'}`}>
-                {item.hint}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Estado baseline (solo modo real) ── */}
-      {isReal && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs mb-3 border
-          ${leakDetectTrained
-            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-            : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-          {leakDetectTrained
-            ? <CheckCircle size={12} className="shrink-0" />
-            : <RefreshCw size={12} className="shrink-0 animate-spin" />}
-          <span>
-            {leakDetectTrained
-              ? `Detección activa · Perfil: ${currentIrrigLabel}`
-              : 'Calibrando baseline… (esperando 20 muestras con válvula abierta)'}
-          </span>
-        </div>
-      )}
-
-      {/* ── Escenario ── */}
-      <div>
-        <p className="text-[11px] font-semibold text-navy-300 uppercase tracking-widest mb-1.5">
-          Escenario
-        </p>
-        {isReal ? (
-          <div className="px-3 py-2 rounded-xl bg-navy-50 text-xs text-navy-400">
-            Auto-detectado por firmware ·{' '}
-            <span className="font-semibold text-navy-700 capitalize">{current}</span>
+        {/* Modo — segmented control */}
+        <div>
+          <p style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Modo</p>
+          <div style={{
+            display: 'flex', background: ha('#64748b', 0.06), borderRadius: 10, padding: 3, gap: 2,
+            border: `1px solid ${ha('#64748b', 0.10)}`,
+          }}>
+            {PIPELINE_MODES.map(item => {
+              const isActive = mode === item.id
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => onModeChange(item.id)}
+                  disabled={busy || isActive}
+                  title={item.hint}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                    padding: '5px 8px', borderRadius: 7, border: 'none',
+                    fontSize: '0.72rem', fontWeight: 700,
+                    cursor: isActive ? 'default' : 'pointer',
+                    transition: 'all 0.18s',
+                    ...(isActive
+                      ? { background: '#1e3a5f', color: '#fff', boxShadow: '0 2px 6px rgba(30,58,95,0.28)' }
+                      : { background: 'transparent', color: '#64748b' }),
+                  }}
+                >
+                  {Icon && createElement(Icon, { size: 11, style: { flexShrink: 0 } })}
+                  {item.label}
+                  {isActive && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#38bdf8', marginLeft: 1, boxShadow: '0 0 4px #38bdf8' }} />}
+                </button>
+              )
+            })}
           </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {SCENARIOS.map(sc => (
-              <button
-                key={sc.id}
-                onClick={() => onSelect(sc.id)}
-                disabled={busy || current === sc.id}
-                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all
-                  ${current === sc.id
-                    ? 'bg-brand-500 text-white cursor-default'
-                    : 'bg-navy-50 text-navy-600 hover:bg-navy-100 disabled:opacity-40'}`}
-              >
-                <span>{sc.label}</span>
-                <span className={`${current === sc.id ? 'text-brand-100' : 'text-navy-300'}`}>
-                  {sc.hint}
-                </span>
-              </button>
+        </div>
+
+        {/* Tipo de riego */}
+        <div>
+          <p style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Tipo de riego</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {IRRIGATION_TYPES.map(item => (
+              <OptionCard
+                key={item.id} item={item}
+                isActive={irrigationType === item.id}
+                onClick={() => onIrrigationChange(item.id)}
+                disabled={busy} accentColor="#2563eb"
+              />
             ))}
           </div>
-        )}
-      </div>
+        </div>
 
-      <p className="text-xs text-navy-200 mt-3 leading-relaxed">
-        Los intervalos del equipo se ajustan ahora desde la pantalla de Configuración.
-      </p>
+        {/* Divider */}
+        <div style={{ height: 1, background: 'rgba(0,0,0,0.05)' }} />
+
+        {/* Escenario */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <p style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Escenario simulado</p>
+            {isReal && (
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>Auto-detectado por firmware</span>
+            )}
+          </div>
+          {isReal ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+              borderRadius: 9, background: ha('#64748b', 0.05), border: `1px solid ${ha('#64748b', 0.10)}`,
+            }}>
+              <CheckCircle size={12} style={{ color: '#10b981', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#334155', textTransform: 'capitalize' }}>{current}</span>
+              <span style={{ fontSize: '0.62rem', color: '#94a3b8', marginLeft: 2 }}>— detectado automáticamente</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {SCENARIOS.map(sc => (
+                <OptionCard
+                  key={sc.id} item={sc}
+                  isActive={current === sc.id}
+                  onClick={() => onSelect(sc.id)}
+                  disabled={busy}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Baseline status (real mode) */}
+        {isReal && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7, padding: '7px 10px',
+            borderRadius: 9,
+            background: leakDetectTrained ? ha('#10b981', 0.07) : ha('#f59e0b', 0.07),
+            border: `1px solid ${leakDetectTrained ? ha('#10b981', 0.25) : ha('#f59e0b', 0.25)}`,
+          }}>
+            {leakDetectTrained
+              ? <CheckCircle size={12} style={{ color: '#10b981', flexShrink: 0 }} />
+              : <RefreshCw size={12} style={{ color: '#f59e0b', flexShrink: 0, animation: 'spin 1.2s linear infinite' }} />}
+            <span style={{ fontSize: '0.68rem', fontWeight: 600, color: leakDetectTrained ? '#065f46' : '#92400e' }}>
+              {leakDetectTrained ? `Detección activa · Perfil: ${currentIrrigLabel}` : 'Calibrando baseline… (20 muestras)'}
+            </span>
+          </div>
+        )}
+
+      </div>
     </div>
   )
 }
@@ -865,6 +1082,7 @@ export default function PipelineView({ selectedMac }) {
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-4">
+      <InjectPipelineStyles />
 
       {/* ── Cabecera ── */}
       <div className="flex items-center justify-between">
@@ -873,7 +1091,18 @@ export default function PipelineView({ selectedMac }) {
             <Activity size={16} className="text-brand-500" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-navy-900">Pipeline · Caudal y Presión</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-navy-900">Pipeline · Caudal y Presión</h2>
+              {mode === 'live' && !loading && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                  style={{ background: ha('#10b981', 0.10), color: '#059669', border: `1px solid ${ha('#10b981', 0.25)}` }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0, display: 'inline-block', animation: 'liveDotBlink 1.4s ease-in-out infinite' }} />
+                  EN VIVO
+                </span>
+              )}
+            </div>
             <p className="text-xs text-navy-400">Detección de fugas y roturas — simulación de sensores</p>
           </div>
         </div>
@@ -911,55 +1140,63 @@ export default function PipelineView({ selectedMac }) {
         )
       })()}
 
-      {/* ── Cards de lectura actual + selector de escenario ── */}
+      {/* ── Readings animados + config ── */}
       {mode === 'live' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <ReadingCard
-            title="Presión"
-            icon={Gauge}
-            value={cur?.pressure_bar}
-            unit="bar"
-            sub={`Estática: ${cfg?.static_pressure_bar ?? '—'} bar · Dinámica: ${cfg?.dynamic_pressure_bar ?? '—'} bar`}
-          />
-          <ReadingCard
-            title="Caudal"
-            icon={Droplets}
-            value={cur?.flow_lpm}
-            unit="L/min"
-            sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
-          />
-          <ReadingCard
-            title="Litros ciclo"
-            icon={FlaskConical}
-            value={cur?.flow_session_l != null ? cur.flow_session_l.toFixed(2) : null}
-            unit="L"
-            sub="Desde última apertura de válvula"
-          />
-          <ReadingCard
-            title="Litros riego"
-            icon={Droplets}
-            value={cur?.flow_irrig_l != null ? cur.flow_irrig_l.toFixed(2) : null}
-            unit="L"
-            sub="Acumulado con válvula abierta"
-          />
-          <ReadingCard
-            title="Litros fuga"
-            icon={AlertTriangle}
-            value={cur?.flow_leak_l != null ? cur.flow_leak_l.toFixed(2) : null}
-            unit="L"
-            sub="Acumulado con válvula cerrada"
-          />
-          <div className="flex items-center">
-            <button
-              onClick={resetFlowCounters}
-              disabled={resetFlowBusy || !selectedMac}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-black/[.1] bg-white hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title="Resetea los contadores de litros riego, fuga y ciclo en el ESP32"
-            >
-              <RefreshCw size={14} className={resetFlowBusy ? 'animate-spin' : ''} />
-              {resetFlowBusy ? 'Enviando...' : 'Reset contadores'}
-            </button>
+        <>
+          {/* Gauges + Contadores */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Animated gauges */}
+            <div className="flex gap-3">
+              <GaugeCard
+                title="Presión"
+                icon={Gauge}
+                value={cur?.pressure_bar}
+                unit="bar"
+                max={6}
+                colorHex={PIPELINE_CHART_ACCENT1}
+                sub={`Est. ${cfg?.static_pressure_bar ?? '—'} · Din. ${cfg?.dynamic_pressure_bar ?? '—'} bar`}
+                live
+              />
+              <GaugeCard
+                title="Caudal"
+                icon={Droplets}
+                value={cur?.flow_lpm}
+                unit="L/min"
+                max={15}
+                colorHex={PIPELINE_CHART_ACCENT2}
+                sub={`Nominal: ${cfg?.nominal_flow_lpm ?? '—'} L/min`}
+                live
+              />
+            </div>
+            {/* Compact counters */}
+            <div className="flex flex-col gap-2">
+              <CompactCounter
+                label="Litros ciclo"
+                value={cur?.flow_session_l != null ? cur.flow_session_l.toFixed(2) : null}
+                unit="L" icon={FlaskConical} colorHex="#0891b2"
+              />
+              <CompactCounter
+                label="Litros riego"
+                value={cur?.flow_irrig_l != null ? cur.flow_irrig_l.toFixed(2) : null}
+                unit="L" icon={Droplets} colorHex="#2563eb"
+              />
+              <CompactCounter
+                label="Litros fuga"
+                value={cur?.flow_leak_l != null ? cur.flow_leak_l.toFixed(2) : null}
+                unit="L" icon={AlertTriangle} colorHex="#f59e0b"
+              />
+              <button
+                onClick={resetFlowCounters}
+                disabled={resetFlowBusy || !selectedMac}
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border border-black/[.1] bg-white hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Resetea los contadores de litros riego, fuga y ciclo en el ESP32"
+              >
+                <RefreshCw size={12} className={resetFlowBusy ? 'animate-spin' : ''} />
+                {resetFlowBusy ? 'Enviando…' : 'Reset contadores'}
+              </button>
+            </div>
           </div>
+          {/* Config panel */}
           <ScenarioSelector
             current={scenario}
             onSelect={applyScenario}
@@ -970,7 +1207,7 @@ export default function PipelineView({ selectedMac }) {
             onIrrigationChange={applyIrrigationType}
             leakDetectTrained={leakDetectTrained}
           />
-        </div>
+        </>
       )}
 
       {/* ── Toggle En vivo / Histórico ── */}
