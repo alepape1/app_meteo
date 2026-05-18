@@ -96,7 +96,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
                     delta = new_total - _last_flow_total[device_mac]
                     flow_delta_l = new_total if delta < 0 else delta
                 else:
-                    flow_delta_l = None  # primer mensaje: sin referencia previa
+                    flow_delta_l = new_total  # primer mensaje: litros desde arranque del dispositivo
                 _last_flow_total[device_mac] = new_total
             except (TypeError, ValueError):
                 pass
