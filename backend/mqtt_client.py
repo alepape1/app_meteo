@@ -113,11 +113,12 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
                 pipeline_scenario,
                 soil_moisture,
+                soil_temperature, soil_ph, soil_ec, soil_tds, soil_n, soil_p, soil_k,
                 flow_total_l, flow_delta_l, flow_session_l, flow_irrig_l, flow_leak_l,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -146,6 +147,13 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_flow_ok"),
             scenario_val,
             payload.get("soil_moisture"),
+            payload.get("soil_temperature"),
+            payload.get("soil_ph"),
+            payload.get("soil_ec"),
+            payload.get("soil_tds"),
+            payload.get("soil_n"),
+            payload.get("soil_p"),
+            payload.get("soil_k"),
             payload.get("flow_total_l"),
             flow_delta_l,
             payload.get("flow_session_l"),

@@ -267,6 +267,13 @@ def create_tables(conn: _CompatConn):
         pipeline_flow_ok       BOOLEAN DEFAULT NULL,
         pipeline_scenario      TEXT    DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
+        soil_temperature       REAL    DEFAULT NULL,
+        soil_ph                REAL    DEFAULT NULL,
+        soil_ec                REAL    DEFAULT NULL,
+        soil_tds               REAL    DEFAULT NULL,
+        soil_n                 REAL    DEFAULT NULL,
+        soil_p                 REAL    DEFAULT NULL,
+        soil_k                 REAL    DEFAULT NULL,
         flow_total_l           REAL    DEFAULT NULL,
         flow_session_l         REAL    DEFAULT NULL,
         flow_irrig_l           REAL    DEFAULT NULL,
@@ -307,6 +314,13 @@ def create_tables(conn: _CompatConn):
         ("flow_session_l",       "ALTER TABLE home_weather_station ADD COLUMN flow_session_l REAL DEFAULT NULL"),
         ("flow_irrig_l",         "ALTER TABLE home_weather_station ADD COLUMN flow_irrig_l REAL DEFAULT NULL"),
         ("flow_leak_l",          "ALTER TABLE home_weather_station ADD COLUMN flow_leak_l REAL DEFAULT NULL"),
+        ("soil_temperature",     "ALTER TABLE home_weather_station ADD COLUMN soil_temperature REAL DEFAULT NULL"),
+        ("soil_ph",              "ALTER TABLE home_weather_station ADD COLUMN soil_ph REAL DEFAULT NULL"),
+        ("soil_ec",              "ALTER TABLE home_weather_station ADD COLUMN soil_ec REAL DEFAULT NULL"),
+        ("soil_tds",             "ALTER TABLE home_weather_station ADD COLUMN soil_tds REAL DEFAULT NULL"),
+        ("soil_n",               "ALTER TABLE home_weather_station ADD COLUMN soil_n REAL DEFAULT NULL"),
+        ("soil_p",               "ALTER TABLE home_weather_station ADD COLUMN soil_p REAL DEFAULT NULL"),
+        ("soil_k",               "ALTER TABLE home_weather_station ADD COLUMN soil_k REAL DEFAULT NULL"),
     ]:
         if _col not in _hws_cols:
             cur.execute(_ddl)

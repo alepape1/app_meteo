@@ -495,10 +495,17 @@ def rows_to_dict(rows):
         "pipeline_source": [r.get("pipeline_source") for r in rows],
         "pipeline_pressure_ok": [r.get("pipeline_pressure_ok") for r in rows],
         "pipeline_flow_ok": [r.get("pipeline_flow_ok") for r in rows],
-        "soil_moisture": [r["soil_moisture"] for r in rows],
-        "dew_point": [r.get("dew_point") for r in rows],
-        "heat_index": [r.get("heat_index") for r in rows],
-        "abs_humidity": [r.get("abs_humidity") for r in rows],
+        "soil_moisture":    [r["soil_moisture"] for r in rows],
+        "soil_temperature": [r.get("soil_temperature") for r in rows],
+        "soil_ph":          [r.get("soil_ph") for r in rows],
+        "soil_ec":          [r.get("soil_ec") for r in rows],
+        "soil_tds":         [r.get("soil_tds") for r in rows],
+        "soil_n":           [r.get("soil_n") for r in rows],
+        "soil_p":           [r.get("soil_p") for r in rows],
+        "soil_k":           [r.get("soil_k") for r in rows],
+        "dew_point":        [r.get("dew_point") for r in rows],
+        "heat_index":       [r.get("heat_index") for r in rows],
+        "abs_humidity":     [r.get("abs_humidity") for r in rows],
     }
 
 
