@@ -3,6 +3,7 @@
 import datetime
 import logging
 import os
+import sys
 
 import bcrypt
 from dotenv import load_dotenv
@@ -930,10 +931,6 @@ def set_relay():
                 "relay": index,
                 "state": state,
             })
-            # Actualizar actual de forma optimista — QoS 1 garantiza entrega.
-            # La telemetría corregirá cualquier discrepancia en el siguiente
-            # ciclo.
-            _relay_set_actual(mac, index, state)
 
     return jsonify({"index": index, "state": state})
 
@@ -2028,19 +2025,25 @@ def register_factory():
 
 
 def _autostart_mqtt():
-    """Arranca el cliente MQTT también bajo Gunicorn.
+    """Arranca el cliente MQTT en el worker correcto.
 
-    En desarrollo con el autoreload de Flask evitamos el proceso padre para no
-    duplicar la suscripción.
+    - Bajo gunicorn (con o sin --reload): arrancar siempre; gunicorn carga el
+      módulo una vez por worker, no hay duplicados.
+    - Bajo Flask dev server (werkzeug): omitir en el proceso padre del reloader
+      porque werkzeug bifurca un hijo con WERKZEUG_RUN_MAIN=true; el padre no
+      debe abrir la conexión o se duplicaría.
     """
     if os.getenv("MQTT_AUTOSTART", "1") != "1":
         logger.info("MQTT autostart deshabilitado por entorno")
         return
 
-    debug = os.getenv("FLASK_DEBUG", "0") == "1"
-    if debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        logger.info("MQTT autostart omitido en el proceso padre del reloader")
-        return
+    is_gunicorn = bool(sys.argv and "gunicorn" in sys.argv[0])
+    if not is_gunicorn:
+        # Flask dev server: evitar arranque duplicado en el proceso padre
+        if (os.getenv("FLASK_DEBUG", "0") == "1"
+                and os.environ.get("WERKZEUG_RUN_MAIN") != "true"):
+            logger.info("MQTT autostart omitido en el proceso padre del reloader")
+            return
 
     mqtt_client.start()
 

@@ -334,6 +334,13 @@ def create_tables(conn: _CompatConn):
     CREATE INDEX IF NOT EXISTS idx_device_mac
         ON home_weather_station(device_mac);
     """)
+    # Índice compuesto para queries WHERE device_mac = X ORDER BY timestamp DESC.
+    # Cubre api_muestras, api_latest, pipeline_readings, irrigation_stats, etc.
+    # En TimescaleDB actúa chunk a chunk → lookup casi instantáneo aunque la tabla sea enorme.
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_device_mac_timestamp
+        ON home_weather_station(device_mac, timestamp DESC);
+    """)
 
     # Commit antes de intentar hypertable: si falla, las tablas ya existen
     raw.commit()
