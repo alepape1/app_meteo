@@ -342,6 +342,32 @@ def _handle_alert(finca_id: str, payload: dict):
         logger.info("Alerta MQTT recibida: finca_id=%s type=%s severity=%s frames=%d",
                     finca_id, alert_type, payload.get("severity"),
                     len(frames) if frames else 0)
+
+        # Tras un reboot el ESP reinicia todas las GPIOs a LOW (relays OFF).
+        # Re-publicar el estado deseado para que los relays vuelvan al estado correcto.
+        if alert_type == "device_reboot" and device_mac:
+            try:
+                finca_row = db.execute(
+                    "SELECT finca_id FROM device_info WHERE mac_address=%s", (device_mac,)
+                ).fetchone()
+                if finca_row and finca_row["finca_id"]:
+                    pending = db.execute(
+                        "SELECT relay_index FROM relay_state"
+                        " WHERE device_mac=%s AND desired=1",
+                        (device_mac,),
+                    ).fetchall()
+                    for row in pending:
+                        publish_cmd(finca_row["finca_id"], {
+                            "mac":   device_mac,
+                            "relay": row["relay_index"],
+                            "state": True,
+                        })
+                        logger.info(
+                            "Relay %d re-publicado tras device_reboot mac=%s",
+                            row["relay_index"], device_mac,
+                        )
+            except Exception:
+                logger.exception("Error re-publicando relays tras reboot mac=%s", device_mac)
     finally:
         db.close()
 
