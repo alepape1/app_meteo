@@ -112,7 +112,7 @@ export function useWeatherData() {
             merged[key] = [
               ...prevArr,
               ...appendIndexes.map(i => (i < nextArr.length ? nextArr[i] : null)),
-            ].slice(-MAX_POINTS)
+            ].slice(-maxPoints)
             return
           }
 
@@ -173,7 +173,8 @@ export function useWeatherData() {
       const url = `/api/latest?mac=${encodeURIComponent(selectedMac)}`
       const res = await authFetchRef.current(url, { signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      applyData(await res.json(), 'append')
+      const appendMax = activeFilterRef.current?.maxPoints ?? MAX_POINTS
+      applyData(await res.json(), 'append', appendMax)
     } catch (e) {
       if (e.name !== 'AbortError') { /* ignorar errores transitorios del refresco */ }
     }
@@ -181,13 +182,13 @@ export function useWeatherData() {
 
   const fetchFiltered = useCallback(async (startDate, endDate) => {
     if (!selectedMac) return
-    // Guardar parámetros para que el polling sepa que hay un rango activo
-    activeFilterRef.current = { startDate, endDate }
     // Cancelar petición anterior si sigue en vuelo (mismo patrón que fetchSamples)
     if (abortRef.current) abortRef.current.abort()
     const controller = new AbortController()
     abortRef.current = controller
     const maxPoints = calcFilterPoints(startDate, endDate)
+    // Guardar parámetros para que el polling sepa que hay un rango activo
+    activeFilterRef.current = { startDate, endDate, maxPoints }
     setLoading(true)
     try {
       const body = { start_date: startDate, end_date: endDate, mac: selectedMac, max_points: maxPoints }
@@ -222,7 +223,7 @@ export function useWeatherData() {
       const json = await res.json()
       const nextStr = JSON.stringify(json)
       setDeviceInfo(prev => {
-        if (Object.keys(json).length === 0) return prev === null ? null : null
+        if (Object.keys(json).length === 0) return null
         return JSON.stringify(prev) === nextStr ? prev : json
       })
     } catch (e) {
@@ -251,10 +252,9 @@ export function useWeatherData() {
 
   // Limpiar datos obsoletos al cambiar de dispositivo y cancelar requests en vuelo
   useEffect(() => {
-    if (abortRef.current) {
-      abortRef.current.abort()
-      abortRef.current = null
-    }
+    if (abortRef.current)           { abortRef.current.abort();           abortRef.current = null }
+    if (latestAbortRef.current)     { latestAbortRef.current.abort();     latestAbortRef.current = null }
+    if (deviceInfoAbortRef.current) { deviceInfoAbortRef.current.abort(); deviceInfoAbortRef.current = null }
     setData(EMPTY)
     setDeviceInfo(null)
     activeFilterRef.current = null

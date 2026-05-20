@@ -38,6 +38,14 @@ _RECONNECT_COOLDOWN_S = 600  # 10 minutos entre alertas de reconexión por dispo
 # Se resetea a None cuando se detecta un reinicio del ESP (total nuevo < total previo).
 _last_flow_total: dict[str, float] = {}
 
+# Último instante (monotonic) en que se recibió telemetría o alerta de cada MAC.
+# Se usa para purgar entradas antiguas de _reconnect_cooldown y _last_flow_total.
+_mac_last_seen: dict[str, float] = {}
+_STALE_MAC_TTL_S = 86_400  # 24 horas
+
+# Tipos de riego válidos reportados por el firmware.
+_VALID_IRRIG: frozenset[str] = frozenset({'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'})
+
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER     = os.getenv("MQTT_USER", "")
@@ -57,6 +65,16 @@ def _finca_id_from_topic(topic: str) -> str | None:
     return parts[1] if len(parts) >= 3 and parts[0] == "aquantia" else None
 
 
+def _prune_stale_macs() -> None:
+    """Elimina entradas de MACs no vistas en las últimas 24 horas."""
+    cutoff = time.monotonic() - _STALE_MAC_TTL_S
+    stale = [mac for mac, ts in _mac_last_seen.items() if ts < cutoff]
+    for mac in stale:
+        _mac_last_seen.pop(mac, None)
+        _reconnect_cooldown.pop(mac, None)
+        _last_flow_total.pop(mac, None)
+
+
 # ── Callbacks de mensajes entrantes ──────────────────────────────────────────
 
 def _handle_telemetry(finca_id: str, payload: dict):
@@ -68,6 +86,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
     db = get_db_connection()
     try:
         device_mac = payload.get("mac_address") or payload.get("device_mac")
+        if device_mac:
+            _mac_last_seen[device_mac] = time.monotonic()
+            _prune_stale_macs()
 
         # Timestamp del ESP32: solo válido si NTP sincronizó (epoch > año 2001)
         ts_dt = None
@@ -210,34 +231,47 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 )
 
         # Sincronizar campos de configuración reportados en la telemetría del firmware.
-        _VALID_IRRIG = {'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'}
+        # Solo se escribe si el valor cambió para evitar escrituras/WAL innecesarias.
         irrig   = payload.get("irrigation_type")
         trained = payload.get("leak_detect_trained")
         pipe_sc = payload.get("pipeline_scenario")
 
         if irrig in _VALID_IRRIG:
-            db.execute(
-                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                ('irrigation_type', irrig),
-            )
+            cur_irrig = db.execute(
+                "SELECT value FROM app_settings WHERE key='irrigation_type'"
+            ).fetchone()
+            if not cur_irrig or cur_irrig['value'] != irrig:
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('irrigation_type', irrig),
+                )
         if trained is not None:
-            db.execute(
-                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                ('leak_detect_trained', 'true' if trained else 'false'),
-            )
+            trained_val = 'true' if trained else 'false'
+            cur_trained = db.execute(
+                "SELECT value FROM app_settings WHERE key='leak_detect_trained'"
+            ).fetchone()
+            if not cur_trained or cur_trained['value'] != trained_val:
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('leak_detect_trained', trained_val),
+                )
         # En modo real, el scenario es auto-detectado por el firmware — actualizar.
         if pipe_sc in ('normal', 'leak', 'burst', 'obstruction'):
             mode_row = db.execute(
                 "SELECT value FROM app_settings WHERE key='pipeline_mode'"
             ).fetchone()
             if mode_row and mode_row['value'] == 'real':
-                db.execute(
-                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                    ('pipeline_scenario', pipe_sc),
-                )
+                cur_sc = db.execute(
+                    "SELECT value FROM app_settings WHERE key='pipeline_scenario'"
+                ).fetchone()
+                if not cur_sc or cur_sc['value'] != pipe_sc:
+                    db.execute(
+                        "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                        ('pipeline_scenario', pipe_sc),
+                    )
 
         pw = payload.get("pipeline_window")
         if pw and isinstance(pw, dict):
@@ -283,6 +317,10 @@ def _handle_alert(finca_id: str, payload: dict):
             )
             return
         _reconnect_cooldown[device_mac] = now
+
+    if device_mac:
+        _mac_last_seen[device_mac] = time.monotonic()
+        _prune_stale_macs()
 
     db = get_db_connection()
     try:

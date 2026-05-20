@@ -16,7 +16,7 @@ from flask_jwt_extended import (
     jwt_required,
 )
 
-load_dotenv(override=True)
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
@@ -309,7 +309,7 @@ def _require_jwt():
     # ESP32
     if request.path == "/api/device_info" and request.method == "POST":
         return
-    if request.path in ("/api/relay/command", "/api/relay/ack"):
+    if request.path in ("/api/relay/command", "/api/relay/ack", "/api/flow/reset-ack"):
         return
     from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
     try:
@@ -1658,8 +1658,11 @@ def request_flow_reset():
 def flow_reset_ack():
     """Llamado por el ESP32 tras ejecutar el reset de contadores.
     Limpia el flag para que no se vuelva a enviar reset_flow_counters=true.
-    No requiere autenticación (solo accesible desde la red local donde corre el ESP32).
+    Requiere autenticación de dispositivo (X-Device-MAC + X-Device-Token).
     """
+    _mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     db = get_db()
     db.execute(
         "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'false')"
@@ -2027,18 +2030,27 @@ def register_factory():
 def _autostart_mqtt():
     """Arranca el cliente MQTT en el worker correcto.
 
-    - Bajo gunicorn (con o sin --reload): arrancar siempre; gunicorn carga el
-      módulo una vez por worker, no hay duplicados.
+    - Bajo gunicorn con --preload: el master tiene current_process().name ==
+      'MainProcess'; los workers se llaman 'Worker-N'. Solo arrancamos en workers.
+    - Bajo gunicorn sin --preload: cada worker importa el módulo directamente,
+      current_process().name ya es 'Worker-N' → arranca correctamente.
     - Bajo Flask dev server (werkzeug): omitir en el proceso padre del reloader
       porque werkzeug bifurca un hijo con WERKZEUG_RUN_MAIN=true; el padre no
       debe abrir la conexión o se duplicaría.
     """
+    import multiprocessing
+
     if os.getenv("MQTT_AUTOSTART", "1") != "1":
         logger.info("MQTT autostart deshabilitado por entorno")
         return
 
     is_gunicorn = bool(sys.argv and "gunicorn" in sys.argv[0])
-    if not is_gunicorn:
+    if is_gunicorn:
+        # Con --preload el master es 'MainProcess'; no arrancar ahí.
+        if multiprocessing.current_process().name == "MainProcess":
+            logger.info("MQTT autostart omitido en el master de Gunicorn (--preload)")
+            return
+    else:
         # Flask dev server: evitar arranque duplicado en el proceso padre
         if (os.getenv("FLASK_DEBUG", "0") == "1"
                 and os.environ.get("WERKZEUG_RUN_MAIN") != "true"):

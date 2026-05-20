@@ -276,3 +276,75 @@ def test_handle_register_upsert(mqtt_db_pool):
     assert rows[0]["firmware_version"] == "0.2.0-rc1", (
         f"firmware_version no se actualizó: {rows[0]['firmware_version']!r}"
     )
+
+
+# ── Tests de campos de suelo (soil) ──────────────────────────────────────────
+
+SOIL_PAYLOAD = {
+    **TELEMETRY_PAYLOAD,
+    "soil_moisture":     42.5,
+    "soil_temperature":  19.3,
+    "soil_ph":           6.8,
+    "soil_ec":           1.2,
+    "soil_tds":          620.0,
+    "soil_n":            35.0,
+    "soil_p":            18.5,
+    "soil_k":            210.0,
+}
+
+
+def test_soil_fields_se_insertan(mqtt_db_pool):
+    """_handle_telemetry persiste todos los campos de suelo en home_weather_station."""
+    _handle_telemetry(TEST_FINCA, SOIL_PAYLOAD)
+
+    row = _query_one(
+        mqtt_db_pool,
+        "SELECT soil_moisture, soil_temperature, soil_ph, soil_ec, "
+        "       soil_tds, soil_n, soil_p, soil_k "
+        "FROM home_weather_station WHERE device_mac = %s",
+        (TEST_MAC,),
+    )
+    assert row is not None, "No se insertó ninguna fila en home_weather_station"
+    assert row["soil_moisture"]    == pytest.approx(42.5)
+    assert row["soil_temperature"] == pytest.approx(19.3)
+    assert row["soil_ph"]          == pytest.approx(6.8)
+    assert row["soil_ec"]          == pytest.approx(1.2)
+    assert row["soil_tds"]         == pytest.approx(620.0)
+    assert row["soil_n"]           == pytest.approx(35.0)
+    assert row["soil_p"]           == pytest.approx(18.5)
+    assert row["soil_k"]           == pytest.approx(210.0)
+
+
+def test_soil_fields_nulos_cuando_ausentes(mqtt_db_pool):
+    """Sin campos de suelo en el payload, las columnas soil_* quedan NULL."""
+    _handle_telemetry(TEST_FINCA, TELEMETRY_PAYLOAD)  # sin soil_*
+
+    row = _query_one(
+        mqtt_db_pool,
+        "SELECT soil_moisture, soil_temperature, soil_ph, soil_ec, "
+        "       soil_tds, soil_n, soil_p, soil_k "
+        "FROM home_weather_station WHERE device_mac = %s",
+        (TEST_MAC,),
+    )
+    assert row is not None
+    for field in ("soil_moisture", "soil_temperature", "soil_ph", "soil_ec",
+                  "soil_tds", "soil_n", "soil_p", "soil_k"):
+        assert row[field] is None, f"{field} debería ser NULL cuando no viene en el payload"
+
+
+def test_soil_fields_parcialmente_presentes(mqtt_db_pool):
+    """Solo soil_moisture y soil_ph en el payload — el resto queda NULL."""
+    payload = {**TELEMETRY_PAYLOAD, "soil_moisture": 55.0, "soil_ph": 7.1}
+    _handle_telemetry(TEST_FINCA, payload)
+
+    row = _query_one(
+        mqtt_db_pool,
+        "SELECT soil_moisture, soil_temperature, soil_ph, soil_ec "
+        "FROM home_weather_station WHERE device_mac = %s",
+        (TEST_MAC,),
+    )
+    assert row is not None
+    assert row["soil_moisture"] == pytest.approx(55.0)
+    assert row["soil_ph"]       == pytest.approx(7.1)
+    assert row["soil_temperature"] is None
+    assert row["soil_ec"]          is None

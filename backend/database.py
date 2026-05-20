@@ -39,7 +39,8 @@ def init_pool():
     _pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=2, maxconn=20,
         host=pg_host, port=pg_port,
-        dbname=pg_db, user=pg_user, password=pg_pass
+        dbname=pg_db, user=pg_user, password=pg_pass,
+        connect_timeout=10,
     )
     logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", pg_host, pg_port, pg_db)
 
@@ -225,6 +226,8 @@ class _CompatConn:
 
 def get_db_connection() -> _CompatConn:
     """Obtiene una conexión del pool. Debe devolverse llamando a conn.close()."""
+    if _pool is None:
+        raise RuntimeError("El pool de base de datos no está inicializado. ¿Se llamó init_pool()?")
     raw = _pool.getconn()
     raw.autocommit = False
     return _CompatConn(raw)
