@@ -261,7 +261,7 @@ export function useWeatherData() {
   }, [selectedMac])
 
   // Carga inicial y recarga al cambiar dispositivo
-  useEffect(() => { fetchSamples(150) }, [fetchSamples])
+  useEffect(() => { fetchSamples(MAX_POINTS) }, [fetchSamples])
   useEffect(() => { fetchDeviceInfo() }, [fetchDeviceInfo])
   // Fetch de dispositivos una vez al montar
   useEffect(() => { fetchDevices() }, [fetchDevices])
