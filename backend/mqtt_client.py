@@ -307,6 +307,10 @@ def _handle_alert(finca_id: str, payload: dict):
     # en PubSubClient) es menor que el intervalo de telemetría (20s). No indica
     # un problema real si el uptime del dispositivo es continuo.
     # Se permite como máximo una alerta cada _RECONNECT_COOLDOWN_S por dispositivo.
+    if device_mac:
+        _mac_last_seen[device_mac] = time.monotonic()
+        _prune_stale_macs()
+
     if alert_type == "mqtt_reconnect":
         now = time.monotonic()
         last = _reconnect_cooldown.get(device_mac, 0.0)
@@ -317,10 +321,6 @@ def _handle_alert(finca_id: str, payload: dict):
             )
             return
         _reconnect_cooldown[device_mac] = now
-
-    if device_mac:
-        _mac_last_seen[device_mac] = time.monotonic()
-        _prune_stale_macs()
 
     db = get_db_connection()
     try:
