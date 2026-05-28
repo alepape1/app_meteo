@@ -21,7 +21,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), overrid
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
-from email_service import send_verification_email
+from email_service import send_verification_email, send_farewell_email
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pipeline_sim import (
@@ -295,6 +295,40 @@ def auth_me():
                     "email": user["email"],
                     "display_name": user["display_name"],
                     "role": user["role"]})
+
+
+@app.route("/api/auth/account", methods=["DELETE"])
+def delete_own_account():
+    data = request.get_json(silent=True) or {}
+    password = data.get("password") or ""
+    if not password:
+        return jsonify({"error": "Se requiere la contraseña para eliminar la cuenta"}), 400
+    db = get_db()
+    user = db.execute(
+        "SELECT id, email, display_name, password_hash FROM users WHERE id=%s", (g.user_id,)
+    ).fetchone()
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        return jsonify({"error": "Contraseña incorrecta"}), 403
+    db.execute("DELETE FROM users WHERE id=%s", (user["id"],))
+    db.commit()
+    send_farewell_email(user["email"], user["display_name"])
+    return jsonify({"message": "Cuenta eliminada"}), 200
+
+
+@app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+def admin_delete_user(user_id):
+    db = get_db()
+    requester = db.execute("SELECT role FROM users WHERE id=%s", (g.user_id,)).fetchone()
+    if not requester or requester["role"] != "admin":
+        return jsonify({"error": "No autorizado"}), 403
+    if user_id == g.user_id:
+        return jsonify({"error": "Usa el endpoint de tu propia cuenta para eliminarla"}), 400
+    target = db.execute("SELECT id FROM users WHERE id=%s", (user_id,)).fetchone()
+    if not target:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    db.execute("DELETE FROM users WHERE id=%s", (user_id,))
+    db.commit()
+    return jsonify({"message": "Usuario eliminado"}), 200
 
 
 # ── Guard JWT para rutas /api/ ──────────────────────────────────────────
