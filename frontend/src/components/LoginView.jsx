@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Loader, LogIn, UserPlus, Mail, Lock, User, Eye, EyeOff,
   CheckCircle2, CircleAlert, AlertTriangle, LifeBuoy,
-  Droplets, Leaf, Radio,
+  Droplets, Leaf, Radio, Thermometer, Gauge, Bell,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import aquantiaLogo from '../assets/aquantia_logo.png'
@@ -211,18 +211,21 @@ export default function LoginView() {
           </p>
         </div>
 
-        <div className="relative grid grid-cols-3 gap-4 z-10">
+        <div className="relative grid grid-cols-3 gap-2.5 z-10">
           {[
-            { Icon: Droplets, label: 'Riego remoto',    sub: 'ESP32 + relés' },
-            { Icon: Leaf,     label: 'Salud del suelo', sub: 'NPK · pH · CE' },
-            { Icon: Radio,    label: 'Red LoRa',        sub: '9 nodos en finca' },
+            { Icon: Droplets,    label: 'Riego remoto',      sub: 'ESP32 · 4 relés' },
+            { Icon: Leaf,        label: 'Salud del suelo',   sub: 'NPK · pH · CE' },
+            { Icon: Radio,       label: 'Red de nodos',      sub: 'MQTT · TLS · OTA' },
+            { Icon: Gauge,       label: 'Detector de fugas', sub: 'XDB401 · EMA 200ms' },
+            { Icon: Thermometer, label: 'Meteorología',      sub: 'T · H · P · viento' },
+            { Icon: Bell,        label: 'Alertas en vivo',   sub: 'fugas · sensores · heap' },
           ].map((feat) => (
-            <div key={feat.label} className="flex flex-col gap-1.5 p-3 rounded-xl bg-white/[.04] border border-white/[.08] backdrop-blur-sm">
+            <div key={feat.label} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white/[.04] border border-white/[.08] backdrop-blur-sm">
               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-brand-500/15 border border-brand-300/20 text-brand-300">
                 <feat.Icon size={14} />
               </span>
-              <span className="text-[12px] font-semibold leading-none">{feat.label}</span>
-              <span className="text-[11px] text-white/50 leading-none">{feat.sub}</span>
+              <span className="text-[11px] font-semibold leading-none">{feat.label}</span>
+              <span className="text-[10px] text-white/50 leading-none">{feat.sub}</span>
             </div>
           ))}
         </div>
