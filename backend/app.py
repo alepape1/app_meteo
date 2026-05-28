@@ -3,6 +3,7 @@
 import datetime
 import logging
 import os
+import secrets
 import sys
 
 import bcrypt
@@ -20,6 +21,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), overrid
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
+from email_service import send_verification_email
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pipeline_sim import (
@@ -214,25 +216,36 @@ def auth_register():
     if db.execute("SELECT id FROM users WHERE email=%s", (email,)).fetchone():
         return jsonify({"error": "Email ya registrado"}), 409
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    display_name = name or email.split("@")[0]
+    verification_token = secrets.token_urlsafe(32)
     db.execute(
-        "INSERT INTO users(email, password_hash, display_name) VALUES (%s, %s, %s)",
-        (email, pw_hash, name or email.split("@")[0])
+        """INSERT INTO users(email, password_hash, display_name, is_active, email_verified, verification_token)
+           VALUES (%s, %s, %s, FALSE, FALSE, %s)""",
+        (email, pw_hash, display_name, verification_token),
     )
     db.commit()
+    send_verification_email(email, display_name, verification_token)
+    return jsonify({"message": "Cuenta creada. Revisa tu correo para verificarla."}), 201
+
+
+@app.route("/api/auth/verify-email/<token>", methods=["GET"])
+def verify_email(token):
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    if not token:
+        return redirect(f"{frontend_url}/login?emailError=token_invalido")
+    db = get_db()
     user = db.execute(
-        "SELECT id, email, display_name, role FROM users WHERE email=%s",
-        (email,),
+        "SELECT id FROM users WHERE verification_token=%s AND email_verified=FALSE",
+        (token,),
     ).fetchone()
-    token = create_access_token(identity=str(user["id"]))
-    return jsonify({
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "display_name": user["display_name"],
-            "role": user["role"],
-        },
-    }), 201
+    if not user:
+        return redirect(f"{frontend_url}/login?emailError=token_invalido")
+    db.execute(
+        "UPDATE users SET email_verified=TRUE, is_active=TRUE, verification_token=NULL WHERE id=%s",
+        (user["id"],),
+    )
+    db.commit()
+    return redirect(f"{frontend_url}/login?emailVerified=1")
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -245,13 +258,15 @@ def auth_login():
         return jsonify({"error": "Faltan email o contraseña"}), 400
     db = get_db()
     user = db.execute(
-        "SELECT id, email, display_name, role, password_hash, is_active FROM users WHERE email=%s",
+        "SELECT id, email, display_name, role, password_hash, is_active, email_verified FROM users WHERE email=%s",
         (email,)
     ).fetchone()
     if not user or not bcrypt.checkpw(
             password.encode(),
             user["password_hash"].encode()):
         return jsonify({"error": "Credenciales incorrectas"}), 401
+    if not user.get("email_verified", True):
+        return jsonify({"error": "email_not_verified"}), 403
     if not user["is_active"]:
         return jsonify({"error": "Cuenta desactivada"}), 403
     token = create_access_token(identity=str(user["id"]))
@@ -299,6 +314,8 @@ def _require_jwt():
         return  # ficheros estáticos del frontend
     if request.path in _JWT_PUBLIC:
         return  # auth y endpoints internos
+    if request.path.startswith("/api/auth/verify-email/"):
+        return  # verificación de email via enlace, sin JWT
     # GET de configuración del pipeline → lectura por el ESP32 sin JWT
     if (
         request.path in ("/api/pipeline/scenario", "/api/pipeline/config")

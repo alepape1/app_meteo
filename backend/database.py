@@ -514,14 +514,27 @@ def create_tables(conn: _CompatConn):
     # ── Usuarios ──────────────────────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id            BIGSERIAL PRIMARY KEY,
-        email         TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        display_name  TEXT,
-        role          TEXT NOT NULL DEFAULT 'user',
-        is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at    TIMESTAMPTZ DEFAULT NOW()
+        id                  BIGSERIAL PRIMARY KEY,
+        email               TEXT UNIQUE NOT NULL,
+        password_hash       TEXT NOT NULL,
+        display_name        TEXT,
+        role                TEXT NOT NULL DEFAULT 'user',
+        is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+        email_verified      BOOLEAN NOT NULL DEFAULT FALSE,
+        verification_token  TEXT,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
     );
+    """)
+    # Migración incremental para DBs existentes
+    cur.execute("""
+    ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS email_verified     BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS verification_token TEXT;
+    """)
+    # Los usuarios ya existentes se consideran verificados
+    cur.execute("""
+    UPDATE users SET email_verified = TRUE
+    WHERE email_verified = FALSE AND verification_token IS NULL;
     """)
 
     cur.execute("""

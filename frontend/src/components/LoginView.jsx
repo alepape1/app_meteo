@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Loader, LogIn, UserPlus, Mail, Lock, User, Eye, EyeOff,
   CheckCircle2, CircleAlert, AlertTriangle, LifeBuoy,
-  Droplets, Leaf, Radio, Thermometer, Gauge, Bell,
+  Droplets, Leaf, Radio, Thermometer, Gauge, Bell, MailCheck,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import aquantiaLogo from '../assets/aquantia_logo.png'
@@ -99,8 +99,23 @@ export default function LoginView() {
   const [accepted,  setAccepted]  = useState(false)
   const [showPw,    setShowPw]    = useState(false)
   const [capsOn,    setCapsOn]    = useState(false)
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState('')
+  const [loading,             setLoading]             = useState(false)
+  const [error,               setError]               = useState('')
+  const [pendingVerification, setPendingVerification] = useState(false)
+  const [urlBanner] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('emailVerified') === '1') return 'verified'
+    if (params.get('emailError'))             return 'error'
+    return null
+  })
+
+  // Limpia los query params del historial (efecto puro, sin setState)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('emailVerified') || params.has('emailError')) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   const loginRef = useRef(null)
   const regRef   = useRef(null)
@@ -130,15 +145,21 @@ export default function LoginView() {
     try {
       if (tab === 'login') {
         await login(email.trim(), password)
+        try {
+          if (remember) localStorage.setItem(LAST_EMAIL_KEY, email.trim())
+          else          localStorage.removeItem(LAST_EMAIL_KEY)
+        } catch (e) { void e }
       } else {
         await register(email.trim(), password, name.trim())
+        setPendingVerification(true)
       }
-      try {
-        if (remember) localStorage.setItem(LAST_EMAIL_KEY, email.trim())
-        else          localStorage.removeItem(LAST_EMAIL_KEY)
-      } catch (e) { void e }
     } catch (err) {
-      setError(err?.message || 'No se pudo completar la operación.')
+      const msg = err?.message || ''
+      if (msg === 'email_not_verified') {
+        setError('Confirma tu email antes de entrar. Revisa tu bandeja de entrada.')
+      } else {
+        setError(msg || 'No se pudo completar la operación.')
+      }
     } finally {
       setLoading(false)
     }
@@ -213,10 +234,10 @@ export default function LoginView() {
 
         <div className="relative grid grid-cols-3 gap-2.5 z-10">
           {[
-            { Icon: Droplets,    label: 'Riego remoto',      sub: 'ESP32 · 4 relés' },
+            { Icon: Droplets,    label: 'Riego remoto',      sub: '3 Dispositivos · 4 valvulas de control' },
             { Icon: Leaf,        label: 'Salud del suelo',   sub: 'NPK · pH · CE' },
             { Icon: Radio,       label: 'Red de nodos',      sub: 'MQTT · TLS · OTA' },
-            { Icon: Gauge,       label: 'Detector de fugas', sub: 'XDB401 · EMA 200ms' },
+            { Icon: Gauge,       label: 'Detector de fugas', sub: 'Presion de pipeline · EMA 200ms' },
             { Icon: Thermometer, label: 'Meteorología',      sub: 'T · H · P · viento' },
             { Icon: Bell,        label: 'Alertas en vivo',   sub: 'fugas · sensores · heap' },
           ].map((feat) => (
@@ -241,6 +262,47 @@ export default function LoginView() {
               <span>Aquant</span><span className="text-brand-300">IA</span><span>lab</span>
             </span>
           </div>
+
+          {/* ── Pantalla: verificación pendiente ── */}
+          {pendingVerification ? (
+            <div className="flex flex-col items-center text-center gap-5 py-4">
+              <span className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-brand-50 border border-brand-100 text-brand-500">
+                <MailCheck size={32} />
+              </span>
+              <div>
+                <h2 className="text-[22px] font-bold tracking-tight text-navy-900">Revisa tu correo</h2>
+                <p className="mt-2 text-sm text-navy-400 leading-relaxed max-w-[320px] mx-auto">
+                  Hemos enviado un enlace de verificación a <span className="font-semibold text-navy-700">{email.trim()}</span>.
+                  Haz clic en él para activar tu cuenta.
+                </p>
+              </div>
+              <div className="text-[11px] text-navy-400 bg-navy-50 border border-navy-100 rounded-xl px-4 py-2.5 max-w-[320px]">
+                No olvides revisar la carpeta de spam si no ves el mensaje en unos minutos.
+              </div>
+              <button
+                type="button"
+                onClick={() => { setPendingVerification(false); switchTab('login') }}
+                className="flex items-center gap-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+              >
+                <LogIn size={14} /> Volver al inicio de sesión
+              </button>
+            </div>
+          ) : (
+          <>
+
+          {/* ── Banner URL (emailVerified / emailError) ── */}
+          {urlBanner === 'verified' && (
+            <div className="flex items-start gap-2 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-5">
+              <CheckCircle2 size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+              <span className="leading-snug">¡Cuenta verificada! Ya puedes iniciar sesión.</span>
+            </div>
+          )}
+          {urlBanner === 'error' && (
+            <div className="flex items-start gap-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 mb-5">
+              <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" />
+              <span className="leading-snug">El enlace de verificación no es válido o ha caducado.</span>
+            </div>
+          )}
 
           <div className="mb-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-navy-300">
@@ -464,6 +526,9 @@ export default function LoginView() {
               </span>
             </div>
           </footer>
+
+          </>
+          )}
 
         </div>
       </main>
