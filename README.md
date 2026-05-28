@@ -106,7 +106,9 @@ app_meteo/
 │   ├── app.py               # Flask: todos los endpoints REST
 │   ├── database.py          # PostgreSQL ORM + migraciones
 │   ├── mqtt_client.py       # paho-mqtt: suscriptor/publicador (hilo daemon)
+│   ├── email_service.py     # Flask-Mail: verificación de email y notificaciones
 │   ├── pipeline_sim.py      # Simulador de presión/caudal de tubería
+│   ├── gunicorn.conf.py     # Configuración Gunicorn + autostart MQTT
 │   ├── simulator.py         # Simulador ESP32 (envía datos HTTP)
 │   ├── migrate_sqlite_to_pg.py  # Migración inicial desde SQLite legado
 │   ├── create_demo_user.py  # Crea usuario de demostración
@@ -122,18 +124,19 @@ app_meteo/
 │   │   ├── hooks/
 │   │       └── useWeatherData.js    # Fetching, estado y auto-refresco incremental (15s)
 │   │   └── components/
-│   │       ├── LoginView.jsx        # Pantalla de login
+│   │       ├── LoginView.jsx        # Pantalla de login rediseñada (panel hero)
 │   │       ├── Sidebar.jsx          # Navegación + filtros de fecha + selector ECU
-│   │       ├── StatCard.jsx         # Card con valor, mín y máx
-│   │       ├── WeatherChart.jsx     # Gráficos ApexCharts (área, línea, scatter)
+│   │       ├── StatCard.jsx         # Card con valor, mín y máx (ECharts)
+│   │       ├── WeatherChart.jsx     # Gráficos ECharts (área, línea, scatter)
 │   │       ├── DeviceStatus.jsx     # Estado ESP32: señal, heap, uptime, info chip
 │   │       ├── DevicesView.jsx      # Lista de dispositivos registrados
 │   │       ├── ClaimDeviceView.jsx  # Vincular dispositivo nuevo por serial/QR
-│   │       ├── IrrigationView.jsx   # Control relays + estadísticas de riego
+│   │       ├── IrrigationView.jsx   # Control relays + sesiones + estadísticas de riego
 │   │       ├── AlertsPanel.jsx      # Alertas: severidad, badge, acknowledge, filtro
-│   │       ├── PipelineView.jsx     # Presión/caudal + detección de fugas
+│   │       ├── PipelineView.jsx     # Presión/caudal + detección de fugas (ECharts gauges)
+│   │       ├── PlantationView.jsx   # Parámetros de suelo: NPK, pH, EC, temperatura
 │   │       ├── NodesView.jsx        # Nodos LoRa (pendiente de hardware)
-│   │       └── SettingsView.jsx     # Configuración de la estación
+│   │       └── SettingsView.jsx     # Configuración (solo zona de peligro sin dispositivos)
 │   ├── dist/                # Build compilado — se sube al repo, el servidor lo sirve directamente
 │   ├── package.json
 │   └── vite.config.js
@@ -155,12 +158,13 @@ app_meteo/
 
 | Capa | Tecnología |
 |------|-----------|
-| Backend API | Python 3.12, Flask, flask-cors, flask-jwt-extended |
+| Backend API | Python 3.12, Flask, flask-cors, flask-jwt-extended, flask-limiter |
 | Base de datos | TimescaleDB (PostgreSQL 16 + extensión time-series) |
 | Broker MQTT | Mosquitto 2 (iegomez/mosquitto-go-auth) |
 | Cliente MQTT Python | paho-mqtt |
 | Servidor producción | Gunicorn — 1 worker (requerido por MQTT) |
-| Frontend | React 18, Vite, Tailwind CSS, ApexCharts, Lucide React |
+| Frontend | React 18, Vite 6, Tailwind CSS, ECharts, Lucide React |
+| Email | Flask-Mail + SMTP (verificación de cuenta y notificaciones) |
 | Contenedores | Docker + Docker Compose |
 | Proxy / TLS | Nginx (HestiaCP) + Let's Encrypt |
 
@@ -172,14 +176,15 @@ app_meteo/
 
 | Vista | Descripción |
 |-------|-------------|
-| **Meteorología** | Gráficos históricos de temperatura (MCP9808, HTU2x, DHT11), humedad, presión, viento (velocidad + dirección), luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). |
-| **Riego** | Control de electroválvulas (relays). Selector de zonas para PROFILE_IRRIGATION. |
-| **Pipeline** | Presión de tubería y caudal en tiempo real. Detección de fugas con 4 algoritmos. Selector de escenario y modo `sim`/`hardware`. |
+| **Meteorología** | Gráficos históricos de temperatura (MCP9808, HTU2x, DHT11), humedad, presión, viento (velocidad + dirección), luz y humedad de suelo. Filtro por rango de fechas con presets (Hoy, Ayer, 7d, 30d). Gráficos migrados a ECharts. |
+| **Plantación** | Humedad de suelo (YL-69), temperatura radicular, pH, conductividad eléctrica (EC), nutrientes NPK. Vista dedicada para perfil AGROMETEO. |
+| **Riego** | Control de electroválvulas (relays). Sesiones de riego con duración y litros consumidos. Animación de gota de agua. Estadísticas: ahorro vs. baseline, detección de fugas. |
+| **Pipeline** | Presión de tubería y caudal en tiempo real con gauges animados (ECharts). Detección de fugas con 4 algoritmos. Selector de escenario y modo `sim`/`hardware`. Columnas `flow_total_l`, `flow_session_l`, `flow_irrig_l`, `flow_leak_l`. |
 | **Nodos LoRa** | Preparada para nodos remotos de riego (pendiente de hardware). |
-| **Alertas** | Panel de alertas MQTT: badge con contador de no resueltas, severidad (critical/warning/info), botón acknowledge, filtro pendientes/todas. |
-| **ESP32** | Estado del dispositivo seleccionado: WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
+| **Alertas** | Panel de alertas MQTT: badge con contador de no resueltas, severidad (critical/warning/info), botón acknowledge, filtro pendientes/todas. Cooldown anti-spam en reconexión MQTT. |
+| **Estado del dispositivo** | WiFi RSSI, heap libre, uptime, IP, chip model, última conexión. |
 | **Mis dispositivos** | Lista de ECUs registradas con estado online/offline. Acceso al flujo de vinculación. |
-| **Configuración** | Ajustes de la estación (nombre, ubicación, caudal nominal). |
+| **Configuración** | Ajustes de la estación (nombre, ubicación, caudal nominal, intervalos dispositivo). Si el usuario no tiene dispositivos vinculados, solo se muestra la zona de peligro (eliminación de cuenta). |
 
 El **selector de dispositivos** en el sidebar filtra todos los datos (gráficos, estado, riego) al dispositivo activo. El badge rojo de alertas se actualiza cada 60s.
 
@@ -189,11 +194,34 @@ El **selector de dispositivos** en el sidebar filtra todos los datos (gráficos,
 
 El dashboard usa **JWT** (JSON Web Tokens). El token se guarda en `localStorage` (`aq_token`, `aq_user`) y se adjunta automáticamente a todas las peticiones via `authFetch`.
 
-| Endpoint | Descripción |
-|----------|-------------|
-| `POST /api/auth/login` | `{username, password}` → `{token, user}` |
-| `POST /api/auth/logout` | Invalida la sesión |
-| `GET /api/auth/me` | Info del usuario autenticado |
+### Flujo de registro con verificación de email
+
+1. `POST /api/auth/register` — crea el usuario con `email_verified=false` y envía un email de verificación
+2. El usuario hace clic en el enlace del email → `GET /api/auth/verify-email/<token>` — marca el email como verificado y redirige al login
+3. `POST /api/auth/login` — solo funciona si el email está verificado (403 si no lo está)
+
+### Endpoints de autenticación
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/api/auth/register` | `{email, password, display_name}` → 201 + mensaje (sin JWT hasta verificar) |
+| `GET` | `/api/auth/verify-email/<token>` | Verifica el email y redirige al frontend |
+| `POST` | `/api/auth/login` | `{email, password}` → `{token, user}` (403 si no verificado) |
+| `GET` | `/api/auth/me` | Info del usuario autenticado |
+| `DELETE` | `/api/auth/account` | Elimina la cuenta propia — requiere `{password}` para confirmar |
+| `DELETE` | `/api/admin/users/<user_id>` | Elimina cualquier usuario (solo `role=admin`) |
+
+### Variables de entorno para email
+
+```env
+MAIL_SERVER=smtp.example.com
+MAIL_PORT=587
+MAIL_USE_TLS=1
+MAIL_USERNAME=noreply@aquantialab.com
+MAIL_PASSWORD=contraseña_smtp
+MAIL_DEFAULT_SENDER=noreply@aquantialab.com
+FRONTEND_URL=https://meteo.aquantialab.com
+```
 
 Crear usuario administrador:
 
@@ -231,10 +259,25 @@ CREATE TABLE home_weather_station (
     pipeline_pressure      REAL,         -- bar (simulado)
     pipeline_flow          REAL,         -- L/min (simulado)
     soil_moisture          REAL,         -- % YL-69
+    -- Parámetros agrometeorológicos (perfil AGROMETEO / sensor Helissense)
+    soil_temperature       REAL,         -- °C
+    soil_ph                REAL,
+    soil_ec                REAL,         -- µS/cm
+    soil_nitrogen          REAL,         -- mg/kg
+    soil_phosphorus        REAL,         -- mg/kg
+    soil_potassium         REAL,         -- mg/kg
+    -- Contadores de caudal (pipeline)
+    flow_total_l           REAL,         -- litros totales desde reset
+    flow_session_l         REAL,         -- litros de la sesión actual
+    flow_irrig_l           REAL,         -- litros de riego acumulados
+    flow_leak_l            REAL,         -- litros estimados de fuga
     device_mac             TEXT,
     timestamp              TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (id, timestamp)
 );
+
+-- Índice compuesto para consultas por dispositivo + tiempo
+CREATE INDEX ON home_weather_station (device_mac, timestamp DESC);
 
 -- Dispositivos registrados (MQTT register)
 CREATE TABLE device_info (
@@ -285,13 +328,16 @@ CREATE TABLE alerts (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Usuarios (autenticación JWT)
+-- Usuarios (autenticación JWT con verificación de email)
 CREATE TABLE users (
-    id            SERIAL PRIMARY KEY,
-    username      TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    display_name  TEXT,
-    created_at    TIMESTAMPTZ DEFAULT NOW()
+    id                 SERIAL PRIMARY KEY,
+    email              TEXT UNIQUE NOT NULL,
+    password_hash      TEXT NOT NULL,
+    display_name       TEXT,
+    role               TEXT NOT NULL DEFAULT 'user',  -- 'user' | 'admin'
+    email_verified     BOOLEAN NOT NULL DEFAULT false,
+    verification_token TEXT,                          -- UUID; NULL tras verificar
+    created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
@@ -311,8 +357,12 @@ Si vienes de una instalación con base de datos SQLite legada:
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/auth/login` | Login → JWT token |
+| `POST` | `/api/auth/register` | Registro + envío de email de verificación → 201 |
+| `GET` | `/api/auth/verify-email/<token>` | Verifica email → redirect al frontend |
+| `POST` | `/api/auth/login` | Login → JWT token (403 si email no verificado) |
 | `GET` | `/api/auth/me` | Info usuario autenticado |
+| `DELETE` | `/api/auth/account` | Eliminar cuenta propia (requiere `{password}`) |
+| `DELETE` | `/api/admin/users/<id>` | Eliminar usuario (solo admin, no se puede eliminar a sí mismo) |
 
 ### Datos de sensores
 
@@ -349,6 +399,7 @@ Si vienes de una instalación con base de datos SQLite legada:
 | `GET` | `/api/irrigation/sessions?mac=XX` | Historial de sesiones de riego |
 | `GET` | `/api/irrigation/history?period=day&mac=XX` | Histórico agregado por día/semana/mes |
 | `POST` | `/api/irrigation/reset` | Resetear contador mensual |
+| `POST` | `/api/flow/reset` | Resetear contadores de caudal del dispositivo |
 | `GET` | `/api/relay?mac=XX` | Estado de todos los relays del dispositivo |
 | `POST` | `/api/relay` | Activa/desactiva relay `{mac, index, state}` vía MQTT |
 
@@ -648,6 +699,7 @@ La suite cubre el backend Flask y el frontend React con pytest y Vitest respecti
 | Módulo | Tests | Cobertura |
 |--------|------:|-----------|
 | `test_alerts_crud` | 18 | CRUD alertas, isolación multi-usuario |
+| `test_auth_flow` | 23 | Registro con verificación de email, login bloqueado sin verificar, eliminación de cuenta propia y por admin |
 | `test_endpoints` | 26 | Auth, dispositivos, settings, headers de seguridad |
 | `test_irrigation_endpoints` | 13 | Stats, sesiones, reset, historial |
 | `test_mqtt_integration` | 7 | Telemetría, alertas, registro vía MQTT |
@@ -658,7 +710,7 @@ La suite cubre el backend Flask y el frontend React con pytest y Vitest respecti
 | `test_relay_dashboard` | 12 | Estado relay, control, persistencia |
 | `test_rows_to_dict` | 15 | Serialización de campos agrometeorológicos |
 | `test_security` | 30 | IDOR, SQL injection, MQTT auth y ACL |
-| **Total** | **262** | 261/262 passing — 1 fallo conocido corregido (IDOR `GET /api/alerts?mac=`) |
+| **Total** | **285** | 285/285 passing |
 
 Ejecutar los tests de backend:
 
