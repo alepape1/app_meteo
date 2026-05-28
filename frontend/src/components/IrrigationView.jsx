@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
-  BarChart2,
+  BarChart2, Activity, Timer,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import * as echarts from 'echarts/core'
@@ -315,6 +315,14 @@ const SECTORS = [
   { id: 9, name: 'Sector E1', crop: 'Vid',       area: '0.8 ha', kc: 0.85 },
 ]
 
+// ── Temporizador de cierre automático ────────────────────────────────────────
+const TIMER_PRESETS = [
+  { label: '5m',  seconds: 300  },
+  { label: '10m', seconds: 600  },
+  { label: '20m', seconds: 1200 },
+  { label: '30m', seconds: 1800 },
+]
+
 function SectorCard({ sector }) {
   return (
     <div
@@ -402,6 +410,9 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const [sessionSeconds, setSessionSeconds] = useState(null)
   const pollRef = useRef(null)
   const retryTimerRef = useRef(null)
+  const autoCloseRef = useRef(null)
+  const [timerPreset, setTimerPreset] = useState(null)
+  const [timerRemaining, setTimerRemaining] = useState(null)
 
   // Sync state when parent passes new initialState
   useEffect(() => {
@@ -427,6 +438,7 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   useEffect(() => () => {
     if (pollRef.current) clearInterval(pollRef.current)
     if (retryTimerRef.current) clearInterval(retryTimerRef.current)
+    if (autoCloseRef.current) clearInterval(autoCloseRef.current)
   }, [])
 
   useEffect(() => {
@@ -434,6 +446,30 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
     const id = setInterval(() => setSessionSeconds(s => s + 1), 1000)
     return () => clearInterval(id)
   }, [sessionStart])
+
+  // Auto-close timer
+  useEffect(() => {
+    if (autoCloseRef.current) { clearInterval(autoCloseRef.current); autoCloseRef.current = null }
+    if (!desired || timerPreset == null) { setTimerRemaining(null); return }
+    const endsAt = Date.now() + timerPreset * 1000
+    setTimerRemaining(timerPreset)
+    autoCloseRef.current = setInterval(async () => {
+      const rem = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+      setTimerRemaining(rem)
+      if (rem <= 0) {
+        clearInterval(autoCloseRef.current); autoCloseRef.current = null
+        setTimerPreset(null); setTimerRemaining(null); setSessionStart(null); setDesired(false)
+        try {
+          await authFetch('/api/relay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac, index, state: false }),
+          })
+        } catch (e) { void e }
+      }
+    }, 1000)
+    return () => { if (autoCloseRef.current) { clearInterval(autoCloseRef.current); autoCloseRef.current = null } }
+  }, [desired, timerPreset, authFetch, mac, index])
 
   const startRetryCooldown = useCallback((timeoutMs = 8000) => {
     if (retryTimerRef.current) clearInterval(retryTimerRef.current)
@@ -503,7 +539,12 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
       setDesired(next)
       startRetryCooldown(8000)
       if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
-      else { setSessionStart(null) }
+      else {
+        setSessionStart(null)
+        setTimerPreset(null)
+        setTimerRemaining(null)
+        if (autoCloseRef.current) { clearInterval(autoCloseRef.current); autoCloseRef.current = null }
+      }
       startSyncPolling(next)
     } finally {
       setBusy(false)
@@ -589,6 +630,50 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
               <span className="font-semibold text-brand-600">{sessionLiters} L</span>
             </div>
             <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
+            {desired && timerPreset != null && timerRemaining != null && (
+              <>
+                <div className="flex justify-between text-xs mt-1.5">
+                  <span className="flex items-center gap-1 text-navy-400">
+                    <Timer size={11} /> Cierre automático
+                  </span>
+                  <span className="font-semibold text-amber-600">{fmtTime(timerRemaining)}</span>
+                </div>
+                <div className="h-1 bg-navy-100 rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.round((timerRemaining / timerPreset) * 100)}%` }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {!desired && (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-navy-400 mb-2 flex items-center gap-1.5">
+              <Timer size={11} /> Temporizador de cierre
+            </p>
+            <div className="flex gap-1.5 flex-wrap">
+              {TIMER_PRESETS.map(t => (
+                <button
+                  key={t.label}
+                  onClick={() => setTimerPreset(prev => prev === t.seconds ? null : t.seconds)}
+                  className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                    timerPreset === t.seconds
+                      ? 'bg-brand-500 text-white shadow-sm'
+                      : 'bg-navy-50 text-navy-400 border border-navy-100 hover:bg-brand-50 hover:text-brand-600'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {timerPreset != null && (
+              <p className="text-xs text-navy-300 mt-1.5">
+                Válvula cerrará en {fmtTime(timerPreset)} al abrir
+              </p>
+            )}
           </div>
         )}
 
@@ -1275,6 +1360,156 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
   )
 }
 
+// ── Cabecera de p\u00e1gina ─────────────────────────────────────────────────────────
+function IrrigationPageHeader({ latest }) {
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const relayOn = (latest?.relay_active ?? 0) > 0
+  const hasFlow = (latest?.pipeline_flow ?? 0) > 0.1
+  const isLeak  = hasFlow && !relayOn
+
+  return (
+    <div
+      className="relative rounded-2xl overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #001530 0%, #0a2040 55%, #0c3060 100%)' }}
+    >
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle at 18% 60%, rgba(63,182,240,0.18) 0%, transparent 55%), ' +
+            'radial-gradient(circle at 82% 25%, rgba(16,185,129,0.14) 0%, transparent 45%)',
+        }}
+      />
+      <div className="relative px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2.5 mb-1">
+            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(63,182,240,0.2)' }}>
+              <Droplets size={18} className="text-brand-300" />
+            </div>
+            <h1 className="text-lg font-bold text-white tracking-tight">Control de Riego</h1>
+          </div>
+          <p className="text-xs text-slate-400">Sistema Aquantia · Motor ET\u2080 Penman-Monteith</p>
+        </div>
+        <div className="flex items-center gap-2.5 shrink-0">
+          {isLeak && (
+            <span
+              className="flex items-center gap-1.5 text-xs font-bold text-red-300 border border-red-500/40 px-3 py-1.5 rounded-full animate-pulse"
+              style={{ background: 'rgba(127,29,29,0.45)' }}
+            >
+              <AlertTriangle size={12} /> FUGA ACTIVA
+            </span>
+          )}
+          {relayOn && !isLeak && (
+            <span
+              className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-full"
+              style={{ background: 'rgba(6,78,59,0.45)' }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              Regando
+            </span>
+          )}
+          <div className="text-right">
+            <p className="text-sm font-bold text-white tabular-nums">
+              {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+            <p className="text-xs text-slate-400">
+              {now.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── KPI strip \u2014 4 m\u00e9tricas clave en tiempo real ──────────────────────────────
+function LiveKPIStrip({ latest, stats, et0 }) {
+  const hasFlow = (latest?.pipeline_flow ?? 0) > 0.1
+  const relayOn = (latest?.relay_active ?? 0) > 0
+  const isLeak  = hasFlow && !relayOn
+  const flowColor = isLeak ? '#ef4444' : hasFlow ? '#10b981' : '#0c8ecc'
+
+  const kpis = [
+    {
+      icon: <Activity size={14} />,
+      label: 'Caudal',
+      value: latest?.pipeline_flow != null ? latest.pipeline_flow.toFixed(2) : '\u2014',
+      unit: 'L/min',
+      color: flowColor,
+      pulse: hasFlow,
+    },
+    {
+      icon: <Activity size={14} />,
+      label: 'Presi\u00f3n',
+      value: latest?.pipeline_pressure != null ? latest.pipeline_pressure.toFixed(1) : '\u2014',
+      unit: 'bar',
+      color: '#0c8ecc',
+    },
+    {
+      icon: <Zap size={14} />,
+      label: 'ET\u2080 hoy',
+      value: et0 ?? '\u2014',
+      unit: 'mm/d',
+      color: '#f59e0b',
+    },
+    {
+      icon: <Leaf size={14} />,
+      label: 'Ahorro mes',
+      value: stats ? stats.savings_liters.toFixed(0) : '\u2014',
+      unit: 'L',
+      color: '#8b5cf6',
+    },
+  ]
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {kpis.map(kpi => (
+        <div
+          key={kpi.label}
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, #f8fafc, #fff)',
+            border: `1px solid ${ha(kpi.color, 0.2)}`,
+            boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 2px 10px ${ha(kpi.color, 0.09)}`,
+          }}
+        >
+          <div style={{ height: 2, background: kpi.color, boxShadow: `0 0 6px 1px ${ha(kpi.color, 0.4)}` }} />
+          <div className="p-3.5 flex items-center gap-3">
+            <span
+              className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+              style={{
+                background: `linear-gradient(135deg, ${ha(kpi.color, 0.15)}, ${ha(kpi.color, 0.06)})`,
+                border: `1px solid ${ha(kpi.color, 0.22)}`,
+                color: kpi.color,
+              }}
+            >
+              {kpi.icon}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-navy-300 leading-none truncate">{kpi.label}</p>
+              <p className="mt-0.5 font-bold text-navy-900 leading-none tabular-nums">
+                {kpi.value}
+                <span className="text-xs font-normal text-navy-300 ml-1">{kpi.unit}</span>
+              </p>
+            </div>
+            {kpi.pulse && (
+              <span
+                className="w-2 h-2 rounded-full shrink-0 animate-pulse"
+                style={{ background: kpi.color }}
+              />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Vista principal ──────────────────────────────────────────────────────────
 export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   const { authFetch } = useAuth()
@@ -1331,6 +1566,12 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
           onCancel={() => setShowResetConfirm(false)}
         />
       )}
+
+      {/* ── Cabecera de página ── */}
+      <IrrigationPageHeader latest={latest} />
+
+      {/* ── KPI strip ── */}
+      <LiveKPIStrip latest={latest} stats={stats} et0={et0} />
 
       {/* ── Banner desarrollo ── */}
       <div className="bg-[#FAEEDA] border border-[#FAC775] rounded-2xl p-4 flex items-start gap-3">
@@ -1556,9 +1797,15 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
       {/* ── Sectores de riego ── */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-navy-900">
+          <h2 className="text-sm font-semibold text-navy-900 flex items-center gap-2">
+            <span
+              className="inline-flex items-center justify-center w-5 h-5 rounded-md"
+              style={{ background: ha('#1a3350', 0.08), border: `1px solid ${ha('#1a3350', 0.15)}` }}
+            >
+              <Leaf size={11} className="text-navy-400" />
+            </span>
             Sectores de riego
-            <span className="text-navy-300 font-normal ml-1">(9 nodos LoRa)</span>
+            <span className="text-navy-300 font-normal">(9 nodos LoRa)</span>
           </h2>
           <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-2.5 py-1 rounded-full border border-navy-100">
             <span className="w-1.5 h-1.5 bg-navy-200 rounded-full" />

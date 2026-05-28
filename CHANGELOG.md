@@ -12,6 +12,9 @@ Versiones siguiendo [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Añadido
+- **IrrigationView — Cabecera de página oscura** (`IrrigationPageHeader`): banner hero con gradiente `#001530→#0c3060`, indicadores de estado en tiempo real (FUGA ACTIVA / Regando) con badge animado, y reloj con fecha/hora actualizándose cada 30 s.
+- **IrrigationView — KPI strip** (`LiveKPIStrip`): 4 tarjetas de métricas instantáneas (Caudal, Presión, ET₀ hoy, Ahorro mes) con barra de acento de color, icono y punto de pulso animado cuando hay flujo activo.
+- **ValveCard — Temporizador de cierre automático**: fila de chips presets (5m / 10m / 20m / 30m) visible cuando la válvula está cerrada; al abrir con temporizador activo se muestra una barra de cuenta regresiva naranja en la tarjeta; al llegar a 0 se envía automáticamente el comando de cierre vía `/api/relay`.
 - **Card "Consumo de agua"**: muestra el último ciclo de riego con fecha de inicio, fecha de fin, duración y litros consumidos. El backend ahora incluye `last_session` en la respuesta de `/api/irrigation/stats`.
 - **Card "Ahorro este mes"**: la animación de la gota responde al flujo en tiempo real — se rellena dinámicamente cuando hay caudal activo (ondas más amplias y rápidas), verde cuando es riego con válvula abierta, rojo/naranja pulsante cuando es fuga con válvula cerrada. Al parar el flujo vuelve al nivel estático de consumo mensual.
 

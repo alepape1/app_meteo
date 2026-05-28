@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { id: 'pipeline',    label: 'Pipeline',          icon: Activity },
   { id: 'nodos',       label: 'Nodos LoRa',        icon: Radio },
   { id: 'alerts',      label: 'Alertas',           icon: Bell },
-  { id: 'device',      label: 'ESP32',             icon: Cpu },
+  { id: 'device',      label: 'Estado del dispositivo',             icon: Cpu },
   { id: 'devices',     label: 'Mis dispositivos',  icon: Layers },
   { id: 'settings',    label: 'Configuración',     icon: Settings },
 ]

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Settings, Droplets, MapPin, Check, AlertTriangle } from 'lucide-react'
+import { Settings, Droplets, MapPin, Check, AlertTriangle, Trash2, Lock, X } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
 function SettingField({ label, description, value, onChange, type = 'text', unit, min, max, step }) {
@@ -40,8 +40,8 @@ function SettingTextField({ label, description, value, onChange }) {
   )
 }
 
-export default function SettingsView() {
-  const { authFetch } = useAuth()
+export default function SettingsView({ hasDevices = true }) {
+  const { authFetch, logout } = useAuth()
   const [form, setForm] = useState({
     flow_lpm:               '5.0',
     baseline_daily_l:       '15.0',
@@ -52,6 +52,10 @@ export default function SettingsView() {
     display_timeout_s:      '60',
   })
   const [status, setStatus] = useState(null)   // 'saving' | 'saved' | 'error'
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteError, setDeleteError] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -138,6 +142,24 @@ export default function SettingsView() {
     }
   }, [authFetch, form])
 
+  const handleDeleteAccount = useCallback(async () => {
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      const res = await authFetch('/api/auth/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: deletePassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'No se pudo eliminar la cuenta')
+      logout()
+    } catch (err) {
+      setDeleteError(err.message)
+      setDeleteLoading(false)
+    }
+  }, [authFetch, logout, deletePassword])
+
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
 
@@ -153,22 +175,27 @@ export default function SettingsView() {
           </div>
         </div>
 
-        <button
-          onClick={save}
-          disabled={status === 'saving'}
-          className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl transition-all ${
-            status === 'saved'
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              : status === 'error'
-              ? 'bg-red-50 text-red-600 border border-red-200'
-              : 'bg-brand-500 text-white hover:bg-brand-600'
-          } disabled:opacity-50`}
-        >
-          {status === 'saved'  && <Check size={14} />}
-          {status === 'error'  && <AlertTriangle size={14} />}
-          {status === 'saving' ? 'Guardando…' : status === 'saved' ? 'Guardado' : status === 'error' ? 'Error' : 'Guardar cambios'}
-        </button>
+        {hasDevices && (
+          <button
+            onClick={save}
+            disabled={status === 'saving'}
+            className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl transition-all ${
+              status === 'saved'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : status === 'error'
+                ? 'bg-red-50 text-red-600 border border-red-200'
+                : 'bg-brand-500 text-white hover:bg-brand-600'
+            } disabled:opacity-50`}
+          >
+            {status === 'saved'  && <Check size={14} />}
+            {status === 'error'  && <AlertTriangle size={14} />}
+            {status === 'saving' ? 'Guardando…' : status === 'saved' ? 'Guardado' : status === 'error' ? 'Error' : 'Guardar cambios'}
+          </button>
+        )}
       </div>
+
+      {/* ── Secciones de configuración — solo si hay dispositivos ── */}
+      {hasDevices && <>
 
       {/* ── Sección Riego ── */}
       <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -282,6 +309,96 @@ export default function SettingsView() {
           ))}
         </div>
       </div>
+
+      </>}
+
+      {/* ── Zona de peligro ── */}
+      <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="bg-red-50 p-1.5 rounded-lg">
+            <Trash2 size={15} className="text-red-500" />
+          </div>
+          <p className="text-xs font-semibold text-red-400 uppercase tracking-widest">
+            Zona de peligro
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-navy-900">Eliminar cuenta</p>
+            <p className="text-xs text-navy-400 mt-0.5">Esta acción es permanente e irreversible. Se borrarán todos tus datos.</p>
+          </div>
+          <button
+            onClick={() => { setShowDeleteModal(true); setDeletePassword(''); setDeleteError(null) }}
+            className="shrink-0 flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={14} /> Eliminar cuenta
+          </button>
+        </div>
+      </div>
+
+      {/* ── Modal confirmación eliminación ── */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-red-50 border border-red-100 text-red-500">
+                  <Trash2 size={18} />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-navy-900">Eliminar cuenta</h3>
+                  <p className="text-xs text-navy-400">Esta acción no se puede deshacer</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="text-navy-300 hover:text-navy-600 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-sm text-navy-500 leading-relaxed">
+              Se eliminarán permanentemente tu cuenta, dispositivos vinculados y toda la configuración. Los datos históricos de telemetría se conservarán desvinculados.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-navy-600 flex items-center gap-1.5">
+                <Lock size={11} /> Confirma tu contraseña para continuar
+              </label>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={e => setDeletePassword(e.target.value)}
+                placeholder="Contraseña actual"
+                className="w-full text-sm bg-navy-50 border border-navy-100 rounded-xl px-3 py-2.5 focus:outline-none focus:border-red-300 focus:bg-white transition-colors"
+                onKeyDown={e => e.key === 'Enter' && deletePassword && handleDeleteAccount()}
+              />
+              {deleteError && (
+                <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
+                  <AlertTriangle size={11} /> {deleteError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 text-sm font-medium px-4 py-2.5 rounded-xl border border-navy-100 text-navy-600 hover:bg-navy-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={!deletePassword || deleteLoading}
+                className="flex-1 text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 disabled:opacity-40 transition-colors"
+              >
+                {deleteLoading ? 'Eliminando…' : 'Eliminar definitivamente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </main>
   )

@@ -38,6 +38,14 @@ _RECONNECT_COOLDOWN_S = 600  # 10 minutos entre alertas de reconexión por dispo
 # Se resetea a None cuando se detecta un reinicio del ESP (total nuevo < total previo).
 _last_flow_total: dict[str, float] = {}
 
+# Último instante (monotonic) en que se recibió telemetría o alerta de cada MAC.
+# Se usa para purgar entradas antiguas de _reconnect_cooldown y _last_flow_total.
+_mac_last_seen: dict[str, float] = {}
+_STALE_MAC_TTL_S = 86_400  # 24 horas
+
+# Tipos de riego válidos reportados por el firmware.
+_VALID_IRRIG: frozenset[str] = frozenset({'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'})
+
 MQTT_HOST     = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT     = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER     = os.getenv("MQTT_USER", "")
@@ -57,6 +65,16 @@ def _finca_id_from_topic(topic: str) -> str | None:
     return parts[1] if len(parts) >= 3 and parts[0] == "aquantia" else None
 
 
+def _prune_stale_macs() -> None:
+    """Elimina entradas de MACs no vistas en las últimas 24 horas."""
+    cutoff = time.monotonic() - _STALE_MAC_TTL_S
+    stale = [mac for mac, ts in _mac_last_seen.items() if ts < cutoff]
+    for mac in stale:
+        _mac_last_seen.pop(mac, None)
+        _reconnect_cooldown.pop(mac, None)
+        _last_flow_total.pop(mac, None)
+
+
 # ── Callbacks de mensajes entrantes ──────────────────────────────────────────
 
 def _handle_telemetry(finca_id: str, payload: dict):
@@ -68,6 +86,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
     db = get_db_connection()
     try:
         device_mac = payload.get("mac_address") or payload.get("device_mac")
+        if device_mac:
+            _mac_last_seen[device_mac] = time.monotonic()
+            _prune_stale_macs()
 
         # Timestamp del ESP32: solo válido si NTP sincronizó (epoch > año 2001)
         ts_dt = None
@@ -96,7 +117,7 @@ def _handle_telemetry(finca_id: str, payload: dict):
                     delta = new_total - _last_flow_total[device_mac]
                     flow_delta_l = new_total if delta < 0 else delta
                 else:
-                    flow_delta_l = None  # primer mensaje: sin referencia previa
+                    flow_delta_l = new_total  # primer mensaje: litros desde arranque del dispositivo
                 _last_flow_total[device_mac] = new_total
             except (TypeError, ValueError):
                 pass
@@ -113,11 +134,12 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pipeline_source, pipeline_pressure_ok, pipeline_flow_ok,
                 pipeline_scenario,
                 soil_moisture,
+                soil_temperature, soil_ph, soil_ec, soil_tds, soil_n, soil_p, soil_k,
                 flow_total_l, flow_delta_l, flow_session_l, flow_irrig_l, flow_leak_l,
                 dew_point, heat_index, abs_humidity,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -146,6 +168,13 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("pipeline_flow_ok"),
             scenario_val,
             payload.get("soil_moisture"),
+            payload.get("soil_temperature"),
+            payload.get("soil_ph"),
+            payload.get("soil_ec"),
+            payload.get("soil_tds"),
+            payload.get("soil_n"),
+            payload.get("soil_p"),
+            payload.get("soil_k"),
             payload.get("flow_total_l"),
             flow_delta_l,
             payload.get("flow_session_l"),
@@ -202,34 +231,47 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 )
 
         # Sincronizar campos de configuración reportados en la telemetría del firmware.
-        _VALID_IRRIG = {'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'}
+        # Solo se escribe si el valor cambió para evitar escrituras/WAL innecesarias.
         irrig   = payload.get("irrigation_type")
         trained = payload.get("leak_detect_trained")
         pipe_sc = payload.get("pipeline_scenario")
 
         if irrig in _VALID_IRRIG:
-            db.execute(
-                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                ('irrigation_type', irrig),
-            )
+            cur_irrig = db.execute(
+                "SELECT value FROM app_settings WHERE key='irrigation_type'"
+            ).fetchone()
+            if not cur_irrig or cur_irrig['value'] != irrig:
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('irrigation_type', irrig),
+                )
         if trained is not None:
-            db.execute(
-                "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                ('leak_detect_trained', 'true' if trained else 'false'),
-            )
+            trained_val = 'true' if trained else 'false'
+            cur_trained = db.execute(
+                "SELECT value FROM app_settings WHERE key='leak_detect_trained'"
+            ).fetchone()
+            if not cur_trained or cur_trained['value'] != trained_val:
+                db.execute(
+                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('leak_detect_trained', trained_val),
+                )
         # En modo real, el scenario es auto-detectado por el firmware — actualizar.
         if pipe_sc in ('normal', 'leak', 'burst', 'obstruction'):
             mode_row = db.execute(
                 "SELECT value FROM app_settings WHERE key='pipeline_mode'"
             ).fetchone()
             if mode_row and mode_row['value'] == 'real':
-                db.execute(
-                    "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
-                    " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-                    ('pipeline_scenario', pipe_sc),
-                )
+                cur_sc = db.execute(
+                    "SELECT value FROM app_settings WHERE key='pipeline_scenario'"
+                ).fetchone()
+                if not cur_sc or cur_sc['value'] != pipe_sc:
+                    db.execute(
+                        "INSERT INTO app_settings(key, value) VALUES (%s, %s)"
+                        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                        ('pipeline_scenario', pipe_sc),
+                    )
 
         pw = payload.get("pipeline_window")
         if pw and isinstance(pw, dict):
@@ -265,6 +307,10 @@ def _handle_alert(finca_id: str, payload: dict):
     # en PubSubClient) es menor que el intervalo de telemetría (20s). No indica
     # un problema real si el uptime del dispositivo es continuo.
     # Se permite como máximo una alerta cada _RECONNECT_COOLDOWN_S por dispositivo.
+    if device_mac:
+        _mac_last_seen[device_mac] = time.monotonic()
+        _prune_stale_macs()
+
     if alert_type == "mqtt_reconnect":
         now = time.monotonic()
         last = _reconnect_cooldown.get(device_mac, 0.0)
@@ -296,6 +342,32 @@ def _handle_alert(finca_id: str, payload: dict):
         logger.info("Alerta MQTT recibida: finca_id=%s type=%s severity=%s frames=%d",
                     finca_id, alert_type, payload.get("severity"),
                     len(frames) if frames else 0)
+
+        # Tras un reboot el ESP reinicia todas las GPIOs a LOW (relays OFF).
+        # Re-publicar el estado deseado para que los relays vuelvan al estado correcto.
+        if alert_type == "device_reboot" and device_mac:
+            try:
+                finca_row = db.execute(
+                    "SELECT finca_id FROM device_info WHERE mac_address=%s", (device_mac,)
+                ).fetchone()
+                if finca_row and finca_row["finca_id"]:
+                    pending = db.execute(
+                        "SELECT relay_index FROM relay_state"
+                        " WHERE device_mac=%s AND desired=1",
+                        (device_mac,),
+                    ).fetchall()
+                    for row in pending:
+                        publish_cmd(finca_row["finca_id"], {
+                            "mac":   device_mac,
+                            "relay": row["relay_index"],
+                            "state": True,
+                        })
+                        logger.info(
+                            "Relay %d re-publicado tras device_reboot mac=%s",
+                            row["relay_index"], device_mac,
+                        )
+            except Exception:
+                logger.exception("Error re-publicando relays tras reboot mac=%s", device_mac)
     finally:
         db.close()
 

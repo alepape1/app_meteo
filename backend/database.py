@@ -39,7 +39,8 @@ def init_pool():
     _pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=2, maxconn=20,
         host=pg_host, port=pg_port,
-        dbname=pg_db, user=pg_user, password=pg_pass
+        dbname=pg_db, user=pg_user, password=pg_pass,
+        connect_timeout=10,
     )
     logger.info("Pool PostgreSQL inicializado (%s:%s/%s)", pg_host, pg_port, pg_db)
 
@@ -225,6 +226,8 @@ class _CompatConn:
 
 def get_db_connection() -> _CompatConn:
     """Obtiene una conexión del pool. Debe devolverse llamando a conn.close()."""
+    if _pool is None:
+        raise RuntimeError("El pool de base de datos no está inicializado. ¿Se llamó init_pool()?")
     raw = _pool.getconn()
     raw.autocommit = False
     return _CompatConn(raw)
@@ -267,6 +270,13 @@ def create_tables(conn: _CompatConn):
         pipeline_flow_ok       BOOLEAN DEFAULT NULL,
         pipeline_scenario      TEXT    DEFAULT NULL,
         soil_moisture          REAL    DEFAULT NULL,
+        soil_temperature       REAL    DEFAULT NULL,
+        soil_ph                REAL    DEFAULT NULL,
+        soil_ec                REAL    DEFAULT NULL,
+        soil_tds               REAL    DEFAULT NULL,
+        soil_n                 REAL    DEFAULT NULL,
+        soil_p                 REAL    DEFAULT NULL,
+        soil_k                 REAL    DEFAULT NULL,
         flow_total_l           REAL    DEFAULT NULL,
         flow_session_l         REAL    DEFAULT NULL,
         flow_irrig_l           REAL    DEFAULT NULL,
@@ -307,6 +317,13 @@ def create_tables(conn: _CompatConn):
         ("flow_session_l",       "ALTER TABLE home_weather_station ADD COLUMN flow_session_l REAL DEFAULT NULL"),
         ("flow_irrig_l",         "ALTER TABLE home_weather_station ADD COLUMN flow_irrig_l REAL DEFAULT NULL"),
         ("flow_leak_l",          "ALTER TABLE home_weather_station ADD COLUMN flow_leak_l REAL DEFAULT NULL"),
+        ("soil_temperature",     "ALTER TABLE home_weather_station ADD COLUMN soil_temperature REAL DEFAULT NULL"),
+        ("soil_ph",              "ALTER TABLE home_weather_station ADD COLUMN soil_ph REAL DEFAULT NULL"),
+        ("soil_ec",              "ALTER TABLE home_weather_station ADD COLUMN soil_ec REAL DEFAULT NULL"),
+        ("soil_tds",             "ALTER TABLE home_weather_station ADD COLUMN soil_tds REAL DEFAULT NULL"),
+        ("soil_n",               "ALTER TABLE home_weather_station ADD COLUMN soil_n REAL DEFAULT NULL"),
+        ("soil_p",               "ALTER TABLE home_weather_station ADD COLUMN soil_p REAL DEFAULT NULL"),
+        ("soil_k",               "ALTER TABLE home_weather_station ADD COLUMN soil_k REAL DEFAULT NULL"),
     ]:
         if _col not in _hws_cols:
             cur.execute(_ddl)
@@ -319,6 +336,13 @@ def create_tables(conn: _CompatConn):
     cur.execute("""
     CREATE INDEX IF NOT EXISTS idx_device_mac
         ON home_weather_station(device_mac);
+    """)
+    # Índice compuesto para queries WHERE device_mac = X ORDER BY timestamp DESC.
+    # Cubre api_muestras, api_latest, pipeline_readings, irrigation_stats, etc.
+    # En TimescaleDB actúa chunk a chunk → lookup casi instantáneo aunque la tabla sea enorme.
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_device_mac_timestamp
+        ON home_weather_station(device_mac, timestamp DESC);
     """)
 
     # Commit antes de intentar hypertable: si falla, las tablas ya existen
@@ -490,14 +514,27 @@ def create_tables(conn: _CompatConn):
     # ── Usuarios ──────────────────────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id            BIGSERIAL PRIMARY KEY,
-        email         TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        display_name  TEXT,
-        role          TEXT NOT NULL DEFAULT 'user',
-        is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at    TIMESTAMPTZ DEFAULT NOW()
+        id                  BIGSERIAL PRIMARY KEY,
+        email               TEXT UNIQUE NOT NULL,
+        password_hash       TEXT NOT NULL,
+        display_name        TEXT,
+        role                TEXT NOT NULL DEFAULT 'user',
+        is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+        email_verified      BOOLEAN NOT NULL DEFAULT FALSE,
+        verification_token  TEXT,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
     );
+    """)
+    # Migración incremental para DBs existentes
+    cur.execute("""
+    ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS email_verified     BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS verification_token TEXT;
+    """)
+    # Los usuarios ya existentes se consideran verificados
+    cur.execute("""
+    UPDATE users SET email_verified = TRUE
+    WHERE email_verified = FALSE AND verification_token IS NULL;
     """)
 
     cur.execute("""

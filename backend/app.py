@@ -3,6 +3,8 @@
 import datetime
 import logging
 import os
+import secrets
+import sys
 
 import bcrypt
 from dotenv import load_dotenv
@@ -15,10 +17,11 @@ from flask_jwt_extended import (
     jwt_required,
 )
 
-load_dotenv(override=True)
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 import mqtt_client
 from database import create_tables, get_db_connection, init_pool
+from email_service import send_verification_email, send_farewell_email
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pipeline_sim import (
@@ -213,25 +216,36 @@ def auth_register():
     if db.execute("SELECT id FROM users WHERE email=%s", (email,)).fetchone():
         return jsonify({"error": "Email ya registrado"}), 409
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    display_name = name or email.split("@")[0]
+    verification_token = secrets.token_urlsafe(32)
     db.execute(
-        "INSERT INTO users(email, password_hash, display_name) VALUES (%s, %s, %s)",
-        (email, pw_hash, name or email.split("@")[0])
+        """INSERT INTO users(email, password_hash, display_name, is_active, email_verified, verification_token)
+           VALUES (%s, %s, %s, FALSE, FALSE, %s)""",
+        (email, pw_hash, display_name, verification_token),
     )
     db.commit()
+    send_verification_email(email, display_name, verification_token)
+    return jsonify({"message": "Cuenta creada. Revisa tu correo para verificarla."}), 201
+
+
+@app.route("/api/auth/verify-email/<token>", methods=["GET"])
+def verify_email(token):
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    if not token:
+        return redirect(f"{frontend_url}/login?emailError=token_invalido")
+    db = get_db()
     user = db.execute(
-        "SELECT id, email, display_name, role FROM users WHERE email=%s",
-        (email,),
+        "SELECT id FROM users WHERE verification_token=%s AND email_verified=FALSE",
+        (token,),
     ).fetchone()
-    token = create_access_token(identity=str(user["id"]))
-    return jsonify({
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "display_name": user["display_name"],
-            "role": user["role"],
-        },
-    }), 201
+    if not user:
+        return redirect(f"{frontend_url}/login?emailError=token_invalido")
+    db.execute(
+        "UPDATE users SET email_verified=TRUE, is_active=TRUE, verification_token=NULL WHERE id=%s",
+        (user["id"],),
+    )
+    db.commit()
+    return redirect(f"{frontend_url}/login?emailVerified=1")
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -244,13 +258,15 @@ def auth_login():
         return jsonify({"error": "Faltan email o contraseña"}), 400
     db = get_db()
     user = db.execute(
-        "SELECT id, email, display_name, role, password_hash, is_active FROM users WHERE email=%s",
+        "SELECT id, email, display_name, role, password_hash, is_active, email_verified FROM users WHERE email=%s",
         (email,)
     ).fetchone()
     if not user or not bcrypt.checkpw(
             password.encode(),
             user["password_hash"].encode()):
         return jsonify({"error": "Credenciales incorrectas"}), 401
+    if not user.get("email_verified", True):
+        return jsonify({"error": "email_not_verified"}), 403
     if not user["is_active"]:
         return jsonify({"error": "Cuenta desactivada"}), 403
     token = create_access_token(identity=str(user["id"]))
@@ -281,6 +297,40 @@ def auth_me():
                     "role": user["role"]})
 
 
+@app.route("/api/auth/account", methods=["DELETE"])
+def delete_own_account():
+    data = request.get_json(silent=True) or {}
+    password = data.get("password") or ""
+    if not password:
+        return jsonify({"error": "Se requiere la contraseña para eliminar la cuenta"}), 400
+    db = get_db()
+    user = db.execute(
+        "SELECT id, email, display_name, password_hash FROM users WHERE id=%s", (g.user_id,)
+    ).fetchone()
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        return jsonify({"error": "Contraseña incorrecta"}), 403
+    db.execute("DELETE FROM users WHERE id=%s", (user["id"],))
+    db.commit()
+    send_farewell_email(user["email"], user["display_name"])
+    return jsonify({"message": "Cuenta eliminada"}), 200
+
+
+@app.route("/api/admin/users/<int:user_id>", methods=["DELETE"])
+def admin_delete_user(user_id):
+    db = get_db()
+    requester = db.execute("SELECT role FROM users WHERE id=%s", (g.user_id,)).fetchone()
+    if not requester or requester["role"] != "admin":
+        return jsonify({"error": "No autorizado"}), 403
+    if user_id == g.user_id:
+        return jsonify({"error": "Usa el endpoint de tu propia cuenta para eliminarla"}), 400
+    target = db.execute("SELECT id FROM users WHERE id=%s", (user_id,)).fetchone()
+    if not target:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+    db.execute("DELETE FROM users WHERE id=%s", (user_id,))
+    db.commit()
+    return jsonify({"message": "Usuario eliminado"}), 200
+
+
 # ── Guard JWT para rutas /api/ ──────────────────────────────────────────
 # Rutas públicas: llamadas por ESP32, mosquitto o el propio sistema de auth.
 _JWT_PUBLIC = {
@@ -298,6 +348,8 @@ def _require_jwt():
         return  # ficheros estáticos del frontend
     if request.path in _JWT_PUBLIC:
         return  # auth y endpoints internos
+    if request.path.startswith("/api/auth/verify-email/"):
+        return  # verificación de email via enlace, sin JWT
     # GET de configuración del pipeline → lectura por el ESP32 sin JWT
     if (
         request.path in ("/api/pipeline/scenario", "/api/pipeline/config")
@@ -308,7 +360,7 @@ def _require_jwt():
     # ESP32
     if request.path == "/api/device_info" and request.method == "POST":
         return
-    if request.path in ("/api/relay/command", "/api/relay/ack"):
+    if request.path in ("/api/relay/command", "/api/relay/ack", "/api/flow/reset-ack"):
         return
     from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
     try:
@@ -495,10 +547,17 @@ def rows_to_dict(rows):
         "pipeline_source": [r.get("pipeline_source") for r in rows],
         "pipeline_pressure_ok": [r.get("pipeline_pressure_ok") for r in rows],
         "pipeline_flow_ok": [r.get("pipeline_flow_ok") for r in rows],
-        "soil_moisture": [r["soil_moisture"] for r in rows],
-        "dew_point": [r.get("dew_point") for r in rows],
-        "heat_index": [r.get("heat_index") for r in rows],
-        "abs_humidity": [r.get("abs_humidity") for r in rows],
+        "soil_moisture":    [r["soil_moisture"] for r in rows],
+        "soil_temperature": [r.get("soil_temperature") for r in rows],
+        "soil_ph":          [r.get("soil_ph") for r in rows],
+        "soil_ec":          [r.get("soil_ec") for r in rows],
+        "soil_tds":         [r.get("soil_tds") for r in rows],
+        "soil_n":           [r.get("soil_n") for r in rows],
+        "soil_p":           [r.get("soil_p") for r in rows],
+        "soil_k":           [r.get("soil_k") for r in rows],
+        "dew_point":        [r.get("dew_point") for r in rows],
+        "heat_index":       [r.get("heat_index") for r in rows],
+        "abs_humidity":     [r.get("abs_humidity") for r in rows],
     }
 
 
@@ -703,6 +762,13 @@ def filtrar_datos_api():
             first(pipeline_pressure_ok,  timestamp) AS pipeline_pressure_ok,
             first(pipeline_flow_ok,      timestamp) AS pipeline_flow_ok,
             first(soil_moisture,         timestamp) AS soil_moisture,
+            first(soil_temperature,      timestamp) AS soil_temperature,
+            first(soil_ph,               timestamp) AS soil_ph,
+            first(soil_ec,               timestamp) AS soil_ec,
+            first(soil_tds,              timestamp) AS soil_tds,
+            first(soil_n,                timestamp) AS soil_n,
+            first(soil_p,                timestamp) AS soil_p,
+            first(soil_k,                timestamp) AS soil_k,
             first(dew_point,             timestamp) AS dew_point,
             first(heat_index,            timestamp) AS heat_index,
             first(abs_humidity,          timestamp) AS abs_humidity,
@@ -923,10 +989,6 @@ def set_relay():
                 "relay": index,
                 "state": state,
             })
-            # Actualizar actual de forma optimista — QoS 1 garantiza entrega.
-            # La telemetría corregirá cualquier discrepancia en el siguiente
-            # ciclo.
-            _relay_set_actual(mac, index, state)
 
     return jsonify({"index": index, "state": state})
 
@@ -1654,8 +1716,11 @@ def request_flow_reset():
 def flow_reset_ack():
     """Llamado por el ESP32 tras ejecutar el reset de contadores.
     Limpia el flag para que no se vuelva a enviar reset_flow_counters=true.
-    No requiere autenticación (solo accesible desde la red local donde corre el ESP32).
+    Requiere autenticación de dispositivo (X-Device-MAC + X-Device-Token).
     """
+    _mac, auth_ok = _verify_device_auth(request)
+    if not auth_ok:
+        return "Unauthorized", 401
     db = get_db()
     db.execute(
         "INSERT INTO app_settings(key, value) VALUES ('reset_flow_counters', 'false')"
@@ -2021,17 +2086,27 @@ def register_factory():
 
 
 def _autostart_mqtt():
-    """Arranca el cliente MQTT también bajo Gunicorn.
+    """Arranca el cliente MQTT en el worker correcto.
 
-    En desarrollo con el autoreload de Flask evitamos el proceso padre para no
-    duplicar la suscripción.
+    - Bajo gunicorn: el hook post_fork de gunicorn.conf.py llama a mqtt_client.start()
+      directamente en cada worker, por lo que aquí solo se omite para no duplicar.
+    - Bajo Flask dev server (werkzeug): omitir en el proceso padre del reloader
+      porque werkzeug bifurca un hijo con WERKZEUG_RUN_MAIN=true; el padre no
+      debe abrir la conexión o se duplicaría.
     """
     if os.getenv("MQTT_AUTOSTART", "1") != "1":
         logger.info("MQTT autostart deshabilitado por entorno")
         return
 
-    debug = os.getenv("FLASK_DEBUG", "0") == "1"
-    if debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    is_gunicorn = bool(sys.argv and "gunicorn" in sys.argv[0])
+    if is_gunicorn:
+        # gunicorn.conf.py post_fork hook arranca MQTT en cada worker; nada que hacer aquí.
+        logger.info("MQTT autostart delegado al hook post_fork de Gunicorn")
+        return
+
+    # Flask dev server: evitar arranque duplicado en el proceso padre
+    if (os.getenv("FLASK_DEBUG", "0") == "1"
+            and os.environ.get("WERKZEUG_RUN_MAIN") != "true"):
         logger.info("MQTT autostart omitido en el proceso padre del reloader")
         return
 

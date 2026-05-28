@@ -33,10 +33,14 @@ export function AuthProvider({ children }) {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Error al registrarse')
-    localStorage.setItem('aq_token', data.token)
-    localStorage.setItem('aq_user', JSON.stringify(data.user))
-    setToken(data.token)
-    setUser(data.user)
+    // Si el servidor devuelve token (auto-login): lo guardamos.
+    // Si no (verificación de email pendiente): solo retornamos, el caller decide.
+    if (data.token) {
+      localStorage.setItem('aq_token', data.token)
+      localStorage.setItem('aq_user', JSON.stringify(data.user))
+      setToken(data.token)
+      setUser(data.user)
+    }
   }, [])
 
   const logout = useCallback(() => {
