@@ -168,7 +168,7 @@ function AppInner({ user, logout }) {
   }
   const ts = data.timestamp
   const hasDevices = devices.length > 0
-  const showNoDevicesState = devicesLoaded && !hasDevices && activeView !== 'devices' && activeView !== 'claim'
+  const showNoDevicesState = devicesLoaded && !hasDevices && activeView !== 'devices' && activeView !== 'claim' && activeView !== 'settings'
 
   return (
     <>
@@ -283,7 +283,7 @@ function AppInner({ user, logout }) {
             {activeView === 'plantacion'  && <PlantationView data={data} latest={latest} timestamps={ts} paused={activeView !== 'plantacion'} />}
             {activeView === 'pipeline'  && <PipelineView selectedMac={selectedMac} />}
             {activeView === 'alerts'    && <AlertsPanel />}
-            {activeView === 'settings'  && <SettingsView />}
+            {activeView === 'settings'  && <SettingsView hasDevices={hasDevices} />}
             {activeView === 'devices'   && <DevicesView onNavigate={handleViewChange} />}
             {activeView === 'claim'     && <ClaimDeviceView initialSerial={claimSerial} />}
 

@@ -40,7 +40,7 @@ function SettingTextField({ label, description, value, onChange }) {
   )
 }
 
-export default function SettingsView() {
+export default function SettingsView({ hasDevices = true }) {
   const { authFetch, logout } = useAuth()
   const [form, setForm] = useState({
     flow_lpm:               '5.0',
@@ -175,22 +175,27 @@ export default function SettingsView() {
           </div>
         </div>
 
-        <button
-          onClick={save}
-          disabled={status === 'saving'}
-          className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl transition-all ${
-            status === 'saved'
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              : status === 'error'
-              ? 'bg-red-50 text-red-600 border border-red-200'
-              : 'bg-brand-500 text-white hover:bg-brand-600'
-          } disabled:opacity-50`}
-        >
-          {status === 'saved'  && <Check size={14} />}
-          {status === 'error'  && <AlertTriangle size={14} />}
-          {status === 'saving' ? 'Guardando…' : status === 'saved' ? 'Guardado' : status === 'error' ? 'Error' : 'Guardar cambios'}
-        </button>
+        {hasDevices && (
+          <button
+            onClick={save}
+            disabled={status === 'saving'}
+            className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-xl transition-all ${
+              status === 'saved'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : status === 'error'
+                ? 'bg-red-50 text-red-600 border border-red-200'
+                : 'bg-brand-500 text-white hover:bg-brand-600'
+            } disabled:opacity-50`}
+          >
+            {status === 'saved'  && <Check size={14} />}
+            {status === 'error'  && <AlertTriangle size={14} />}
+            {status === 'saving' ? 'Guardando…' : status === 'saved' ? 'Guardado' : status === 'error' ? 'Error' : 'Guardar cambios'}
+          </button>
+        )}
       </div>
+
+      {/* ── Secciones de configuración — solo si hay dispositivos ── */}
+      {hasDevices && <>
 
       {/* ── Sección Riego ── */}
       <div className="bg-white rounded-2xl border border-black/[.06] shadow-sm p-5">
@@ -304,6 +309,8 @@ export default function SettingsView() {
           ))}
         </div>
       </div>
+
+      </>}
 
       {/* ── Zona de peligro ── */}
       <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
