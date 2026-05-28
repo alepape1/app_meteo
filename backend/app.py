@@ -2037,32 +2037,27 @@ def register_factory():
 def _autostart_mqtt():
     """Arranca el cliente MQTT en el worker correcto.
 
-    - Bajo gunicorn con --preload: el master tiene current_process().name ==
-      'MainProcess'; los workers se llaman 'Worker-N'. Solo arrancamos en workers.
-    - Bajo gunicorn sin --preload: cada worker importa el módulo directamente,
-      current_process().name ya es 'Worker-N' → arranca correctamente.
+    - Bajo gunicorn: el hook post_fork de gunicorn.conf.py llama a mqtt_client.start()
+      directamente en cada worker, por lo que aquí solo se omite para no duplicar.
     - Bajo Flask dev server (werkzeug): omitir en el proceso padre del reloader
       porque werkzeug bifurca un hijo con WERKZEUG_RUN_MAIN=true; el padre no
       debe abrir la conexión o se duplicaría.
     """
-    import multiprocessing
-
     if os.getenv("MQTT_AUTOSTART", "1") != "1":
         logger.info("MQTT autostart deshabilitado por entorno")
         return
 
     is_gunicorn = bool(sys.argv and "gunicorn" in sys.argv[0])
     if is_gunicorn:
-        # Con --preload el master es 'MainProcess'; no arrancar ahí.
-        if multiprocessing.current_process().name == "MainProcess":
-            logger.info("MQTT autostart omitido en el master de Gunicorn (--preload)")
-            return
-    else:
-        # Flask dev server: evitar arranque duplicado en el proceso padre
-        if (os.getenv("FLASK_DEBUG", "0") == "1"
-                and os.environ.get("WERKZEUG_RUN_MAIN") != "true"):
-            logger.info("MQTT autostart omitido en el proceso padre del reloader")
-            return
+        # gunicorn.conf.py post_fork hook arranca MQTT en cada worker; nada que hacer aquí.
+        logger.info("MQTT autostart delegado al hook post_fork de Gunicorn")
+        return
+
+    # Flask dev server: evitar arranque duplicado en el proceso padre
+    if (os.getenv("FLASK_DEBUG", "0") == "1"
+            and os.environ.get("WERKZEUG_RUN_MAIN") != "true"):
+        logger.info("MQTT autostart omitido en el proceso padre del reloader")
+        return
 
     mqtt_client.start()
 
