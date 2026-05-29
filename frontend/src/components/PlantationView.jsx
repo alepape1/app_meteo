@@ -326,6 +326,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#BA7517"
             icon={Thermometer}
             available={latest?.soil_temperature != null}
+            onClick={() => setSelected('soil_temperature')}
+            selected={selected === 'soil_temperature'}
           />
           <ParameterCard
             label="pH"
@@ -336,6 +338,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#534AB7"
             icon={FlaskConical}
             available={latest?.soil_ph != null}
+            onClick={() => setSelected('soil_ph')}
+            selected={selected === 'soil_ph'}
           />
           <ParameterCard
             label="Conductividad"
@@ -346,6 +350,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#0c8ecc"
             icon={Zap}
             available={latest?.soil_ec != null}
+            onClick={() => setSelected('soil_ec')}
+            selected={selected === 'soil_ec'}
           />
           <ParameterCard
             label="Salinidad"
@@ -356,6 +362,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#8b83dc"
             icon={FlaskConical}
             available={latest?.soil_tds != null}
+            onClick={() => setSelected('soil_tds')}
+            selected={selected === 'soil_tds'}
           />
         </div>
       </div>
@@ -371,11 +379,26 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
               <div className="flex items-center gap-3">
                 {isNPK ? (
                   <FlaskConical size={15} className="text-fuchsia-500" />
-                ) : (
+                ) : selected === 'soil_moisture' ? (
                   <Sprout size={15} className="text-emerald-500" />
-                )}
+                ) : selected === 'soil_temperature' ? (
+                  <Thermometer size={15} className="text-yellow-700" />
+                ) : selected === 'soil_ph' ? (
+                  <FlaskConical size={15} className="text-indigo-500" />
+                ) : selected === 'soil_ec' ? (
+                  <Zap size={15} className="text-sky-500" />
+                ) : selected === 'soil_tds' ? (
+                  <FlaskConical size={15} className="text-purple-400" />
+                ) : null}
                 <h3 className="font-semibold text-slate-700 text-sm tracking-tight">
-                  {isNPK ? 'Histórico de Nutrientes NPK' : 'Historial Humedad del Suelo'}
+                  {isNPK
+                    ? 'Histórico de Nutrientes NPK'
+                    : selected === 'soil_moisture' ? 'Historial Humedad del Suelo'
+                    : selected === 'soil_temperature' ? 'Historial Temperatura del Suelo'
+                    : selected === 'soil_ph' ? 'Historial pH del Suelo'
+                    : selected === 'soil_ec' ? 'Historial Conductividad del Suelo'
+                    : selected === 'soil_tds' ? 'Historial Salinidad del Suelo'
+                    : ''}
                 </h3>
               </div>
               <div className="ml-auto">
@@ -400,7 +423,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                   yUnit=" mg/kg"
                   type="line"
                 />
-              ) : (
+              ) : selected === 'soil_moisture' ? (
                 <WeatherChart
                   title=""
                   icon={null}
@@ -414,7 +437,51 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                   type="area"
                   hideLegend={true}
                 />
-              )}
+              ) : selected === 'soil_temperature' ? (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[{ name: 'Temperatura', data: data?.soil_temperature ?? [] }]}
+                  colors={["#BA7517"]}
+                  yUnit="°C"
+                  type="line"
+                />
+              ) : selected === 'soil_ph' ? (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[{ name: 'pH', data: data?.soil_ph ?? [] }]}
+                  colors={["#534AB7"]}
+                  yUnit=""
+                  type="line"
+                />
+              ) : selected === 'soil_ec' ? (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[{ name: 'Conductividad', data: data?.soil_ec ?? [] }]}
+                  colors={["#0c8ecc"]}
+                  yUnit="dS/m"
+                  type="line"
+                />
+              ) : selected === 'soil_tds' ? (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[{ name: 'Salinidad', data: data?.soil_tds ?? [] }]}
+                  colors={["#8b83dc"]}
+                  yUnit="ppm"
+                  type="line"
+                />
+              ) : null}
             </div>
           </div>
         </div>
