@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Sprout, Droplets, FlaskConical, Zap, Leaf, Thermometer, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import WeatherChart from './WeatherChart'
 import TimeRangeControl from './TimeRangeControl'
@@ -111,12 +111,16 @@ function SoilGauge({ value, color }) {
 }
 
 // ── NPK + soil parameter card ──────────────────────────────────────────────────
-function ParameterCard({ label, symbol, value, unit, description, accentColor, icon: Icon, available = false }) {
-  const accent = accentColor ?? '#10b981'
+function ParameterCard({ label, symbol, value, unit, description, accentColor, icon: Icon, available = false, onClick, selected }) {
+  const accent = accentColor ?? '#10b981';
   return (
-    <div
-      className="bg-white border border-black/[.07] rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow"
-      style={{ borderTop: `3px solid ${ha(accent, 0.55)}` }}
+    <button
+      type="button"
+      className={`bg-white border border-black/[.07] rounded-2xl p-4 flex flex-col gap-3 shadow-sm transition-shadow outline-none focus:ring-2 focus:ring-brand-400 ${selected ? 'ring-2 ring-brand-400 border-brand-400' : 'hover:shadow-md'}`}
+      style={{ borderTop: `3px solid ${ha(accent, 0.55)}`, cursor: available ? 'pointer' : 'not-allowed', opacity: available ? 1 : 0.6 }}
+      onClick={available ? onClick : undefined}
+      tabIndex={available ? 0 : -1}
+      aria-pressed={selected}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -155,8 +159,8 @@ function ParameterCard({ label, symbol, value, unit, description, accentColor, i
       {description && (
         <p className="text-[10px] text-navy-300 leading-snug mt-auto">{description}</p>
       )}
-    </div>
-  )
+    </button>
+  );
 }
 
 // ── Trend icon ────────────────────────────────────────────────────────────────
@@ -167,17 +171,21 @@ function TrendBadge({ trend }) {
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+
 export default function PlantationView({ data, latest, timestamps, paused, onFetchFiltered, loading }) {
-  const soilValue  = latest?.soil_moisture
-  const soilSeries = data?.soil_moisture ?? []
-  const trend      = useMemo(() => getTrend(soilSeries), [soilSeries])
-  const status     = useMemo(() => getStatusFromMoisture(soilValue), [soilValue])
+  const soilValue  = latest?.soil_moisture;
+  const soilSeries = data?.soil_moisture ?? [];
+  const trend      = useMemo(() => getTrend(soilSeries), [soilSeries]);
+  const status     = useMemo(() => getStatusFromMoisture(soilValue), [soilValue]);
+
+  // Estado para la card seleccionada: 'soil_moisture', 'soil_n', 'soil_p', 'soil_k', null
+  const [selected, setSelected] = useState(null);
+
+  // Helper para saber si la selección es NPK
+  const isNPK = selected === 'soil_n' || selected === 'soil_p' || selected === 'soil_k';
 
   return (
-
-
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
-
       {/* ── Page header ────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-sm shadow-emerald-200">
@@ -209,15 +217,18 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
 
         <div className="p-5">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-
             {/* Gauge */}
             <div className="w-36 h-36 shrink-0">
               <SoilGauge value={soilValue} color={status.color} />
             </div>
-
             {/* Stats */}
             <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 w-full">
-              <div className="flex flex-col gap-1 p-3 rounded-xl bg-navy-50/50 border border-navy-100/60">
+              <button
+                type="button"
+                className={`flex flex-col gap-1 p-3 rounded-xl bg-navy-50/50 border border-navy-100/60 transition-shadow outline-none focus:ring-2 focus:ring-brand-400 ${selected === 'soil_moisture' ? 'ring-2 ring-brand-400 border-brand-400' : 'hover:shadow-md'}`}
+                onClick={() => setSelected('soil_moisture')}
+                aria-pressed={selected === 'soil_moisture'}
+              >
                 <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Actual</span>
                 <span className="text-xl font-extrabold text-navy-900 tabular-nums leading-none">
                   {fmt(soilValue)} <span className="text-sm font-semibold text-navy-300">%</span>
@@ -228,8 +239,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                     {trend === 'up' ? 'Subiendo' : trend === 'down' ? 'Bajando' : 'Estable'}
                   </span>
                 </div>
-              </div>
-
+              </button>
               <div className="flex flex-col gap-1 p-3 rounded-xl bg-navy-50/50 border border-navy-100/60">
                 <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Mín. periodo</span>
                 <span className="text-xl font-extrabold text-navy-900 tabular-nums leading-none">
@@ -239,7 +249,6 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                   )} <span className="text-sm font-semibold text-navy-300">%</span>
                 </span>
               </div>
-
               <div className="flex flex-col gap-1 p-3 rounded-xl bg-navy-50/50 border border-navy-100/60">
                 <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Máx. periodo</span>
                 <span className="text-xl font-extrabold text-navy-900 tabular-nums leading-none">
@@ -270,6 +279,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#10b981"
             icon={Leaf}
             available={latest?.soil_n != null}
+            onClick={() => setSelected('soil_n')}
+            selected={selected === 'soil_n'}
           />
           <ParameterCard
             label="Fósforo"
@@ -280,6 +291,8 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#f97316"
             icon={Zap}
             available={latest?.soil_p != null}
+            onClick={() => setSelected('soil_p')}
+            selected={selected === 'soil_p'}
           />
           <ParameterCard
             label="Potasio"
@@ -290,9 +303,12 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             accentColor="#eab308"
             icon={Sprout}
             available={latest?.soil_k != null}
+            onClick={() => setSelected('soil_k')}
+            selected={selected === 'soil_k'}
           />
         </div>
       </div>
+
 
       {/* ── Parámetros adicionales ────────────────────────────────────────── */}
       <div>
@@ -346,67 +362,65 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
 
 
 
-      {/* ── Gráficos con filtro temporal discreto ────────────────────────── */}
-      <div className="space-y-5">
-        {/* Humedad del suelo */}
-        <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden mb-2">
-          <div className="flex items-center justify-between px-5 pt-3.5 pb-0">
-            <div className="flex items-center gap-3">
-              <Sprout size={15} className="text-emerald-500" />
-              <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Historial Humedad del Suelo</h3>
-            </div>
-            <div className="ml-auto">
-              <div style={{ minWidth: 180, maxWidth: 220 }} className="flex justify-end items-center">
-                <TimeRangeControl onFetchFiltered={onFetchFiltered} loading={loading} />
+
+      {/* ── Gráfico y slider solo si hay selección ───────────────────────── */}
+      {selected && (
+        <div className="space-y-5">
+          <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden mb-2">
+            <div className="flex items-center justify-between px-5 pt-3.5 pb-0">
+              <div className="flex items-center gap-3">
+                {isNPK ? (
+                  <FlaskConical size={15} className="text-fuchsia-500" />
+                ) : (
+                  <Sprout size={15} className="text-emerald-500" />
+                )}
+                <h3 className="font-semibold text-slate-700 text-sm tracking-tight">
+                  {isNPK ? 'Histórico de Nutrientes NPK' : 'Historial Humedad del Suelo'}
+                </h3>
+              </div>
+              <div className="ml-auto">
+                <div style={{ minWidth: 180, maxWidth: 220 }} className="flex justify-end items-center">
+                  <TimeRangeControl onFetchFiltered={onFetchFiltered} loading={loading} />
+                </div>
               </div>
             </div>
-          </div>
-          <div className="px-5 pb-5 pt-2">
-            <WeatherChart
-              title=""
-              icon={null}
-              timestamps={timestamps}
-              paused={paused}
-              series={[{ name: 'Humedad suelo', data: soilSeries }]}
-              colors={["#10b981"]}
-              yUnit="%"
-              yMin={0}
-              yMax={100}
-              type="area"
-              hideLegend={true}
-            />
-          </div>
-        </div>
-
-        {/* Nutrientes NPK */}
-        <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 pt-3.5 pb-0">
-            <div className="flex items-center gap-3">
-              <FlaskConical size={15} className="text-fuchsia-500" />
-              <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Histórico de Nutrientes NPK</h3>
+            <div className="px-5 pb-5 pt-2">
+              {isNPK ? (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[
+                    { name: 'Nitrógeno (N)', data: data?.soil_n ?? [] },
+                    { name: 'Fósforo (P)', data: data?.soil_p ?? [] },
+                    { name: 'Potasio (K)', data: data?.soil_k ?? [] },
+                  ]}
+                  colors={["#2563eb", "#d946ef", "#22c55e"]}
+                  yUnit=" mg/kg"
+                  type="line"
+                />
+              ) : (
+                <WeatherChart
+                  title=""
+                  icon={null}
+                  timestamps={timestamps}
+                  paused={paused}
+                  series={[{ name: 'Humedad suelo', data: soilSeries }]}
+                  colors={["#10b981"]}
+                  yUnit="%"
+                  yMin={0}
+                  yMax={100}
+                  type="area"
+                  hideLegend={true}
+                />
+              )}
             </div>
-            {/* El slider solo se muestra una vez, arriba, así que aquí no se repite */}
-          </div>
-          <div className="px-5 pb-5 pt-2">
-            <WeatherChart
-              title=""
-              icon={null}
-              timestamps={timestamps}
-              paused={paused}
-              series={[
-                { name: 'Nitrógeno (N)', data: data?.soil_n ?? [] },
-                { name: 'Fósforo (P)', data: data?.soil_p ?? [] },
-                { name: 'Potasio (K)', data: data?.soil_k ?? [] },
-              ]}
-              colors={["#2563eb", "#d946ef", "#22c55e"]}
-              yUnit=" mg/kg"
-              type="line"
-            />
           </div>
         </div>
-      </div>
+      )}
 
 
     </main>
-  )
+  );
 }
