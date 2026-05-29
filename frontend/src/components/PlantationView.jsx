@@ -410,6 +410,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
             <div className="px-5 pb-5 pt-2">
               {isNPK ? (
                 <WeatherChart
+                  key="npk"
                   title=""
                   icon={null}
                   timestamps={timestamps}
@@ -425,6 +426,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                 />
               ) : selected === 'soil_moisture' ? (
                 <WeatherChart
+                  key="soil_moisture"
                   title=""
                   icon={null}
                   timestamps={timestamps}
@@ -439,6 +441,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                 />
               ) : selected === 'soil_temperature' ? (
                 <WeatherChart
+                  key="soil_temperature"
                   title=""
                   icon={null}
                   timestamps={timestamps}
@@ -450,6 +453,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                 />
               ) : selected === 'soil_ph' ? (
                 <WeatherChart
+                  key="soil_ph"
                   title=""
                   icon={null}
                   timestamps={timestamps}
@@ -461,6 +465,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                 />
               ) : selected === 'soil_ec' ? (
                 <WeatherChart
+                  key="soil_ec"
                   title=""
                   icon={null}
                   timestamps={timestamps}
@@ -472,6 +477,7 @@ export default function PlantationView({ data, latest, timestamps, paused, onFet
                 />
               ) : selected === 'soil_tds' ? (
                 <WeatherChart
+                  key="soil_tds"
                   title=""
                   icon={null}
                   timestamps={timestamps}
