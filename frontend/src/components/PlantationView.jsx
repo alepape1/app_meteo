@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Sprout, Droplets, FlaskConical, Zap, Leaf, Thermometer, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import WeatherChart from './WeatherChart'
+import TimeRangeControl from './TimeRangeControl'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(v, decimals = 1) {
@@ -166,13 +167,15 @@ function TrendBadge({ trend }) {
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
-export default function PlantationView({ data, latest, timestamps, paused }) {
+export default function PlantationView({ data, latest, timestamps, paused, onFetchFiltered, loading }) {
   const soilValue  = latest?.soil_moisture
   const soilSeries = data?.soil_moisture ?? []
   const trend      = useMemo(() => getTrend(soilSeries), [soilSeries])
   const status     = useMemo(() => getStatusFromMoisture(soilValue), [soilValue])
 
   return (
+
+
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
 
       {/* ── Page header ────────────────────────────────────────────────────── */}
@@ -341,39 +344,68 @@ export default function PlantationView({ data, latest, timestamps, paused }) {
         </div>
       </div>
 
-      {/* ── Chart ─────────────────────────────────────────────────────────── */}
-      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden mb-5">
-        <WeatherChart
-          title="Historial Humedad del Suelo"
-          icon={Sprout}
-          timestamps={timestamps}
-          paused={paused}
-          series={[{ name: 'Humedad suelo', data: soilSeries }]}
-          colors={["#10b981"]}
-          yUnit="%"
-          yMin={0}
-          yMax={100}
-          type="area"
-        />
+
+
+      {/* ── Gráficos con filtro temporal discreto ────────────────────────── */}
+      <div className="space-y-5">
+        {/* Humedad del suelo */}
+        <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden mb-2">
+          <div className="flex items-center justify-between px-5 pt-3.5 pb-0">
+            <div className="flex items-center gap-3">
+              <Sprout size={15} className="text-emerald-500" />
+              <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Historial Humedad del Suelo</h3>
+            </div>
+            <div className="ml-auto">
+              <div style={{ minWidth: 180, maxWidth: 220 }} className="flex justify-end items-center">
+                <TimeRangeControl onFetchFiltered={onFetchFiltered} loading={loading} />
+              </div>
+            </div>
+          </div>
+          <div className="px-5 pb-5 pt-2">
+            <WeatherChart
+              title=""
+              icon={null}
+              timestamps={timestamps}
+              paused={paused}
+              series={[{ name: 'Humedad suelo', data: soilSeries }]}
+              colors={["#10b981"]}
+              yUnit="%"
+              yMin={0}
+              yMax={100}
+              type="area"
+              hideLegend={true}
+            />
+          </div>
+        </div>
+
+        {/* Nutrientes NPK */}
+        <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 pt-3.5 pb-0">
+            <div className="flex items-center gap-3">
+              <FlaskConical size={15} className="text-fuchsia-500" />
+              <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Histórico de Nutrientes NPK</h3>
+            </div>
+            {/* El slider solo se muestra una vez, arriba, así que aquí no se repite */}
+          </div>
+          <div className="px-5 pb-5 pt-2">
+            <WeatherChart
+              title=""
+              icon={null}
+              timestamps={timestamps}
+              paused={paused}
+              series={[
+                { name: 'Nitrógeno (N)', data: data?.soil_n ?? [] },
+                { name: 'Fósforo (P)', data: data?.soil_p ?? [] },
+                { name: 'Potasio (K)', data: data?.soil_k ?? [] },
+              ]}
+              colors={["#2563eb", "#d946ef", "#22c55e"]}
+              yUnit=" mg/kg"
+              type="line"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* ── Gráfico de nutrientes NPK ─────────────────────────────────────── */}
-      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
-        <WeatherChart
-          title="Histórico de Nutrientes NPK"
-          icon={FlaskConical}
-          timestamps={timestamps}
-          paused={paused}
-          series={[
-            { name: 'Nitrógeno (N)', data: data?.soil_n ?? [] },
-            { name: 'Fósforo (P)', data: data?.soil_p ?? [] },
-            { name: 'Potasio (K)', data: data?.soil_k ?? [] },
-          ]}
-          colors={["#10b981", "#f97316", "#eab308"]}
-          yUnit=" mg/kg"
-          type="line"
-        />
-      </div>
 
     </main>
   )
