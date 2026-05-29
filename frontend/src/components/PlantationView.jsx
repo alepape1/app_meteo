@@ -342,18 +342,36 @@ export default function PlantationView({ data, latest, timestamps, paused }) {
       </div>
 
       {/* ── Chart ─────────────────────────────────────────────────────────── */}
-      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden mb-5">
         <WeatherChart
           title="Historial Humedad del Suelo"
           icon={Sprout}
           timestamps={timestamps}
           paused={paused}
           series={[{ name: 'Humedad suelo', data: soilSeries }]}
-          colors={['#10b981']}
+          colors={["#10b981"]}
           yUnit="%"
           yMin={0}
           yMax={100}
           type="area"
+        />
+      </div>
+
+      {/* ── Gráfico de nutrientes NPK ─────────────────────────────────────── */}
+      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+        <WeatherChart
+          title="Histórico de Nutrientes NPK"
+          icon={FlaskConical}
+          timestamps={timestamps}
+          paused={paused}
+          series={[
+            { name: 'Nitrógeno (N)', data: data?.soil_n ?? [] },
+            { name: 'Fósforo (P)', data: data?.soil_p ?? [] },
+            { name: 'Potasio (K)', data: data?.soil_k ?? [] },
+          ]}
+          colors={["#10b981", "#f97316", "#eab308"]}
+          yUnit=" mg/kg"
+          type="line"
         />
       </div>
 
