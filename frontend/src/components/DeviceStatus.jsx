@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu, BatteryMedium, Zap, AlertTriangle } from 'lucide-react'
+import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu, BatteryMedium, Zap, AlertTriangle, Activity } from 'lucide-react'
 import WeatherChart from './WeatherChart'
 import * as echarts from 'echarts/core'
 import { LineChart as ELineChart } from 'echarts/charts'
@@ -18,10 +18,64 @@ function ha(hex, a) {
   return `rgba(${r},${g},${b},${a})`
 }
 
+// ── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ icon: Icon, label }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon size={14} className="text-navy-300" />
+      <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-navy-300">{label}</h2>
+    </div>
+  )
+}
+
+// ── Info row inside device card ───────────────────────────────────────────────
+function InfoRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
+      <span className="text-[11px] text-navy-300">{label}</span>
+      <span className="text-[11px] font-semibold text-navy-700 font-mono">{value ?? '—'}</span>
+    </div>
+  )
+}
+
+// ── Metric card (PlantationView ParameterCard style) ──────────────────────────
+function MetricCard({ label, symbol, value, unit, accent, icon: Icon, children }) {
+  return (
+    <div
+      className="bg-white border border-black/[.07] rounded-2xl p-4 flex flex-col gap-3 shadow-sm"
+      style={{ borderTop: `3px solid ${ha(accent, 0.75)}` }}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: ha(accent, 0.12) }}
+        >
+          <Icon size={14} style={{ color: accent }} />
+        </div>
+        <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-navy-300 leading-none">{label}</p>
+        {symbol && (
+          <p className="text-[9px] font-semibold text-navy-200 leading-none ml-auto">{symbol}</p>
+        )}
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className="text-[2rem] font-extrabold leading-none tabular-nums tracking-tight"
+          style={{ color: '#0f172a', textShadow: `0 0 20px ${ha(accent, 0.18)}` }}
+        >
+          {value}
+        </span>
+        {unit && <span className="text-xs font-semibold text-navy-300">{unit}</span>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ── Signal bars widget ────────────────────────────────────────────────────────
 function SignalBars({ rssi }) {
   if (rssi == null) return <span className="text-navy-200 text-sm">—</span>
   const level = rssi >= -50 ? 4 : rssi >= -60 ? 3 : rssi >= -70 ? 2 : rssi >= -80 ? 1 : 0
-  const color  = ['bg-red-400', 'bg-red-400', 'bg-[#BA7517]', 'bg-[#BA7517]', 'bg-brand-500'][level]
+  const color  = ['bg-red-400', 'bg-red-400', 'bg-[#BA7517]', 'bg-[#BA7517]', 'bg-[#0c8ecc]'][level]
   const label  = ['Sin señal', 'Muy débil', 'Débil', 'Buena', 'Excelente'][level]
   return (
     <div className="flex flex-col gap-1.5">
@@ -39,43 +93,22 @@ function SignalBars({ rssi }) {
   )
 }
 
+// ── Heap bar widget ───────────────────────────────────────────────────────────
 function HeapBar({ freeHeap }) {
   if (freeHeap == null) return <span className="text-navy-200 text-sm">—</span>
   const totalKb = 320
   const freeKb  = Math.round(freeHeap / 1024)
   const pct     = Math.min(100, Math.round((freeKb / totalKb) * 100))
-  const color   = pct >= 60 ? 'bg-brand-500' : pct >= 30 ? 'bg-[#BA7517]' : 'bg-red-400'
+  const color   = pct >= 60 ? '#534AB7' : pct >= 30 ? '#BA7517' : '#ef4444'
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="h-2.5 bg-navy-50 rounded-full overflow-hidden">
-        <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      <div className="h-2.5 rounded-full overflow-hidden" style={{ background: ha(color, 0.12) }}>
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${pct}%`, background: color }}
+        />
       </div>
-      <p className="text-xs text-navy-300">{freeKb} KB libres · {pct}%</p>
-    </div>
-  )
-}
-
-function formatUptime(s) {
-  if (s == null) return '—'
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h ${m}m`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m ${s % 60}s`
-}
-
-function formatRevision(rev) {
-  if (rev == null) return null
-  if (rev > 100) return `v${Math.floor(rev / 100)}.${rev % 100}`
-  return `rev${rev}`
-}
-
-function InfoRow({ label, value }) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
-      <span className="text-[11px] text-navy-300">{label}</span>
-      <span className="text-[11px] font-semibold text-navy-700 font-mono">{value ?? '—'}</span>
+      <p className="text-xs text-navy-300">{freeKb} KB libres · {pct}% disponible</p>
     </div>
   )
 }
@@ -96,7 +129,6 @@ function BatteryBar({ voltage }) {
   const label  = pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Batería crítica'
   return (
     <div className="flex flex-col gap-1.5">
-      {/* Battery body */}
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1 h-5 rounded-md overflow-hidden border-2" style={{ borderColor: color }}>
           <div
@@ -110,12 +142,28 @@ function BatteryBar({ voltage }) {
             {Math.round(pct)}%
           </span>
         </div>
-        {/* Nub */}
         <div className="w-2 h-2.5 rounded-r-sm" style={{ background: color, opacity: 0.7 }} />
       </div>
       <p className="text-xs" style={{ color }}>{label} · {Number(voltage).toFixed(2)} V</p>
     </div>
   )
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function formatUptime(s) {
+  if (s == null) return '—'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m ${s % 60}s`
+}
+
+function formatRevision(rev) {
+  if (rev == null) return null
+  if (rev > 100) return `v${Math.floor(rev / 100)}.${rev % 100}`
+  return `rev${rev}`
 }
 
 function toMs2(t) {
@@ -125,11 +173,12 @@ function toMs2(t) {
   return Number.isNaN(parsed) ? null : parsed
 }
 
+// ── INA219 multi-axis chart ───────────────────────────────────────────────────
 function Ina219Chart({ data, timestamps }) {
   const ref = useRef(null)
   const chartRef = useRef(null)
 
-  const tsMs = (timestamps ?? []).map(toMs2).filter(Boolean)
+  const tsMs    = (timestamps ?? []).map(toMs2).filter(Boolean)
   const voltage = (data.ina219_bus_voltage ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(3) : null]).filter(p => p[0] != null && p[1] != null)
   const current = (data.ina219_current_ma  ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(1) : null]).filter(p => p[0] != null && p[1] != null)
   const power   = (data.ina219_power_mw    ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(1) : null]).filter(p => p[0] != null && p[1] != null)
@@ -230,230 +279,177 @@ function Ina219Chart({ data, timestamps }) {
   return <div ref={ref} style={{ width: '100%', height: 220 }} />
 }
 
-function DeviceCard({ hex, grad, icon: Icon, title, children, right }) {
-  return (
-    <div
-      className="rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-px"
-      style={{
-        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-        border: `1px solid ${ha(hex, 0.2)}`,
-        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(hex, 0.07)}`,
-      }}
-    >
-      <div
-        className={`h-[3px] bg-gradient-to-r ${grad}`}
-        style={{ boxShadow: `0 0 8px 2px ${ha(hex, 0.5)}` }}
-      />
-      <div
-        className="px-4 pt-3 pb-2.5 flex items-center gap-2.5"
-        style={{ background: `linear-gradient(to bottom, ${ha(hex, 0.055)}, transparent)` }}
-      >
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-          style={{
-            background: `linear-gradient(135deg, ${ha(hex, 0.2)}, ${ha(hex, 0.07)})`,
-            border: `1px solid ${ha(hex, 0.28)}`,
-            boxShadow: `0 2px 8px ${ha(hex, 0.22)}, 0 0 0 3px ${ha(hex, 0.06)}`,
-          }}
-        >
-          <Icon size={15} style={{ color: hex, filter: `drop-shadow(0 0 4px ${ha(hex, 0.5)})` }} />
-        </div>
-        <h3 className="text-[11.5px] font-extrabold uppercase tracking-widest text-navy-600 leading-none flex-1">
-          {title}
-        </h3>
-        {right}
-      </div>
-      <div className="px-4 pb-4">{children}</div>
-    </div>
-  )
-}
-
+// ── Main component ────────────────────────────────────────────────────────────
 const REALTIME_N = 30
 
 export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
   const hasIna = latest.ina219_bus_voltage != null || latest.ina219_current_ma != null
+  const isOnline = latest.rssi != null
 
   const rtTs   = timestamps.slice(-REALTIME_N)
   const rtRssi = data.rssi.slice(-REALTIME_N)
   const rtHeap = data.free_heap.slice(-REALTIME_N)
 
-  const hexHW   = '#1a3350'
-  const hexNet  = '#1a3350'
-  const hexWifi = '#1a3350'
-  const hexHeap = '#1a3350'
-  const hexUp   = '#1a3350'
-
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
 
-      {/* Info estática */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Hardware */}
-        <DeviceCard
-          hex={hexHW}
-          grad="from-[#001530] to-[#3d506a]"
-          icon={CircuitBoard}
-          title="Hardware"
-          right={deviceInfo?.last_seen && (
-            <span className="text-[11px] text-navy-300 shrink-0">últ. boot: {deviceInfo.last_seen}</span>
-          )}
-        >
-          <InfoRow label="Modelo"   value={deviceInfo?.chip_model} />
-          <InfoRow label="Revisión" value={formatRevision(deviceInfo?.chip_revision)} />
-          <InfoRow label="CPU"      value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
-          <InfoRow label="Flash"    value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
-          <InfoRow label="SDK"      value={deviceInfo?.sdk_version} />
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-[#1a3350] flex items-center justify-center shadow-sm shadow-navy-200/50">
+          <CircuitBoard size={18} className="text-white" />
+        </div>
+        <div>
+          <h1 className="text-lg font-bold text-navy-900 leading-tight">Estado del Dispositivo</h1>
+          <p className="text-xs text-navy-300 leading-none mt-0.5">Diagnóstico y telemetría en tiempo real</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
           {deviceInfo?.firmware_version && (
-            <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
-              <span className="flex items-center gap-1 text-[11px] text-navy-300">
-                <Cpu size={11} />Firmware
-              </span>
-              <span
-                className="text-[11px] font-semibold font-mono px-1.5 py-0.5 rounded"
-                style={{
-                  background: ha(hexHW, 0.1),
-                  color: hexHW,
-                  border: `1px solid ${ha(hexHW, 0.22)}`,
-                }}
-              >
-                v{deviceInfo.firmware_version}
-              </span>
-            </div>
+            <span
+              className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-md"
+              style={{ background: ha('#1a3350', 0.08), color: '#1a3350', border: `1px solid ${ha('#1a3350', 0.2)}` }}
+            >
+              v{deviceInfo.firmware_version}
+            </span>
           )}
-        </DeviceCard>
-
-        {/* Red */}
-        <DeviceCard
-          hex={hexNet}
-          grad="from-[#001530] to-[#3d506a]"
-          icon={Server}
-          title="Red"
-        >
-          <InfoRow label="IP"        value={deviceInfo?.ip_address} />
-          <InfoRow label="MAC"       value={deviceInfo?.mac_address} />
-          <InfoRow label="RSSI act." value={latest.rssi != null ? `${Math.round(latest.rssi)} dBm` : null} />
-        </DeviceCard>
-
+          <span
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full border leading-none ${
+              isOnline
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                : 'bg-red-50 text-red-500 border-red-200'
+            }`}
+          >
+            {isOnline ? '● En línea' : '○ Offline'}
+          </span>
+        </div>
       </div>
 
-      {/* Métricas dinámicas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-        {/* Señal WiFi */}
-        <DeviceCard
-          hex={hexWifi}
-          grad="from-[#001530] to-[#3d506a]"
-          icon={Wifi}
-          title="Señal WiFi"
+      {/* ── Info del dispositivo (Hardware + Red fusionados) ─────────────── */}
+      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+        <div
+          className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+          style={{ background: ha('#1a3350', 0.04) }}
         >
-          <p
-            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-            style={{ textShadow: `0 0 20px ${ha(hexWifi, 0.18)}` }}
-          >
-            {latest.rssi != null ? Math.round(latest.rssi) : '—'}
-            <span className="text-base font-medium text-navy-300 ml-1.5">dBm</span>
-          </p>
-          <SignalBars rssi={latest.rssi} />
-        </DeviceCard>
-
-        {/* Memoria libre */}
-        <DeviceCard
-          hex={hexHeap}
-          grad="from-[#001530] to-[#3d506a]"
-          icon={HardDrive}
-          title="Memoria libre"
-        >
-          <p
-            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-            style={{ textShadow: `0 0 20px ${ha(hexHeap, 0.18)}` }}
-          >
-            {latest.free_heap != null ? Math.round(latest.free_heap / 1024) : '—'}
-            <span className="text-base font-medium text-navy-300 ml-1.5">KB</span>
-          </p>
-          <HeapBar freeHeap={latest.free_heap} />
-        </DeviceCard>
-
-        {/* Uptime */}
-        <DeviceCard
-          hex={hexUp}
-          grad="from-[#001530] to-[#3d506a]"
-          icon={Clock}
-          title="Uptime"
-        >
-          <p
-            className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-            style={{ textShadow: `0 0 20px ${ha(hexUp, 0.18)}` }}
-          >
-            {formatUptime(latest.uptime_s)}
-            <span className="text-base font-medium text-navy-300 ml-1.5"> </span>
-          </p>
-          <p className="text-xs text-navy-300">
-            {latest.uptime_s != null ? `${Number(latest.uptime_s).toLocaleString()} s` : '—'}
-          </p>
-        </DeviceCard>
-
+          <Server size={14} style={{ color: '#1a3350' }} />
+          <span className="text-sm font-semibold text-navy-900">Información del Dispositivo</span>
+          {deviceInfo?.last_seen && (
+            <span className="ml-auto text-[10px] text-navy-300">último boot: {deviceInfo.last_seen}</span>
+          )}
+        </div>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-0">
+          {/* Hardware */}
+          <div>
+            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
+              <Cpu size={11} />Hardware
+            </p>
+            <InfoRow label="Modelo"   value={deviceInfo?.chip_model} />
+            <InfoRow label="Revisión" value={formatRevision(deviceInfo?.chip_revision)} />
+            <InfoRow label="CPU"      value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
+            <InfoRow label="Flash"    value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
+            <InfoRow label="SDK"      value={deviceInfo?.sdk_version} />
+          </div>
+          {/* Red */}
+          <div>
+            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
+              <Wifi size={11} />Red
+            </p>
+            <InfoRow label="IP"        value={deviceInfo?.ip_address} />
+            <InfoRow label="MAC"       value={deviceInfo?.mac_address} />
+            <InfoRow label="RSSI act." value={latest.rssi != null ? `${Math.round(latest.rssi)} dBm` : null} />
+          </div>
+        </div>
       </div>
 
-      {/* Gráficas tiempo real */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <WeatherChart
-          title="Señal WiFi — últimas 30 lecturas" icon={Wifi} timestamps={rtTs}
-          series={[{ name: 'RSSI', data: rtRssi }]}
-          colors={['#0c8ecc']}
-          yUnit=" dBm" yMin={-100} yMax={-20} type="line"
-        />
-        <WeatherChart
-          title="Memoria libre — últimas 30 lecturas" icon={HardDrive} timestamps={rtTs}
-          series={[{ name: 'Heap libre', data: rtHeap.map(v => v != null ? Math.round(v / 1024) : null) }]}
-          colors={['#0c8ecc']}
-          yUnit=" KB" yMin={0} type="area"
-        />
+      {/* ── Métricas en tiempo real ───────────────────────────────────────── */}
+      <div className="space-y-3">
+        <SectionHeader icon={Activity} label="Métricas del sistema" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+          <MetricCard
+            label="Señal WiFi"
+            symbol="Tiempo real"
+            value={latest.rssi != null ? Math.round(latest.rssi) : '—'}
+            unit="dBm"
+            accent="#0c8ecc"
+            icon={Wifi}
+          >
+            <SignalBars rssi={latest.rssi} />
+          </MetricCard>
+
+          <MetricCard
+            label="Memoria libre"
+            symbol={`de 320 KB`}
+            value={latest.free_heap != null ? Math.round(latest.free_heap / 1024) : '—'}
+            unit="KB"
+            accent="#534AB7"
+            icon={HardDrive}
+          >
+            <HeapBar freeHeap={latest.free_heap} />
+          </MetricCard>
+
+          <MetricCard
+            label="Uptime"
+            value={formatUptime(latest.uptime_s)}
+            unit=""
+            accent="#10b981"
+            icon={Clock}
+          >
+            <p className="text-xs text-navy-300">
+              {latest.uptime_s != null ? `${Number(latest.uptime_s).toLocaleString()} segundos activo` : '—'}
+            </p>
+          </MetricCard>
+
+        </div>
       </div>
 
-      {/* ── Panel INA219 — solo PROFILE_IRRIGATION ── */}
+      {/* ── Gráficas en tiempo real ───────────────────────────────────────── */}
+      <div className="space-y-3">
+        <SectionHeader icon={Activity} label="Histórico — últimas 30 lecturas" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <WeatherChart
+            title="Señal WiFi" icon={Wifi} timestamps={rtTs}
+            series={[{ name: 'RSSI', data: rtRssi }]}
+            colors={['#0c8ecc']}
+            yUnit=" dBm" yMin={-100} yMax={-20} type="line"
+          />
+          <WeatherChart
+            title="Memoria libre" icon={HardDrive} timestamps={rtTs}
+            series={[{ name: 'Heap libre', data: rtHeap.map(v => v != null ? Math.round(v / 1024) : null) }]}
+            colors={['#534AB7']}
+            yUnit=" KB" yMin={0} type="area"
+          />
+        </div>
+      </div>
+
+      {/* ── Panel INA219 — solo si hay datos ─────────────────────────────── */}
       {hasIna && (
-        <div className="space-y-4">
+        <div className="space-y-3">
+          <SectionHeader icon={BatteryMedium} label="Alimentación — INA219" />
 
-          {/* Métricas instantáneas */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
 
-            {/* Batería */}
-            <DeviceCard
-              hex="#10b981"
-              grad="from-[#065f46] to-[#10b981]"
+            <MetricCard
+              label="Batería 12 V"
+              symbol="Bus voltage"
+              value={latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
+              unit="V"
+              accent="#10b981"
               icon={BatteryMedium}
-              title="Batería 12 V"
             >
-              <p
-                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-                style={{ textShadow: '0 0 20px rgba(16,185,129,0.18)' }}
-              >
-                {latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
-                <span className="text-base font-medium text-navy-300 ml-1.5">V</span>
-              </p>
               <BatteryBar voltage={latest.ina219_bus_voltage} />
-            </DeviceCard>
+            </MetricCard>
 
-            {/* Corriente */}
-            <DeviceCard
-              hex="#0c8ecc"
-              grad="from-[#0c5688] to-[#0c8ecc]"
-              icon={Zap}
-              title="Corriente"
-              right={
+            <MetricCard
+              label="Corriente"
+              symbol={
                 latest.ina219_current_ma != null && latest.ina219_current_ma > 1300
-                  ? <AlertTriangle size={14} className="text-amber-500 shrink-0" />
-                  : null
+                  ? '⚠ Elevada'
+                  : 'INA219'
               }
+              value={latest.ina219_current_ma != null ? Number(latest.ina219_current_ma).toFixed(0) : '—'}
+              unit="mA"
+              accent="#0c8ecc"
+              icon={Zap}
             >
-              <p
-                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-                style={{ textShadow: '0 0 20px rgba(12,142,204,0.18)' }}
-              >
-                {latest.ina219_current_ma != null ? Number(latest.ina219_current_ma).toFixed(0) : '—'}
-                <span className="text-base font-medium text-navy-300 ml-1.5">mA</span>
-              </p>
               {latest.ina219_current_ma != null && (
                 <p className="text-xs" style={{
                   color: latest.ina219_current_ma > 1900 ? '#ef4444'
@@ -463,38 +459,36 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
                    : latest.ina219_current_ma > 1300 ? 'Corriente elevada' : 'Normal'}
                 </p>
               )}
-            </DeviceCard>
+            </MetricCard>
 
-            {/* Potencia */}
-            <DeviceCard
-              hex="#BA7517"
-              grad="from-[#78460d] to-[#BA7517]"
+            <MetricCard
+              label="Potencia"
+              symbol="INA219"
+              value={latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
+              unit="W"
+              accent="#BA7517"
               icon={Zap}
-              title="Potencia"
             >
-              <p
-                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
-                style={{ textShadow: '0 0 20px rgba(186,117,23,0.18)' }}
-              >
-                {latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
-                <span className="text-base font-medium text-navy-300 ml-1.5">W</span>
-              </p>
               {latest.ina219_power_mw != null && (
                 <p className="text-xs text-navy-300">{Number(latest.ina219_power_mw).toFixed(0)} mW</p>
               )}
-            </DeviceCard>
+            </MetricCard>
 
           </div>
 
           {/* Gráfica histórica multi-eje */}
-          <DeviceCard
-            hex="#10b981"
-            grad="from-[#065f46] to-[#10b981]"
-            icon={BatteryMedium}
-            title="Histórico — Voltaje · Corriente · Potencia"
-          >
-            <Ina219Chart data={data} timestamps={timestamps} />
-          </DeviceCard>
+          <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+            <div
+              className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+              style={{ background: ha('#10b981', 0.05) }}
+            >
+              <BatteryMedium size={14} style={{ color: '#10b981' }} />
+              <span className="text-sm font-semibold text-navy-900">Voltaje · Corriente · Potencia</span>
+            </div>
+            <div className="p-4">
+              <Ina219Chart data={data} timestamps={timestamps} />
+            </div>
+          </div>
 
         </div>
       )}
