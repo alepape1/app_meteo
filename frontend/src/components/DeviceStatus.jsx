@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu, BatteryMedium, Zap, AlertTriangle, Activity } from 'lucide-react'
+import { Wifi, HardDrive, Clock, CircuitBoard, Cpu, BatteryMedium, Zap, AlertTriangle, Activity, Globe, Hash, Database, Code2, Eye } from 'lucide-react'
 import WeatherChart from './WeatherChart'
 import * as echarts from 'echarts/core'
 import { LineChart as ELineChart } from 'echarts/charts'
@@ -28,47 +28,31 @@ function SectionHeader({ icon: Icon, label }) {
   )
 }
 
-// ── Info row inside device card ───────────────────────────────────────────────
-function InfoRow({ label, value }) {
+// ── Info chip ─────────────────────────────────────────────────────────────────
+function InfoChip({ icon: Icon, label, value, accent = '#1a3350', mono = false }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-navy-50 last:border-0">
-      <span className="text-[11px] text-navy-300">{label}</span>
-      <span className="text-[11px] font-semibold text-navy-700 font-mono">{value ?? '—'}</span>
+    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-navy-100/70" style={{ background: ha(accent, 0.04) }}>
+      <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: ha(accent, 0.1) }}>
+        <Icon size={12} style={{ color: accent }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-navy-300 leading-none">{label}</p>
+        <p className={`text-[11px] font-semibold text-navy-800 leading-tight mt-0.5 truncate ${mono ? 'font-mono' : ''}`}>{value ?? '—'}</p>
+      </div>
     </div>
   )
 }
 
-// ── Metric card (PlantationView ParameterCard style) ──────────────────────────
-function MetricCard({ label, symbol, value, unit, accent, icon: Icon, children }) {
-  return (
-    <div
-      className="bg-white border border-black/[.07] rounded-2xl p-4 flex flex-col gap-3 shadow-sm"
-      style={{ borderTop: `3px solid ${ha(accent, 0.75)}` }}
-    >
-      <div className="flex items-center gap-2">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: ha(accent, 0.12) }}
-        >
-          <Icon size={14} style={{ color: accent }} />
-        </div>
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-navy-300 leading-none">{label}</p>
-        {symbol && (
-          <p className="text-[9px] font-semibold text-navy-200 leading-none ml-auto">{symbol}</p>
-        )}
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span
-          className="text-[2rem] font-extrabold leading-none tabular-nums tracking-tight"
-          style={{ color: '#0f172a', textShadow: `0 0 20px ${ha(accent, 0.18)}` }}
-        >
-          {value}
-        </span>
-        {unit && <span className="text-xs font-semibold text-navy-300">{unit}</span>}
-      </div>
-      {children}
-    </div>
-  )
+function formatLastSeen(ts) {
+  if (!ts) return null
+  const d = new Date(String(ts).trim().replace(' ', 'T') + (String(ts).includes('Z') || String(ts).includes('+') ? '' : 'Z'))
+  if (isNaN(d)) return String(ts)
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (diffMin < 1)  return 'Ahora mismo'
+  if (diffMin < 60) return `hace ${diffMin} min`
+  const diffH = Math.floor(diffMin / 60)
+  if (diffH < 24)   return `hace ${diffH} h ${diffMin % 60} min`
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 // ── Signal bars widget ────────────────────────────────────────────────────────
@@ -323,80 +307,65 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         </div>
       </div>
 
-      {/* ── Info del dispositivo (Hardware + Red fusionados) ─────────────── */}
+      {/* ── Métricas del sistema — card compacta ─────────────────────────── */}
       <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
-        <div
-          className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
-          style={{ background: ha('#1a3350', 0.04) }}
-        >
-          <Server size={14} style={{ color: '#1a3350' }} />
-          <span className="text-sm font-semibold text-navy-900">Información del Dispositivo</span>
-          {deviceInfo?.last_seen && (
-            <span className="ml-auto text-[10px] text-navy-300">último boot: {deviceInfo.last_seen}</span>
-          )}
+        <div className="px-5 py-2.5 border-b border-black/[.06] flex items-center gap-2">
+          <Activity size={13} className="text-navy-300" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-navy-300">Métricas del sistema</span>
         </div>
-        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-0">
-          {/* Hardware */}
-          <div>
-            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
-              <Cpu size={11} />Hardware
-            </p>
-            <InfoRow label="Modelo"   value={deviceInfo?.chip_model} />
-            <InfoRow label="Revisión" value={formatRevision(deviceInfo?.chip_revision)} />
-            <InfoRow label="CPU"      value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
-            <InfoRow label="Flash"    value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
-            <InfoRow label="SDK"      value={deviceInfo?.sdk_version} />
-          </div>
-          {/* Red */}
-          <div>
-            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
-              <Wifi size={11} />Red
-            </p>
-            <InfoRow label="IP"        value={deviceInfo?.ip_address} />
-            <InfoRow label="MAC"       value={deviceInfo?.mac_address} />
-            <InfoRow label="RSSI act." value={latest.rssi != null ? `${Math.round(latest.rssi)} dBm` : null} />
-          </div>
-        </div>
-      </div>
+        <div className="grid grid-cols-3 divide-x divide-navy-50">
 
-      {/* ── Métricas en tiempo real ───────────────────────────────────────── */}
-      <div className="space-y-3">
-        <SectionHeader icon={Activity} label="Métricas del sistema" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-
-          <MetricCard
-            label="Señal WiFi"
-            symbol="Tiempo real"
-            value={latest.rssi != null ? Math.round(latest.rssi) : '—'}
-            unit="dBm"
-            accent="#0c8ecc"
-            icon={Wifi}
-          >
+          {/* WiFi */}
+          <div className="px-4 py-3 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: ha('#0c8ecc', 0.12) }}>
+                <Wifi size={11} style={{ color: '#0c8ecc' }} />
+              </div>
+              <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">WiFi</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-extrabold tabular-nums leading-none text-navy-900">
+                {latest.rssi != null ? Math.round(latest.rssi) : '—'}
+              </span>
+              <span className="text-[10px] font-semibold text-navy-300">dBm</span>
+            </div>
             <SignalBars rssi={latest.rssi} />
-          </MetricCard>
+          </div>
 
-          <MetricCard
-            label="Memoria libre"
-            symbol={`de 320 KB`}
-            value={latest.free_heap != null ? Math.round(latest.free_heap / 1024) : '—'}
-            unit="KB"
-            accent="#534AB7"
-            icon={HardDrive}
-          >
+          {/* Memoria */}
+          <div className="px-4 py-3 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: ha('#534AB7', 0.12) }}>
+                <HardDrive size={11} style={{ color: '#534AB7' }} />
+              </div>
+              <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Memoria</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-extrabold tabular-nums leading-none text-navy-900">
+                {latest.free_heap != null ? Math.round(latest.free_heap / 1024) : '—'}
+              </span>
+              <span className="text-[10px] font-semibold text-navy-300">KB</span>
+            </div>
             <HeapBar freeHeap={latest.free_heap} />
-          </MetricCard>
+          </div>
 
-          <MetricCard
-            label="Uptime"
-            value={formatUptime(latest.uptime_s)}
-            unit=""
-            accent="#10b981"
-            icon={Clock}
-          >
-            <p className="text-xs text-navy-300">
-              {latest.uptime_s != null ? `${Number(latest.uptime_s).toLocaleString()} segundos activo` : '—'}
+          {/* Uptime */}
+          <div className="px-4 py-3 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: ha('#10b981', 0.12) }}>
+                <Clock size={11} style={{ color: '#10b981' }} />
+              </div>
+              <span className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Uptime</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-extrabold tabular-nums leading-none text-navy-900">
+                {formatUptime(latest.uptime_s)}
+              </span>
+            </div>
+            <p className="text-[10px] text-navy-300">
+              {latest.uptime_s != null ? `${Number(latest.uptime_s).toLocaleString()} s` : '—'}
             </p>
-          </MetricCard>
+          </div>
 
         </div>
       </div>
@@ -427,65 +396,73 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-            {/* Card unificada con las tres métricas */}
+            {/* Card unificada de energía */}
             <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden" style={{ borderTop: `3px solid ${ha('#10b981', 0.75)}` }}>
+              {/* Header */}
               <div
-                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5"
                 style={{ background: ha('#10b981', 0.05) }}
               >
-                <BatteryMedium size={14} style={{ color: '#10b981' }} />
-                <span className="text-sm font-semibold text-navy-900">Batería 12 V</span>
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha('#10b981', 0.15) }}>
+                  <BatteryMedium size={14} style={{ color: '#10b981' }} />
+                </div>
+                <span className="text-sm font-semibold text-navy-900">Alimentación</span>
                 {latest.ina219_current_ma != null && latest.ina219_current_ma > 1300 && (
-                  <AlertTriangle size={13} className="ml-auto text-amber-500" />
+                  <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50">
+                    <AlertTriangle size={11} className="text-amber-500" />
+                    <span className="text-[10px] font-semibold text-amber-600">
+                      {latest.ina219_current_ma > 1900 ? 'Corriente crítica' : 'Corriente elevada'}
+                    </span>
+                  </div>
                 )}
               </div>
-              <div className="p-5 flex flex-col gap-4">
-                {/* Battery bar prominente */}
+
+              <div className="p-4 space-y-4">
+                {/* Barra de batería prominente */}
                 <BatteryBar voltage={latest.ina219_bus_voltage} />
 
-                {/* Tres stats en fila */}
-                <div className="grid grid-cols-3 gap-2">
-                  {/* Voltaje */}
-                  <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha('#10b981', 0.05) }}>
-                    <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Voltaje</span>
-                    <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color: '#10b981' }}>
-                      {latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
-                    </span>
-                    <span className="text-[10px] font-semibold text-navy-300">V</span>
-                  </div>
-                  {/* Corriente */}
-                  {(() => {
-                    const ma = latest.ina219_current_ma
-                    const color = ma > 1900 ? '#ef4444' : ma > 1300 ? '#BA7517' : '#0c8ecc'
-                    return (
-                      <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha(color, 0.05) }}>
-                        <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Corriente</span>
-                        <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color }}>
-                          {ma != null ? Number(ma).toFixed(0) : '—'}
-                        </span>
-                        <span className="text-[10px] font-semibold text-navy-300">mA</span>
-                      </div>
-                    )
-                  })()}
-                  {/* Potencia */}
-                  <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha('#BA7517', 0.05) }}>
-                    <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Potencia</span>
-                    <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color: '#BA7517' }}>
-                      {latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
-                    </span>
-                    <span className="text-[10px] font-semibold text-navy-300">W</span>
-                  </div>
-                </div>
+                {/* Chips de métricas */}
+                {(() => {
+                  const ma    = latest.ina219_current_ma
+                  const maColor = ma > 1900 ? '#ef4444' : ma > 1300 ? '#BA7517' : '#0c8ecc'
+                  return (
+                    <div className="grid grid-cols-3 gap-2">
+                      <InfoChip
+                        icon={BatteryMedium}
+                        label="Voltaje"
+                        value={latest.ina219_bus_voltage != null ? `${Number(latest.ina219_bus_voltage).toFixed(2)} V` : null}
+                        accent="#10b981"
+                        mono
+                      />
+                      <InfoChip
+                        icon={Zap}
+                        label="Corriente"
+                        value={ma != null ? `${Number(ma).toFixed(0)} mA` : null}
+                        accent={maColor}
+                        mono
+                      />
+                      <InfoChip
+                        icon={Activity}
+                        label="Potencia"
+                        value={latest.ina219_power_mw != null ? `${Number(latest.ina219_power_mw / 1000).toFixed(2)} W` : null}
+                        accent="#BA7517"
+                        mono
+                      />
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
             {/* Gráfica histórica multi-eje */}
             <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
               <div
-                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5"
                 style={{ background: ha('#10b981', 0.05) }}
               >
-                <Activity size={14} style={{ color: '#10b981' }} />
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha('#10b981', 0.15) }}>
+                  <Activity size={14} style={{ color: '#10b981' }} />
+                </div>
                 <span className="text-sm font-semibold text-navy-900">Voltaje · Corriente · Potencia</span>
               </div>
               <div className="p-4">
@@ -496,6 +473,58 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
           </div>
         </div>
       )}
+
+      {/* ── Información del Dispositivo (al final) ───────────────────────── */}
+      <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+        {/* Header */}
+        <div
+          className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5"
+          style={{ background: ha('#1a3350', 0.04) }}
+        >
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha('#1a3350', 0.12) }}>
+            <CircuitBoard size={14} style={{ color: '#1a3350' }} />
+          </div>
+          <span className="text-sm font-semibold text-navy-900">Información del Dispositivo</span>
+          {deviceInfo?.last_seen && (
+            <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border" style={{ background: ha('#1a3350', 0.05), borderColor: ha('#1a3350', 0.15) }}>
+              <Eye size={11} style={{ color: '#1a3350' }} />
+              <span className="text-[10px] font-semibold" style={{ color: '#1a3350' }}>
+                {formatLastSeen(deviceInfo.last_seen)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Hardware */}
+          <div>
+            <p className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
+              <Cpu size={10} />Hardware
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <InfoChip icon={CircuitBoard} label="Modelo"   value={deviceInfo?.chip_model} />
+              <InfoChip icon={Hash}         label="Revisión" value={formatRevision(deviceInfo?.chip_revision)} mono />
+              <InfoChip icon={Zap}          label="CPU"      value={deviceInfo?.cpu_freq_mhz != null ? `${deviceInfo.cpu_freq_mhz} MHz` : null} />
+              <InfoChip icon={Database}     label="Flash"    value={deviceInfo?.flash_size_mb != null ? `${deviceInfo.flash_size_mb} MB` : null} />
+              <InfoChip icon={Code2}        label="SDK"      value={deviceInfo?.sdk_version} mono />
+              {deviceInfo?.firmware_version && (
+                <InfoChip icon={Code2} label="Firmware" value={`v${deviceInfo.firmware_version}`} accent="#0c8ecc" mono />
+              )}
+            </div>
+          </div>
+
+          {/* Red */}
+          <div>
+            <p className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
+              <Globe size={10} />Red
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <InfoChip icon={Globe} label="Dirección IP" value={deviceInfo?.ip_address} mono />
+              <InfoChip icon={Hash}  label="MAC"          value={deviceInfo?.mac_address} mono />
+            </div>
+          </div>
+        </div>
+      </div>
 
     </main>
   )
