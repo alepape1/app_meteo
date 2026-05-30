@@ -14,6 +14,7 @@ const EMPTY = {
   soil_n: [], soil_p: [], soil_k: [],
   pipeline_flow: [], pipeline_pressure: [],
   dew_point: [], heat_index: [], abs_humidity: [],
+  ina219_bus_voltage: [], ina219_current_ma: [], ina219_power_mw: [],
 }
 
 const AUTO_REFRESH_MS = 15000
@@ -346,9 +347,12 @@ export function useWeatherData() {
     soil_k:             data.soil_k?.at(-1),
     pipeline_flow:      data.pipeline_flow.at(-1),
     pipeline_pressure:  data.pipeline_pressure.at(-1),
-    dew_point:          data.dew_point.at(-1),
-    heat_index:         data.heat_index.at(-1),
-    abs_humidity:       data.abs_humidity.at(-1),
+    dew_point:            data.dew_point.at(-1),
+    heat_index:           data.heat_index.at(-1),
+    abs_humidity:         data.abs_humidity.at(-1),
+    ina219_bus_voltage:   data.ina219_bus_voltage?.at(-1),
+    ina219_current_ma:    data.ina219_current_ma?.at(-1),
+    ina219_power_mw:      data.ina219_power_mw?.at(-1),
   }
 
   const setRelay = useCallback(async (state, index = 0) => {

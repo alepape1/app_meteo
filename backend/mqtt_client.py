@@ -137,9 +137,10 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 soil_temperature, soil_ph, soil_ec, soil_tds, soil_n, soil_p, soil_k,
                 flow_total_l, flow_delta_l, flow_session_l, flow_irrig_l, flow_leak_l,
                 dew_point, heat_index, abs_humidity,
+                ina219_bus_voltage, ina219_current_ma, ina219_power_mw,
                 device_mac, timestamp
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()))
         """, (
             payload.get("temperature"),
             payload.get("pressure"),
@@ -183,6 +184,9 @@ def _handle_telemetry(finca_id: str, payload: dict):
             payload.get("dew_point"),
             payload.get("heat_index"),
             payload.get("abs_humidity"),
+            payload.get("ina219_bus_voltage"),
+            payload.get("ina219_current_ma"),
+            payload.get("ina219_power_mw"),
             device_mac,
             ts_dt,
         ))
@@ -290,6 +294,34 @@ def _handle_telemetry(finca_id: str, payload: dict):
                 pw.get("f_mean"),     pw.get("f_min"),
                 pw.get("f_max"),      pw.get("f_std"),
             ))
+
+        # Detección de anomalías en corriente INA219 (solo PROFILE_IRRIGATION).
+        # Cooldown por dispositivo para evitar spam de alertas.
+        ina_current = payload.get("ina219_current_ma")
+        if ina_current is not None and device_mac:
+            try:
+                current_f = float(ina_current)
+                if current_f > 1900:
+                    alert_sev, alert_msg = 'critical', f"Corriente crítica: {current_f:.0f} mA (límite sensor INA219)"
+                elif current_f > 1300:
+                    alert_sev, alert_msg = 'warning', f"Corriente elevada: {current_f:.0f} mA"
+                elif current_f < -100:
+                    alert_sev, alert_msg = 'info', f"Corriente negativa: {current_f:.0f} mA (posible carga o inversión)"
+                else:
+                    alert_sev = None
+
+                if alert_sev:
+                    _CURRENT_COOLDOWN_S = 600
+                    now_mono = time.monotonic()
+                    key = f"ina_current:{device_mac}"
+                    if now_mono - _reconnect_cooldown.get(key, 0.0) >= _CURRENT_COOLDOWN_S:
+                        _reconnect_cooldown[key] = now_mono
+                        db.execute("""
+                            INSERT INTO alerts(finca_id, device_mac, alert_type, severity, message)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (finca_id, device_mac, 'current_anomaly', alert_sev, alert_msg))
+            except (TypeError, ValueError):
+                pass
 
         db.commit()
         logger.info("Telemetría insertada: finca_id=%s mac=%s", finca_id, device_mac)

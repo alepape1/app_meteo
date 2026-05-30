@@ -324,6 +324,9 @@ def create_tables(conn: _CompatConn):
         ("soil_n",               "ALTER TABLE home_weather_station ADD COLUMN soil_n REAL DEFAULT NULL"),
         ("soil_p",               "ALTER TABLE home_weather_station ADD COLUMN soil_p REAL DEFAULT NULL"),
         ("soil_k",               "ALTER TABLE home_weather_station ADD COLUMN soil_k REAL DEFAULT NULL"),
+        ("ina219_bus_voltage",   "ALTER TABLE home_weather_station ADD COLUMN ina219_bus_voltage REAL DEFAULT NULL"),
+        ("ina219_current_ma",    "ALTER TABLE home_weather_station ADD COLUMN ina219_current_ma REAL DEFAULT NULL"),
+        ("ina219_power_mw",      "ALTER TABLE home_weather_station ADD COLUMN ina219_power_mw REAL DEFAULT NULL"),
     ]:
         if _col not in _hws_cols:
             cur.execute(_ddl)

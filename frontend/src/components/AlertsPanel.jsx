@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Bell, CheckCheck, AlertTriangle, Info, RefreshCw, ShieldAlert, Thermometer, Droplets, Wifi, WifiOff, Activity, Trash2 } from 'lucide-react'
+import { Bell, CheckCheck, AlertTriangle, Info, RefreshCw, ShieldAlert, Thermometer, Droplets, Wifi, WifiOff, Activity, Trash2, Zap } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 
 function resolveAlertIcon(alertType = '', severity = 'info') {
@@ -9,6 +9,7 @@ function resolveAlertIcon(alertType = '', severity = 'info') {
   if (t.includes('connect') || t.includes('online'))     return Wifi
   if (t.includes('disconnect') || t.includes('offline')) return WifiOff
   if (t.includes('flow')  || t.includes('caudal'))       return Activity
+  if (t.includes('current') || t.includes('corriente') || t.includes('ina')) return Zap
   if (severity === 'critical') return ShieldAlert
   if (severity === 'warning')  return AlertTriangle
   return Info

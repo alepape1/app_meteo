@@ -555,9 +555,12 @@ def rows_to_dict(rows):
         "soil_n":           [r.get("soil_n") for r in rows],
         "soil_p":           [r.get("soil_p") for r in rows],
         "soil_k":           [r.get("soil_k") for r in rows],
-        "dew_point":        [r.get("dew_point") for r in rows],
-        "heat_index":       [r.get("heat_index") for r in rows],
-        "abs_humidity":     [r.get("abs_humidity") for r in rows],
+        "dew_point":           [r.get("dew_point") for r in rows],
+        "heat_index":          [r.get("heat_index") for r in rows],
+        "abs_humidity":        [r.get("abs_humidity") for r in rows],
+        "ina219_bus_voltage":  [r.get("ina219_bus_voltage") for r in rows],
+        "ina219_current_ma":   [r.get("ina219_current_ma") for r in rows],
+        "ina219_power_mw":     [r.get("ina219_power_mw") for r in rows],
     }
 
 

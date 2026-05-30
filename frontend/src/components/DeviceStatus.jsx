@@ -1,5 +1,15 @@
-import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu } from 'lucide-react'
+import { useRef, useEffect } from 'react'
+import { Wifi, HardDrive, Clock, Server, CircuitBoard, Cpu, BatteryMedium, Zap, AlertTriangle } from 'lucide-react'
 import WeatherChart from './WeatherChart'
+import * as echarts from 'echarts/core'
+import { LineChart as ELineChart } from 'echarts/charts'
+import {
+  GridComponent, TooltipComponent, LegendComponent,
+} from 'echarts/components'
+import { LegacyGridContainLabel } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([ELineChart, GridComponent, TooltipComponent, LegendComponent, LegacyGridContainLabel, CanvasRenderer])
 
 function ha(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -70,6 +80,156 @@ function InfoRow({ label, value }) {
   )
 }
 
+// ── Battery helpers ───────────────────────────────────────────────────────────
+const BAT_FULL_V  = 12.2
+const BAT_EMPTY_V = 10.5
+
+function batPct(v) {
+  if (v == null) return null
+  return Math.max(0, Math.min(100, ((v - BAT_EMPTY_V) / (BAT_FULL_V - BAT_EMPTY_V)) * 100))
+}
+
+function BatteryBar({ voltage }) {
+  const pct = batPct(voltage)
+  if (pct == null) return <span className="text-navy-200 text-sm">—</span>
+  const color  = pct >= 60 ? '#10b981' : pct >= 25 ? '#BA7517' : '#ef4444'
+  const label  = pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Batería crítica'
+  return (
+    <div className="flex flex-col gap-1.5">
+      {/* Battery body */}
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1 h-5 rounded-md overflow-hidden border-2" style={{ borderColor: color }}>
+          <div
+            className="absolute inset-y-0 left-0 rounded-[3px] transition-all duration-700"
+            style={{ width: `${pct}%`, background: color, opacity: 0.85 }}
+          />
+          <span
+            className="absolute inset-0 flex items-center justify-center text-[10px] font-bold mix-blend-multiply"
+            style={{ color }}
+          >
+            {Math.round(pct)}%
+          </span>
+        </div>
+        {/* Nub */}
+        <div className="w-2 h-2.5 rounded-r-sm" style={{ background: color, opacity: 0.7 }} />
+      </div>
+      <p className="text-xs" style={{ color }}>{label} · {Number(voltage).toFixed(2)} V</p>
+    </div>
+  )
+}
+
+function toMs2(t) {
+  if (t == null) return null
+  if (typeof t === 'number') return isNaN(t) ? null : t
+  const parsed = Date.parse(String(t).trim())
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function Ina219Chart({ data, timestamps }) {
+  const ref = useRef(null)
+  const chartRef = useRef(null)
+
+  const tsMs = (timestamps ?? []).map(toMs2).filter(Boolean)
+  const voltage = (data.ina219_bus_voltage ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(3) : null]).filter(p => p[0] != null && p[1] != null)
+  const current = (data.ina219_current_ma  ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(1) : null]).filter(p => p[0] != null && p[1] != null)
+  const power   = (data.ina219_power_mw    ?? []).map((v, i) => [tsMs[i], v != null ? +Number(v).toFixed(1) : null]).filter(p => p[0] != null && p[1] != null)
+
+  useEffect(() => {
+    if (!ref.current) return
+    chartRef.current = echarts.init(ref.current, null, { renderer: 'canvas' })
+    return () => { chartRef.current?.dispose(); chartRef.current = null }
+  }, [])
+
+  useEffect(() => {
+    if (!chartRef.current) return
+    chartRef.current.setOption({
+      backgroundColor: 'transparent',
+      animation: false,
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        borderColor: '#e2e8f0',
+        textStyle: { color: '#1a3350', fontSize: 11 },
+        formatter: params => {
+          const ts = new Date(params[0]?.axisValue).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          return `<b>${ts}</b><br/>` + params.map(p =>
+            `<span style="color:${p.color}">■</span> ${p.seriesName}: <b>${p.value[1]}</b> ${['V','mA','mW'][p.seriesIndex]}`
+          ).join('<br/>')
+        },
+      },
+      legend: {
+        data: ['Voltaje', 'Corriente', 'Potencia'],
+        bottom: 0,
+        textStyle: { color: '#64748b', fontSize: 10 },
+        itemWidth: 12, itemHeight: 8,
+      },
+      grid: { top: 12, left: 52, right: 64, bottom: 36, containLabel: false },
+      xAxis: {
+        type: 'time',
+        axisLine: { lineStyle: { color: '#e2e8f0' } },
+        axisLabel: { color: '#94a3b8', fontSize: 10, formatter: v => new Date(v).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) },
+        splitLine: { show: false },
+      },
+      yAxis: [
+        {
+          name: 'V', nameTextStyle: { color: '#10b981', fontSize: 10 }, position: 'left',
+          axisLabel: { color: '#10b981', fontSize: 10, formatter: v => `${v}V` },
+          axisLine: { show: true, lineStyle: { color: '#10b981' } },
+          splitLine: { lineStyle: { color: '#f1f5f9' } },
+        },
+        {
+          name: 'mA', nameTextStyle: { color: '#0c8ecc', fontSize: 10 }, position: 'right',
+          axisLabel: { color: '#0c8ecc', fontSize: 10, formatter: v => `${v}` },
+          axisLine: { show: true, lineStyle: { color: '#0c8ecc' } },
+          splitLine: { show: false },
+        },
+        {
+          name: 'mW', nameTextStyle: { color: '#BA7517', fontSize: 10 }, position: 'right',
+          offset: 52,
+          axisLabel: { color: '#BA7517', fontSize: 10, formatter: v => `${v}` },
+          axisLine: { show: true, lineStyle: { color: '#BA7517' } },
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          name: 'Voltaje', type: 'line', yAxisIndex: 0, data: voltage,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#10b981', width: 2 },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(16,185,129,0.18)' }, { offset: 1, color: 'rgba(16,185,129,0)' }] } },
+        },
+        {
+          name: 'Corriente', type: 'line', yAxisIndex: 1, data: current,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#0c8ecc', width: 1.5 },
+        },
+        {
+          name: 'Potencia', type: 'line', yAxisIndex: 2, data: power,
+          smooth: true, symbol: 'none',
+          lineStyle: { color: '#BA7517', width: 1.5, type: 'dashed' },
+        },
+      ],
+    }, true)
+  }, [voltage.length, current.length, power.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const ro = new ResizeObserver(() => chart.resize())
+    if (ref.current) ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+
+  if (!voltage.length && !current.length) {
+    return (
+      <div className="h-48 flex items-center justify-center text-navy-200 text-sm">
+        Sin datos INA219
+      </div>
+    )
+  }
+  return <div ref={ref} style={{ width: '100%', height: 220 }} />
+}
+
 function DeviceCard({ hex, grad, icon: Icon, title, children, right }) {
   return (
     <div
@@ -111,6 +271,8 @@ function DeviceCard({ hex, grad, icon: Icon, title, children, right }) {
 const REALTIME_N = 30
 
 export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
+  const hasIna = latest.ina219_bus_voltage != null || latest.ina219_current_ma != null
+
   const rtTs   = timestamps.slice(-REALTIME_N)
   const rtRssi = data.rssi.slice(-REALTIME_N)
   const rtHeap = data.free_heap.slice(-REALTIME_N)
@@ -248,6 +410,94 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
           yUnit=" KB" yMin={0} type="area"
         />
       </div>
+
+      {/* ── Panel INA219 — solo PROFILE_IRRIGATION ── */}
+      {hasIna && (
+        <div className="space-y-4">
+
+          {/* Métricas instantáneas */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            {/* Batería */}
+            <DeviceCard
+              hex="#10b981"
+              grad="from-[#065f46] to-[#10b981]"
+              icon={BatteryMedium}
+              title="Batería 12 V"
+            >
+              <p
+                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+                style={{ textShadow: '0 0 20px rgba(16,185,129,0.18)' }}
+              >
+                {latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
+                <span className="text-base font-medium text-navy-300 ml-1.5">V</span>
+              </p>
+              <BatteryBar voltage={latest.ina219_bus_voltage} />
+            </DeviceCard>
+
+            {/* Corriente */}
+            <DeviceCard
+              hex="#0c8ecc"
+              grad="from-[#0c5688] to-[#0c8ecc]"
+              icon={Zap}
+              title="Corriente"
+              right={
+                latest.ina219_current_ma != null && latest.ina219_current_ma > 1300
+                  ? <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                  : null
+              }
+            >
+              <p
+                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+                style={{ textShadow: '0 0 20px rgba(12,142,204,0.18)' }}
+              >
+                {latest.ina219_current_ma != null ? Number(latest.ina219_current_ma).toFixed(0) : '—'}
+                <span className="text-base font-medium text-navy-300 ml-1.5">mA</span>
+              </p>
+              {latest.ina219_current_ma != null && (
+                <p className="text-xs" style={{
+                  color: latest.ina219_current_ma > 1900 ? '#ef4444'
+                       : latest.ina219_current_ma > 1300 ? '#BA7517' : '#64748b'
+                }}>
+                  {latest.ina219_current_ma > 1900 ? 'Corriente crítica'
+                   : latest.ina219_current_ma > 1300 ? 'Corriente elevada' : 'Normal'}
+                </p>
+              )}
+            </DeviceCard>
+
+            {/* Potencia */}
+            <DeviceCard
+              hex="#BA7517"
+              grad="from-[#78460d] to-[#BA7517]"
+              icon={Zap}
+              title="Potencia"
+            >
+              <p
+                className="text-[2rem] font-extrabold text-navy-900 leading-none tabular-nums tracking-tight mb-3"
+                style={{ textShadow: '0 0 20px rgba(186,117,23,0.18)' }}
+              >
+                {latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
+                <span className="text-base font-medium text-navy-300 ml-1.5">W</span>
+              </p>
+              {latest.ina219_power_mw != null && (
+                <p className="text-xs text-navy-300">{Number(latest.ina219_power_mw).toFixed(0)} mW</p>
+              )}
+            </DeviceCard>
+
+          </div>
+
+          {/* Gráfica histórica multi-eje */}
+          <DeviceCard
+            hex="#10b981"
+            grad="from-[#065f46] to-[#10b981]"
+            icon={BatteryMedium}
+            title="Histórico — Voltaje · Corriente · Potencia"
+          >
+            <Ina219Chart data={data} timestamps={timestamps} />
+          </DeviceCard>
+
+        </div>
+      )}
 
     </main>
   )
