@@ -334,14 +334,25 @@ def _handle_alert(finca_id: str, payload: dict):
     alert_type = payload.get("type", "unknown")
     device_mac = payload.get("device_mac") or ""
 
-    # mqtt_reconnect se dispara cada vez que el dispositivo reconecta al broker,
-    # lo que ocurre frecuentemente cuando el keepalive del cliente (15s por defecto
-    # en PubSubClient) es menor que el intervalo de telemetría (20s). No indica
-    # un problema real si el uptime del dispositivo es continuo.
+    # mqtt_reconnect se dispara cuando el dispositivo reconecta al broker.
+    # Con keepalive=60s (firmware ≥ esta versión) debería ser infrecuente.
     # Se permite como máximo una alerta cada _RECONNECT_COOLDOWN_S por dispositivo.
     if device_mac:
         _mac_last_seen[device_mac] = time.monotonic()
         _prune_stale_macs()
+
+    if alert_type == "flow_counters_reset":
+        db = get_db_connection()
+        try:
+            db.execute(
+                "INSERT INTO app_settings(key,value) VALUES('reset_flow_counters','false')"
+                " ON CONFLICT(key) DO UPDATE SET value='false'"
+            )
+            db.commit()
+            logger.info("Flow counters reset confirmado via MQTT: mac=%s", device_mac)
+        finally:
+            db.close()
+        return
 
     if alert_type == "mqtt_reconnect":
         now = time.monotonic()
@@ -442,6 +453,14 @@ def _handle_register(finca_id: str, payload: dict):
         db.commit()
         logger.info("Dispositivo MQTT registrado: finca_id=%s mac=%s",
                     finca_id, payload.get("mac_address"))
+        cfg = db.execute(
+            "SELECT value FROM app_settings WHERE key='reset_flow_counters'"
+        ).fetchone()
+        if cfg and cfg["value"] == "true":
+            device_mac = payload.get("mac_address")
+            if device_mac:
+                publish_cmd(finca_id, {"reset_flow_counters": True, "mac": device_mac})
+                logger.info("Re-publicado reset_flow_counters a device reconectado: mac=%s", device_mac)
     finally:
         db.close()
 

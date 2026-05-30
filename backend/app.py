@@ -473,7 +473,7 @@ _VALID_IRRIG = frozenset({'sprinkler', 'drip', 'drip_tape', 'micro_sprinkler'})
 def _publish_pipeline_config(
         mac, scenario=None, mode=None, telemetry_interval_s=None,
         config_sync_interval_s=None, display_timeout_s=None,
-        irrigation_type=None):
+        irrigation_type=None, soil_fast_interval_s=None, soil_slow_interval_s=None):
     """Envía la configuración de pipeline por MQTT al dispositivo indicado."""
     if not mac:
         return False
@@ -501,6 +501,10 @@ def _publish_pipeline_config(
         payload["display_timeout_s"] = int(display_timeout_s)
     if irrigation_type in _VALID_IRRIG:
         payload["irrigation_type"] = irrigation_type
+    if soil_fast_interval_s is not None:
+        payload["soil_fast_interval_s"] = int(soil_fast_interval_s)
+    if soil_slow_interval_s is not None:
+        payload["soil_slow_interval_s"] = int(soil_slow_interval_s)
 
     if len(payload) <= 2:
         return False
@@ -1544,6 +1548,10 @@ def get_pipeline_config():
         "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
         "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
         "reset_flow_counters": cfg.get('reset_flow_counters', 'false') == 'true',
+        "soil_fast_interval_s": _get_int_setting(
+            cfg, 'soil_fast_interval_s', 3, min_value=3, max_value=300),
+        "soil_slow_interval_s": _get_int_setting(
+            cfg, 'soil_slow_interval_s', 20, min_value=20, max_value=3600),
     })
 
 
@@ -1607,9 +1615,20 @@ def set_pipeline_config():
     if display_error:
         return jsonify({"error": display_error}), 400
 
+    soil_fast_interval_s, soil_fast_error = _parse_int_field(
+        'soil_fast_interval_s', 3, 300)
+    if soil_fast_error:
+        return jsonify({"error": soil_fast_error}), 400
+
+    soil_slow_interval_s, soil_slow_error = _parse_int_field(
+        'soil_slow_interval_s', 20, 3600)
+    if soil_slow_error:
+        return jsonify({"error": soil_slow_error}), 400
+
     if all(v is None for v in (
             scenario, mode, telemetry_interval_s,
-            config_sync_interval_s, display_timeout_s, irrigation_type)):
+            config_sync_interval_s, display_timeout_s, irrigation_type,
+            soil_fast_interval_s, soil_slow_interval_s)):
         return jsonify({
             "error": "Debe enviar scenario, mode, irrigation_type o un ajuste del dispositivo"
         }), 400
@@ -1655,6 +1674,18 @@ def set_pipeline_config():
             " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (irrigation_type,)
         )
+    if soil_fast_interval_s is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('soil_fast_interval_s', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (str(soil_fast_interval_s),)
+        )
+    if soil_slow_interval_s is not None:
+        db.execute(
+            "INSERT INTO app_settings(key, value) VALUES ('soil_slow_interval_s', ?)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (str(soil_slow_interval_s),)
+        )
     db.commit()
 
     dispatched = _publish_pipeline_config(
@@ -1665,6 +1696,8 @@ def set_pipeline_config():
         config_sync_interval_s=config_sync_interval_s,
         display_timeout_s=display_timeout_s,
         irrigation_type=irrigation_type,
+        soil_fast_interval_s=soil_fast_interval_s,
+        soil_slow_interval_s=soil_slow_interval_s,
     ) if mac else False
     cfg = _get_settings()
     logger.info(
@@ -1689,6 +1722,10 @@ def set_pipeline_config():
             cfg, 'display_timeout_s', 60, min_value=0, max_value=3600),
         "irrigation_type":     cfg.get('irrigation_type', 'sprinkler'),
         "leak_detect_trained": cfg.get('leak_detect_trained', 'false') == 'true',
+        "soil_fast_interval_s": _get_int_setting(
+            cfg, 'soil_fast_interval_s', 3, min_value=3, max_value=300),
+        "soil_slow_interval_s": _get_int_setting(
+            cfg, 'soil_slow_interval_s', 20, min_value=20, max_value=3600),
         "mac": mac,
         "mqtt_dispatched": dispatched,
     })
@@ -1699,8 +1736,9 @@ def set_pipeline_config():
 def request_flow_reset():
     """Solicita al ESP32 que resetee los contadores de flujo (riego + fuga + sesión).
 
-    El ESP32 leerá reset_flow_counters=true en el próximo sync de config (~20s)
-    y confirmará el reset vía GET /api/flow/reset-ack.
+    Publica el comando inmediatamente por MQTT. El flag en app_settings actúa
+    como backup: si el device está offline lo recibirá al reconectarse vía
+    _handle_register. El ESP32 confirma con una alerta 'flow_counters_reset'.
     """
     mac = (request.get_json(silent=True) or {}).get('mac') or request.args.get('mac')
     if not mac:
@@ -1711,8 +1749,17 @@ def request_flow_reset():
         " ON CONFLICT (key) DO UPDATE SET value = 'true'"
     )
     db.commit()
-    logger.info("Flow counters reset solicitado para mac=%s", mac)
-    return jsonify({"ok": True, "pending": True})
+    finca_row = db.execute(
+        "SELECT finca_id FROM device_info WHERE mac_address = %s", (mac,)
+    ).fetchone()
+    mqtt_dispatched = False
+    if finca_row and finca_row["finca_id"]:
+        mqtt_dispatched = mqtt_client.publish_cmd(finca_row["finca_id"], {
+            "reset_flow_counters": True,
+            "mac": mac,
+        })
+    logger.info("Flow counters reset solicitado para mac=%s mqtt=%s", mac, mqtt_dispatched)
+    return jsonify({"ok": True, "pending": True, "mqtt_dispatched": mqtt_dispatched})
 
 
 @app.route("/api/flow/reset-ack", methods=["GET"])

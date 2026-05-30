@@ -50,6 +50,8 @@ export default function SettingsView({ hasDevices = true }) {
     telemetry_interval_s:   '20',
     config_sync_interval_s: '20',
     display_timeout_s:      '60',
+    soil_fast_interval_s:   '3',
+    soil_slow_interval_s:   '20',
   })
   const [status, setStatus] = useState(null)   // 'saving' | 'saved' | 'error'
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -81,6 +83,12 @@ export default function SettingsView({ hasDevices = true }) {
           display_timeout_s: String(
             pipeline.display_timeout_s ?? settings.display_timeout_s ?? f.display_timeout_s,
           ),
+          soil_fast_interval_s: String(
+            pipeline.soil_fast_interval_s ?? f.soil_fast_interval_s,
+          ),
+          soil_slow_interval_s: String(
+            pipeline.soil_slow_interval_s ?? f.soil_slow_interval_s,
+          ),
         }))
       })
       .catch(() => {})
@@ -103,6 +111,8 @@ export default function SettingsView({ hasDevices = true }) {
         telemetry_interval_s: form.telemetry_interval_s,
         config_sync_interval_s: form.config_sync_interval_s,
         display_timeout_s: form.display_timeout_s,
+        soil_fast_interval_s: form.soil_fast_interval_s,
+        soil_slow_interval_s: form.soil_slow_interval_s,
       }
 
       const [generalRes, deviceRes] = await Promise.all([
@@ -133,6 +143,8 @@ export default function SettingsView({ hasDevices = true }) {
         telemetry_interval_s: String(savedDevice.telemetry_interval_s ?? f.telemetry_interval_s),
         config_sync_interval_s: String(savedDevice.config_sync_interval_s ?? f.config_sync_interval_s),
         display_timeout_s: String(savedDevice.display_timeout_s ?? f.display_timeout_s),
+        soil_fast_interval_s: String(savedDevice.soil_fast_interval_s ?? f.soil_fast_interval_s),
+        soil_slow_interval_s: String(savedDevice.soil_slow_interval_s ?? f.soil_slow_interval_s),
       }))
       setStatus('saved')
       setTimeout(() => setStatus(null), 2500)
@@ -284,6 +296,22 @@ export default function SettingsView({ hasDevices = true }) {
           value={form.display_timeout_s}
           onChange={set('display_timeout_s')}
           type="number" min={0} max={3600} step={1}
+          unit="s"
+        />
+        <SettingField
+          label="Muestreo suelo (riego)"
+          description="Intervalo de lectura del sensor de suelo RS485 durante riego activo o ventana post-riego."
+          value={form.soil_fast_interval_s}
+          onChange={set('soil_fast_interval_s')}
+          type="number" min={3} max={300} step={1}
+          unit="s"
+        />
+        <SettingField
+          label="Muestreo suelo (reposo)"
+          description="Intervalo de lectura del sensor de suelo RS485 en reposo normal, sin riego activo."
+          value={form.soil_slow_interval_s}
+          onChange={set('soil_slow_interval_s')}
+          type="number" min={20} max={3600} step={1}
           unit="s"
         />
       </div>
