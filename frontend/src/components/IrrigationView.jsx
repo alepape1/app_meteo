@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
-  BarChart2, Activity, Timer, Gauge, BatteryMedium,
+  BarChart2, Activity, Timer, Gauge,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import * as echarts from 'echarts/core'
@@ -20,95 +20,7 @@ function hexAlpha(hex, a) {
 }
 const ha = hexAlpha
 
-// ── Animated Battery Widget (@lucide-animated/battery) ───────────────────────
-// Drop-in replacement for the shadcn registry component
-export function AnimatedBattery({ percentage = 0, size = 80, charging = false }) {
-  const fillRef  = useRef(null)
-  const glowRef  = useRef(null)
-  const boltRef  = useRef(null)
-  const rafId    = useRef(null)
-  const state    = useRef({ displayed: 0, target: 0, phase: 0 })
-
-  useEffect(() => { state.current.target = Math.max(0, Math.min(100, percentage)) }, [percentage])
-
-  useEffect(() => {
-    function tick(now) {
-      const s = state.current
-      s.displayed += (s.target - s.displayed) * 0.06
-      s.phase += 0.04
-
-      const pct   = s.displayed / 100
-      const color = pct >= 0.6 ? '#10b981' : pct >= 0.25 ? '#f59e0b' : '#ef4444'
-      const glow  = pct >= 0.6 ? 'rgba(16,185,129,0.35)' : pct >= 0.25 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)'
-
-      if (fillRef.current) {
-        const maxW = 34
-        fillRef.current.setAttribute('width', String(Math.max(0, maxW * pct).toFixed(2)))
-        fillRef.current.setAttribute('fill', color)
-      }
-      if (glowRef.current) {
-        glowRef.current.setAttribute('stop-color', glow)
-      }
-      if (boltRef.current) {
-        if (charging) {
-          const pulse = 0.5 + 0.5 * Math.abs(Math.sin(now / 600))
-          boltRef.current.setAttribute('opacity', String(pulse.toFixed(2)))
-          boltRef.current.style.display = 'block'
-        } else {
-          boltRef.current.style.display = 'none'
-        }
-      }
-      rafId.current = requestAnimationFrame(tick)
-    }
-    rafId.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId.current)
-  }, [charging])
-
-  const w = size, h = Math.round(size * 0.48)
-  const uid = useRef(`bat-${Math.random().toString(36).slice(2, 6)}`).current
-
-  return (
-    <svg width={w} height={h} viewBox="0 0 52 25" style={{ overflow: 'visible', display: 'block' }}>
-      <defs>
-        <radialGradient id={`bg-${uid}`} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="rgba(255,255,255,0.08)" />
-          <stop ref={glowRef} offset="100%" stopColor="rgba(16,185,129,0.35)" />
-        </radialGradient>
-        <filter id={`glow-${uid}`} x="-20%" y="-40%" width="140%" height="180%">
-          <feGaussianBlur stdDeviation="1.8" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-        </filter>
-      </defs>
-
-      {/* Glow halo */}
-      <rect x="1" y="1" width="44" height="23" rx="5" fill={`url(#bg-${uid})`} filter={`url(#glow-${uid})`} opacity="0.6" />
-
-      {/* Battery shell */}
-      <rect x="1" y="1" width="44" height="23" rx="4.5" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#1a3350' }} opacity="0.8" />
-
-      {/* Terminal nub */}
-      <rect x="46" y="9" width="5" height="7" rx="1.5" fill="#1a3350" opacity="0.7" />
-
-      {/* Fill bar */}
-      <rect ref={fillRef} x="4" y="4" width="0" height="17" rx="2.5" fill="#10b981" style={{ transition: 'none' }} />
-
-      {/* Percent text */}
-      <text x="22" y="15.5" textAnchor="middle" dominantBaseline="middle"
-        fontSize="7.5" fontWeight="700" fontFamily='"DM Sans",system-ui,sans-serif'
-        fill="#0f172a" opacity="0.75">
-        {Math.round(state.current.displayed)}%
-      </text>
-
-      {/* Charging bolt */}
-      <g ref={boltRef} style={{ display: 'none' }}>
-        <path d="M24 6 L20 13.5 L23.5 13.5 L22 19 L28 11.5 L24.5 11.5 Z"
-          fill="#f59e0b" opacity="0.9" />
-      </g>
-    </svg>
-  )
-}
-
-// ── Section header — identical to DeviceStatus ────────────────────────────────
+// ── Section header ────────────────────────────────────────────────────────────
 function SectionHeader({ icon: Icon, label, children }) {
   return (
     <div className="flex items-center gap-2">
@@ -402,100 +314,7 @@ const TIMER_PRESETS = [
   { label: '30m', seconds: 1800 },
 ]
 
-// ── Battery helpers ───────────────────────────────────────────────────────────
-const BAT_FULL_V  = 12.2
-const BAT_EMPTY_V = 10.5
 
-function batPct(v) {
-  if (v == null) return null
-  return Math.max(0, Math.min(100, ((v - BAT_EMPTY_V) / (BAT_FULL_V - BAT_EMPTY_V)) * 100))
-}
-
-// ── Battery Card — animated widget using AnimatedBattery ─────────────────────
-function BatteryCard({ latest }) {
-  const voltage = latest?.ina219_bus_voltage
-  const currentMa = latest?.ina219_current_ma
-  const powerMw = latest?.ina219_power_mw
-  const pct = batPct(voltage)
-
-  if (voltage == null && currentMa == null) return null
-
-  const batColor = pct == null ? '#94a3b8' : pct >= 60 ? '#10b981' : pct >= 25 ? '#f59e0b' : '#ef4444'
-  const batLabel = pct == null ? 'Sin datos' : pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Crítico'
-  const maColor  = currentMa > 1900 ? '#ef4444' : currentMa > 1300 ? '#f59e0b' : '#0c8ecc'
-  const isHigh   = currentMa != null && currentMa > 1300
-
-  return (
-    <div
-      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
-      style={{ borderTop: `3px solid ${ha(batColor, 0.75)}` }}
-    >
-      {/* Header */}
-      <div
-        className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5"
-        style={{ background: ha(batColor, 0.05) }}
-      >
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha(batColor, 0.15) }}>
-          <BatteryMedium size={14} style={{ color: batColor }} />
-        </div>
-        <span className="text-sm font-semibold text-navy-900">Alimentación — INA219</span>
-        {isHigh && (
-          <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50">
-            <AlertTriangle size={11} className="text-amber-500" />
-            <span className="text-[10px] font-semibold text-amber-600">
-              {currentMa > 1900 ? 'Corriente crítica' : 'Corriente elevada'}
-            </span>
-          </div>
-        )}
-        {!isHigh && pct != null && (
-          <div
-            className="ml-auto px-2.5 py-0.5 rounded-full text-[10px] font-bold border leading-none"
-            style={{ background: ha(batColor, 0.1), color: batColor, borderColor: ha(batColor, 0.25) }}
-          >
-            {batLabel}
-          </div>
-        )}
-      </div>
-
-      <div className="p-5">
-        <div className="flex flex-col sm:flex-row items-center gap-5">
-          {/* Animated battery widget */}
-          <div className="flex flex-col items-center gap-2 shrink-0">
-            <AnimatedBattery percentage={pct ?? 0} size={96} charging={false} />
-            <p className="text-xs font-semibold tabular-nums" style={{ color: batColor }}>
-              {pct != null ? `${Math.round(pct)}%` : '—'} · {voltage != null ? `${Number(voltage).toFixed(2)} V` : '—'}
-            </p>
-          </div>
-
-          {/* Metric chips */}
-          <div className="flex-1 grid grid-cols-3 gap-2 w-full">
-            <InfoChip
-              icon={BatteryMedium}
-              label="Voltaje"
-              value={voltage != null ? `${Number(voltage).toFixed(2)} V` : null}
-              accent={batColor}
-              mono
-            />
-            <InfoChip
-              icon={Zap}
-              label="Corriente"
-              value={currentMa != null ? `${Number(currentMa).toFixed(0)} mA` : null}
-              accent={maColor}
-              mono
-            />
-            <InfoChip
-              icon={Activity}
-              label="Potencia"
-              value={powerMw != null ? `${Number(powerMw / 1000).toFixed(2)} W` : null}
-              accent="#BA7517"
-              mono
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ── SectorCard ───────────────────────────────────────────────────────────────
 function SectorCard({ sector }) {
@@ -1459,7 +1278,6 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
 
   const et0    = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
   const et0Num = et0 != null ? parseFloat(et0) : null
-  const hasIna = latest?.ina219_bus_voltage != null || latest?.ina219_current_ma != null
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -1477,9 +1295,6 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
 
       {/* ── KPI strip ── */}
       <LiveKPIStrip latest={latest} stats={stats} et0={et0} />
-
-      {/* ── Battery widget — visible solo si hay datos INA219 ── */}
-      {hasIna && <BatteryCard latest={latest} />}
 
       {/* ── Banner hardware en desarrollo ── */}
       <div className="bg-white border border-[#FAC775] rounded-2xl shadow-sm overflow-hidden" style={{ borderTop: '3px solid #BA7517' }}>

@@ -106,30 +106,70 @@ function batPct(v) {
   return Math.max(0, Math.min(100, ((v - BAT_EMPTY_V) / (BAT_FULL_V - BAT_EMPTY_V)) * 100))
 }
 
-function BatteryBar({ voltage }) {
-  const pct = batPct(voltage)
-  if (pct == null) return <span className="text-navy-200 text-sm">—</span>
-  const color  = pct >= 60 ? '#10b981' : pct >= 25 ? '#BA7517' : '#ef4444'
-  const label  = pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Batería crítica'
+// ── Animated battery SVG ─────────────────────────────────────────────────────
+function AnimatedBattery({ percentage = 0, size = 80, charging = false }) {
+  const fillRef = useRef(null)
+  const glowRef = useRef(null)
+  const boltRef = useRef(null)
+  const rafId   = useRef(null)
+  const state   = useRef({ displayed: 0, target: 0 })
+  const uid     = useRef(`bat-${Math.random().toString(36).slice(2, 6)}`).current
+
+  useEffect(() => { state.current.target = Math.max(0, Math.min(100, percentage)) }, [percentage])
+
+  useEffect(() => {
+    function tick(now) {
+      const s = state.current
+      s.displayed += (s.target - s.displayed) * 0.06
+      const pct   = s.displayed / 100
+      const color = pct >= 0.6 ? '#10b981' : pct >= 0.25 ? '#f59e0b' : '#ef4444'
+      const glow  = pct >= 0.6 ? 'rgba(16,185,129,0.35)' : pct >= 0.25 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)'
+      if (fillRef.current) {
+        fillRef.current.setAttribute('width', String(Math.max(0, 34 * pct).toFixed(2)))
+        fillRef.current.setAttribute('fill', color)
+      }
+      if (glowRef.current) glowRef.current.setAttribute('stop-color', glow)
+      if (boltRef.current) {
+        if (charging) {
+          const pulse = 0.5 + 0.5 * Math.abs(Math.sin(now / 600))
+          boltRef.current.setAttribute('opacity', String(pulse.toFixed(2)))
+          boltRef.current.style.display = 'block'
+        } else {
+          boltRef.current.style.display = 'none'
+        }
+      }
+      rafId.current = requestAnimationFrame(tick)
+    }
+    rafId.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId.current)
+  }, [charging])
+
+  const w = size, h = Math.round(size * 0.48)
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <div className="relative flex-1 h-5 rounded-md overflow-hidden border-2" style={{ borderColor: color }}>
-          <div
-            className="absolute inset-y-0 left-0 rounded-[3px] transition-all duration-700"
-            style={{ width: `${pct}%`, background: color, opacity: 0.85 }}
-          />
-          <span
-            className="absolute inset-0 flex items-center justify-center text-[10px] font-bold mix-blend-multiply"
-            style={{ color }}
-          >
-            {Math.round(pct)}%
-          </span>
-        </div>
-        <div className="w-2 h-2.5 rounded-r-sm" style={{ background: color, opacity: 0.7 }} />
-      </div>
-      <p className="text-xs" style={{ color }}>{label} · {Number(voltage).toFixed(2)} V</p>
-    </div>
+    <svg width={w} height={h} viewBox="0 0 52 25" style={{ overflow: 'visible', display: 'block' }}>
+      <defs>
+        <radialGradient id={`bg-${uid}`} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.08)" />
+          <stop ref={glowRef} offset="100%" stopColor="rgba(16,185,129,0.35)" />
+        </radialGradient>
+        <filter id={`glow-${uid}`} x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur stdDeviation="1.8" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+      </defs>
+      <rect x="1" y="1" width="44" height="23" rx="5" fill={`url(#bg-${uid})`} filter={`url(#glow-${uid})`} opacity="0.6" />
+      <rect x="1" y="1" width="44" height="23" rx="4.5" fill="none" stroke="#1a3350" strokeWidth="2" opacity="0.8" />
+      <rect x="46" y="9" width="5" height="7" rx="1.5" fill="#1a3350" opacity="0.7" />
+      <rect ref={fillRef} x="4" y="4" width="0" height="17" rx="2.5" fill="#10b981" />
+      <text x="22" y="15.5" textAnchor="middle" dominantBaseline="middle"
+        fontSize="7.5" fontWeight="700" fontFamily='"DM Sans",system-ui,sans-serif'
+        fill="#0f172a" opacity="0.75">
+        {Math.round(state.current.displayed)}%
+      </text>
+      <g ref={boltRef} style={{ display: 'none' }}>
+        <path d="M24 6 L20 13.5 L23.5 13.5 L22 19 L28 11.5 L24.5 11.5 Z" fill="#f59e0b" opacity="0.9" />
+      </g>
+    </svg>
   )
 }
 
@@ -418,8 +458,26 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
               </div>
 
               <div className="p-4 space-y-4">
-                {/* Barra de batería prominente */}
-                <BatteryBar voltage={latest.ina219_bus_voltage} />
+                {/* Batería animada */}
+                {(() => {
+                  const pct = batPct(latest.ina219_bus_voltage)
+                  const color = pct == null ? '#94a3b8' : pct >= 60 ? '#10b981' : pct >= 25 ? '#f59e0b' : '#ef4444'
+                  const label = pct == null ? '—' : pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Batería crítica'
+                  return (
+                    <div className="flex items-center gap-4">
+                      <AnimatedBattery percentage={pct ?? 0} size={100} charging={false} />
+                      <div>
+                        <p className="text-lg font-extrabold tabular-nums leading-none" style={{ color }}>
+                          {pct != null ? `${Math.round(pct)}%` : '—'}
+                        </p>
+                        <p className="text-xs mt-0.5" style={{ color }}>{label}</p>
+                        {latest.ina219_bus_voltage != null && (
+                          <p className="text-[10px] text-navy-300 mt-0.5 font-mono">{Number(latest.ina219_bus_voltage).toFixed(2)} V</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Chips de métricas */}
                 {(() => {
