@@ -505,119 +505,135 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
   const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
   const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
-  const valveHex = desired ? '#0c8ecc' : '#1a3350'
 
   return (
     <div
-      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
-      style={{ borderTop: `3px solid ${ha(valveHex, desired ? 0.85 : 0.4)}` }}
+      className={`flex items-center gap-3 px-4 py-3 transition-colors duration-200 ${
+        desired ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'
+      }`}
     >
-      <div className="p-5">
-        {/* Title row */}
-        <div className="flex items-center gap-2 mb-4">
-          <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: ha(valveHex, 0.12), border: `1px solid ${ha(valveHex, 0.22)}` }}
-          >
-            <Power size={15} style={{ color: valveHex }} />
-          </div>
-          <div>
-            <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-navy-300 leading-none">
-              Válvula {index + 1}
-            </p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className={`w-2 h-2 rounded-full ${actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'}`} />
-              <p className="text-[11px] font-semibold text-navy-700">
-                {actual ? 'Abierta — Regando' : 'Cerrada'}
-              </p>
-            </div>
-          </div>
-          <div className="ml-auto text-right">
-            <p className={`text-[10px] font-bold px-2 py-0.5 rounded-full border leading-none ${
-              synced ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'
-            }`}>
-              {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `${cooldownSeconds}s` : 'Reintento'}
-            </p>
-          </div>
+      {/* Number badge + status LED */}
+      <div className="relative shrink-0">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center font-mono text-sm font-extrabold transition-all duration-300"
+          style={desired
+            ? { background: 'linear-gradient(135deg, #0369a1, #38bdf8)', color: '#fff', boxShadow: '0 0 14px rgba(14,165,233,0.4)' }
+            : { background: '#f1f5f9', color: '#64748b' }}
+        >
+          {index + 1}
         </div>
+        <span
+          className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white transition-colors duration-300 ${actual ? 'bg-emerald-400' : 'bg-slate-300'}`}
+          style={actual ? { boxShadow: '0 0 6px rgba(52,211,153,0.8)', animation: 'pulse 2s ease-in-out infinite' } : {}}
+        />
+      </div>
 
-        {/* Session info */}
-        {(desired || sessionSeconds > 0) && (
-          <div className={`rounded-xl p-3 mb-4 ${desired ? 'bg-sky-50 border border-sky-100' : 'bg-navy-50'}`}>
-            <div className="flex justify-between text-xs">
-              <span className="flex items-center gap-1 text-navy-400"><Clock size={11} /> Tiempo abierta</span>
-              <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
-            </div>
-            <div className="flex justify-between text-xs mt-1.5">
-              <span className="flex items-center gap-1 text-navy-400"><Droplets size={11} /> Esta sesión</span>
-              <span className="font-semibold text-brand-600">{sessionLiters} L</span>
-            </div>
-            <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
-            {desired && timerPreset != null && timerRemaining != null && (
-              <>
-                <div className="flex justify-between text-xs mt-1.5">
-                  <span className="flex items-center gap-1 text-navy-400"><Timer size={11} /> Cierre auto</span>
-                  <span className="font-semibold text-amber-600">{fmtTime(timerRemaining)}</span>
-                </div>
-                <div className="h-1 bg-navy-100 rounded-full overflow-hidden mt-1">
-                  <div
-                    className="h-full bg-amber-400 rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.round((timerRemaining / timerPreset) * 100)}%` }}
-                  />
-                </div>
-              </>
+      {/* Center: label + session / presets */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="text-xs font-bold text-navy-700">Válvula {index + 1}</span>
+          {!synced && retryRemainingMs > 0 && (
+            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full leading-none">
+              {cooldownSeconds}s
+            </span>
+          )}
+          {!synced && retryRemainingMs === 0 && (
+            <span className="text-[9px] text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full leading-none">↺</span>
+          )}
+        </div>
+        {desired && sessionSeconds != null ? (
+          <div className="flex items-center gap-2.5">
+            <span className="flex items-center gap-0.5 text-[10px] text-sky-600 font-medium tabular-nums">
+              <Clock size={9} className="shrink-0" />{fmtTime(sessionSeconds)}
+            </span>
+            <span className="text-[10px] font-bold text-sky-700 tabular-nums">{sessionLiters} L</span>
+            {timerRemaining != null && timerPreset != null && (
+              <span className="flex items-center gap-0.5 text-[10px] text-amber-600 font-semibold tabular-nums">
+                <Timer size={9} className="shrink-0" />{fmtTime(timerRemaining)}
+              </span>
             )}
           </div>
-        )}
-
-        {/* Timer presets */}
-        {!desired && (
-          <div className="mb-4">
-            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
-              <Timer size={10} /> Temporizador
-            </p>
-            <div className="flex gap-1.5 flex-wrap">
-              {TIMER_PRESETS.map(t => (
-                <button
-                  key={t.label}
-                  onClick={() => setTimerPreset(prev => prev === t.seconds ? null : t.seconds)}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                    timerPreset === t.seconds
-                      ? 'bg-brand-500 text-white shadow-sm'
-                      : 'bg-navy-50 text-navy-400 border border-navy-100 hover:bg-brand-50 hover:text-brand-600'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <Timer size={8} className="text-navy-300 shrink-0" />
+            {TIMER_PRESETS.map(t => (
+              <button
+                key={t.label}
+                onClick={e => { e.stopPropagation(); setTimerPreset(prev => prev === t.seconds ? null : t.seconds) }}
+                className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-all border leading-none ${
+                  timerPreset === t.seconds
+                    ? 'bg-brand-500 text-white border-brand-500'
+                    : 'bg-white text-navy-400 border-navy-100 hover:border-brand-300 hover:text-brand-500'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
         )}
+        {desired && timerPreset != null && timerRemaining != null && (
+          <div className="mt-1 h-0.5 bg-sky-100 rounded-full overflow-hidden w-20">
+            <div
+              className="h-full bg-amber-400 rounded-full transition-all duration-1000"
+              style={{ width: `${Math.round((timerRemaining / timerPreset) * 100)}%` }}
+            />
+          </div>
+        )}
+      </div>
 
+      {/* Flow rate (only when active, sm+) */}
+      {desired && (
+        <div className="shrink-0 text-right hidden sm:block">
+          <p className="text-[9px] font-extrabold uppercase tracking-[0.08em] text-navy-300 leading-none">Caudal</p>
+          <p className="text-[11px] font-bold text-sky-600 tabular-nums mt-0.5">
+            {effectiveFlowLpm}<span className="text-[9px] font-normal text-navy-300"> L/m</span>
+          </p>
+        </div>
+      )}
+
+      {/* Pill toggle switch */}
+      <div className="shrink-0">
         <button
           onClick={toggle}
           disabled={actionLocked}
-          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-            desired
-              ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-              : 'bg-brand-500 text-white hover:bg-brand-600'
-          }`}
-        >
-          {desired ? <Lock size={14} /> : <Unlock size={14} />}
-          {busy ? 'Enviando…'
+          title={
+            busy ? 'Enviando…'
             : retryRemainingMs > 0 ? `Espera ${cooldownSeconds}s…`
             : !synced ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
-            : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+            : desired ? 'Cerrar válvula' : 'Abrir válvula'
+          }
+          className="relative w-[52px] h-[28px] rounded-full transition-all duration-300 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            background: desired
+              ? 'linear-gradient(135deg, #0369a1 0%, #38bdf8 100%)'
+              : '#e2e8f0',
+            boxShadow: desired
+              ? '0 0 0 3px rgba(14,165,233,0.15), 0 2px 6px rgba(14,165,233,0.25)'
+              : 'inset 0 1px 3px rgba(0,0,0,0.08)',
+          }}
+        >
+          <span
+            className="absolute top-[4px] w-5 h-5 bg-white rounded-full shadow flex items-center justify-center transition-all duration-300"
+            style={{ left: desired ? 'calc(100% - 24px)' : '4px' }}
+          >
+            {busy
+              ? <span className="w-2.5 h-2.5 rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" />
+              : desired
+                ? <Unlock size={8} className="text-sky-500" />
+                : <Lock size={8} className="text-slate-400" />
+            }
+          </span>
         </button>
       </div>
     </div>
   )
 }
 
-// ── RelayPanel ────────────────────────────────────────────────────────────────
-function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm }) {
+// ── ValvePanel ────────────────────────────────────────────────────────────────
+function ValvePanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm }) {
   const { authFetch } = useAuth()
   const [states, setStates] = useState([])
+  const [closingAll, setClosingAll] = useState(false)
 
   useEffect(() => {
     setStates([])
@@ -626,7 +642,6 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
       const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
       setStates(normalized)
     }).catch(() => {})
-
     const id = setInterval(() => {
       authFetch(url).then(r => r.json()).then(arr => {
         const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
@@ -636,19 +651,103 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
     return () => clearInterval(id)
   }, [authFetch, selectedMac])
 
+  const activeCount = states.filter(s => s.desired || s.actual).length
+  const anyActive = activeCount > 0
+
+  const closeAll = useCallback(async () => {
+    setClosingAll(true)
+    try {
+      await Promise.all(
+        Array.from({ length: relayCount }, (_, i) =>
+          authFetch('/api/relay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: selectedMac, index: i, state: false }),
+          })
+        )
+      )
+    } finally {
+      setClosingAll(false)
+    }
+  }, [authFetch, selectedMac, relayCount])
+
   return (
-    <>
-      {Array.from({ length: relayCount }, (_, i) => (
-        <ValveCard
-          key={`${selectedMac || 'default'}-${i}`}
-          index={i}
-          mac={selectedMac}
-          flowLpm={flowLpm}
-          sensorFlowLpm={sensorFlowLpm}
-          initialState={states.find(s => s.index === i)}
-        />
-      ))}
-    </>
+    <div className="rounded-2xl border border-black/[.07] shadow-sm overflow-hidden">
+      {/* Dark header */}
+      <div
+        className="px-4 py-3.5 flex items-center gap-3"
+        style={{ background: 'linear-gradient(135deg, #050e1a 0%, #0c2040 100%)' }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: 'rgba(12,142,204,0.18)', border: '1px solid rgba(12,142,204,0.25)' }}
+        >
+          <Power size={14} className="text-sky-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-sky-400">Electroválvulas</p>
+          <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+            {relayCount} config. · {activeCount} activa{activeCount !== 1 ? 's' : ''}
+          </p>
+        </div>
+        {anyActive && (
+          <button
+            onClick={closeAll}
+            disabled={closingAll}
+            className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50 shrink-0"
+            style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}
+          >
+            {closingAll ? '…' : 'Cerrar todo'}
+          </button>
+        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${anyActive ? 'bg-emerald-400' : 'bg-slate-600'}`}
+            style={anyActive ? { animation: 'pulse 2s ease-in-out infinite', boxShadow: '0 0 6px rgba(52,211,153,0.7)' } : {}}
+          />
+          <span className="text-[10px] font-semibold text-slate-400">
+            {anyActive ? 'Activo' : 'Reposo'}
+          </span>
+        </div>
+      </div>
+
+      {/* Animated flow pipe strip — visible only when any valve is active */}
+      {anyActive && (
+        <div
+          className="px-4 py-2 flex items-center gap-2 border-b border-sky-100/60"
+          style={{ background: 'rgba(14,165,233,0.04)' }}
+        >
+          <style>{`@keyframes flowPipe{from{background-position:0 0}to{background-position:32px 0}}`}</style>
+          <Droplets size={10} className="text-sky-400 shrink-0" />
+          <div
+            className="flex-1 h-1.5 rounded-full"
+            style={{
+              background: 'repeating-linear-gradient(90deg,#38bdf8 0,#38bdf8 8px,rgba(56,189,248,0.12) 8px,rgba(56,189,248,0.12) 16px)',
+              backgroundSize: '32px 100%',
+              animation: 'flowPipe 0.7s linear infinite',
+            }}
+          />
+          <span className="text-[9px] font-bold text-sky-500 tabular-nums shrink-0">
+            {sensorFlowLpm > 0 ? `${Number(sensorFlowLpm).toFixed(1)} L/min` : `~${flowLpm} L/min`}
+          </span>
+        </div>
+      )}
+
+      {/* Valve rows */}
+      <div style={{ background: 'rgba(248,250,252,0.7)' }}>
+        {Array.from({ length: relayCount }, (_, i) => (
+          <div key={`${selectedMac || 'default'}-${i}`} className={i < relayCount - 1 ? 'border-b border-black/[.04]' : ''}>
+            <ValveCard
+              index={i}
+              mac={selectedMac}
+              flowLpm={flowLpm}
+              sensorFlowLpm={sensorFlowLpm}
+              initialState={states.find(s => s.index === i)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -1316,13 +1415,15 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
       {/* ── Asesor de riego ── */}
       <IrrigationAdvisor latest={latest} onIrrigate={handleIrrigate} />
 
-      {/* ── Electroválvulas + ET₀ + Consumo + Ahorro ── */}
-      <div className="space-y-3">
+      {/* ── Electroválvulas + Métricas ── */}
+      <div className="space-y-4">
         <SectionHeader icon={Power} label="Electroválvulas y telemetría" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-          {/* Válvulas */}
-          <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
+        {/* Panel unificado de válvulas — full width */}
+        <ValvePanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
+
+        {/* Métricas — fila de 3 */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
           {/* ET₀ card */}
           <div
@@ -1422,7 +1523,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
             </div>
           </div>
 
-          {/* Ahorro mensual — droplet */}
+          {/* Ahorro mensual */}
           <SavingsCard stats={stats} latest={latest} />
 
         </div>
