@@ -425,71 +425,75 @@ export default function DeviceStatus({ data, latest, deviceInfo, timestamps }) {
         <div className="space-y-3">
           <SectionHeader icon={BatteryMedium} label="Alimentación — INA219" />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-            <MetricCard
-              label="Batería 12 V"
-              symbol="Bus voltage"
-              value={latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
-              unit="V"
-              accent="#10b981"
-              icon={BatteryMedium}
-            >
-              <BatteryBar voltage={latest.ina219_bus_voltage} />
-            </MetricCard>
+            {/* Card unificada con las tres métricas */}
+            <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden" style={{ borderTop: `3px solid ${ha('#10b981', 0.75)}` }}>
+              <div
+                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+                style={{ background: ha('#10b981', 0.05) }}
+              >
+                <BatteryMedium size={14} style={{ color: '#10b981' }} />
+                <span className="text-sm font-semibold text-navy-900">Batería 12 V</span>
+                {latest.ina219_current_ma != null && latest.ina219_current_ma > 1300 && (
+                  <AlertTriangle size={13} className="ml-auto text-amber-500" />
+                )}
+              </div>
+              <div className="p-5 flex flex-col gap-4">
+                {/* Battery bar prominente */}
+                <BatteryBar voltage={latest.ina219_bus_voltage} />
 
-            <MetricCard
-              label="Corriente"
-              symbol={
-                latest.ina219_current_ma != null && latest.ina219_current_ma > 1300
-                  ? '⚠ Elevada'
-                  : 'INA219'
-              }
-              value={latest.ina219_current_ma != null ? Number(latest.ina219_current_ma).toFixed(0) : '—'}
-              unit="mA"
-              accent="#0c8ecc"
-              icon={Zap}
-            >
-              {latest.ina219_current_ma != null && (
-                <p className="text-xs" style={{
-                  color: latest.ina219_current_ma > 1900 ? '#ef4444'
-                       : latest.ina219_current_ma > 1300 ? '#BA7517' : '#64748b'
-                }}>
-                  {latest.ina219_current_ma > 1900 ? 'Corriente crítica'
-                   : latest.ina219_current_ma > 1300 ? 'Corriente elevada' : 'Normal'}
-                </p>
-              )}
-            </MetricCard>
+                {/* Tres stats en fila */}
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Voltaje */}
+                  <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha('#10b981', 0.05) }}>
+                    <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Voltaje</span>
+                    <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color: '#10b981' }}>
+                      {latest.ina219_bus_voltage != null ? Number(latest.ina219_bus_voltage).toFixed(2) : '—'}
+                    </span>
+                    <span className="text-[10px] font-semibold text-navy-300">V</span>
+                  </div>
+                  {/* Corriente */}
+                  {(() => {
+                    const ma = latest.ina219_current_ma
+                    const color = ma > 1900 ? '#ef4444' : ma > 1300 ? '#BA7517' : '#0c8ecc'
+                    return (
+                      <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha(color, 0.05) }}>
+                        <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Corriente</span>
+                        <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color }}>
+                          {ma != null ? Number(ma).toFixed(0) : '—'}
+                        </span>
+                        <span className="text-[10px] font-semibold text-navy-300">mA</span>
+                      </div>
+                    )
+                  })()}
+                  {/* Potencia */}
+                  <div className="flex flex-col gap-1 p-3 rounded-xl border border-navy-100/60" style={{ background: ha('#BA7517', 0.05) }}>
+                    <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Potencia</span>
+                    <span className="text-xl font-extrabold tabular-nums leading-none" style={{ color: '#BA7517' }}>
+                      {latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
+                    </span>
+                    <span className="text-[10px] font-semibold text-navy-300">W</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-            <MetricCard
-              label="Potencia"
-              symbol="INA219"
-              value={latest.ina219_power_mw != null ? Number(latest.ina219_power_mw / 1000).toFixed(2) : '—'}
-              unit="W"
-              accent="#BA7517"
-              icon={Zap}
-            >
-              {latest.ina219_power_mw != null && (
-                <p className="text-xs text-navy-300">{Number(latest.ina219_power_mw).toFixed(0)} mW</p>
-              )}
-            </MetricCard>
+            {/* Gráfica histórica multi-eje */}
+            <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
+              <div
+                className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
+                style={{ background: ha('#10b981', 0.05) }}
+              >
+                <Activity size={14} style={{ color: '#10b981' }} />
+                <span className="text-sm font-semibold text-navy-900">Voltaje · Corriente · Potencia</span>
+              </div>
+              <div className="p-4">
+                <Ina219Chart data={data} timestamps={timestamps} />
+              </div>
+            </div>
 
           </div>
-
-          {/* Gráfica histórica multi-eje */}
-          <div className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden">
-            <div
-              className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2"
-              style={{ background: ha('#10b981', 0.05) }}
-            >
-              <BatteryMedium size={14} style={{ color: '#10b981' }} />
-              <span className="text-sm font-semibold text-navy-900">Voltaje · Corriente · Potencia</span>
-            </div>
-            <div className="p-4">
-              <Ina219Chart data={data} timestamps={timestamps} />
-            </div>
-          </div>
-
         </div>
       )}
 
