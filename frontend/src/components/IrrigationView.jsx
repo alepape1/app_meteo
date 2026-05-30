@@ -5,6 +5,8 @@ import {
   BarChart2, Activity, Timer, Gauge,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
+import Gadget from './irrigation/Gadget'
+import './irrigation/panel.css'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -373,7 +375,7 @@ function SectorCard({ sector }) {
 }
 
 // ── ValveCard ─────────────────────────────────────────────────────────────────
-function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
+function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState, featured = false, onSelect }) {
   const { authFetch } = useAuth()
   const [desired, setDesired] = useState(initialState?.desired ?? false)
   const [actual,  setActual]  = useState(initialState?.actual  ?? false)
@@ -479,7 +481,6 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
 
   const synced = desired === actual
   const cooldownSeconds = Math.ceil(retryRemainingMs / 1000)
-  const actionLocked = busy || retryRemainingMs > 0
 
   const toggle = useCallback(async () => {
     if (busy || retryRemainingMs > 0) return
@@ -502,125 +503,153 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
     } finally { setBusy(false) }
   }, [busy, retryRemainingMs, synced, desired, actual, authFetch, mac, index, startRetryCooldown, startSyncPolling])
 
-  const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+  const fmtTime = s => {
+    if (s == null) return '—'
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  }
   const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
   const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
 
-  return (
-    <div
-      className={`flex items-center gap-3 px-4 py-3 transition-colors duration-200 ${
-        desired ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'
-      }`}
-    >
-      {/* Number badge + status LED */}
-      <div className="relative shrink-0">
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center font-mono text-sm font-extrabold transition-all duration-300"
-          style={desired
-            ? { background: 'linear-gradient(135deg, #0369a1, #38bdf8)', color: '#fff', boxShadow: '0 0 14px rgba(14,165,233,0.4)' }
-            : { background: '#f1f5f9', color: '#64748b' }}
-        >
-          {index + 1}
-        </div>
-        <span
-          className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white transition-colors duration-300 ${actual ? 'bg-emerald-400' : 'bg-slate-300'}`}
-          style={actual ? { boxShadow: '0 0 6px rgba(52,211,153,0.8)', animation: 'pulse 2s ease-in-out infinite' } : {}}
-        />
-      </div>
+  // Display state
+  const syncing = busy || retryRemainingMs > 0
+  const watering = desired && actual && !syncing
+  const sector = SECTORS[index % SECTORS.length]
+  const stateInfo = syncing
+    ? { label: 'Confirmando…', color: '#b8861f', bg: 'var(--warning-100)' }
+    : watering
+      ? { label: 'Abierta · Regando', color: '#059669', bg: 'var(--success-100)' }
+      : desired
+        ? { label: 'Abriendo…', color: '#0a6fa8', bg: 'var(--brand-50)' }
+        : { label: 'Cerrada', color: '#64748b', bg: 'var(--navy-50)' }
+  const accent = watering ? '#10b981' : desired ? '#0c8ecc' : '#1a3350'
 
-      {/* Center: label + session / presets */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-xs font-bold text-navy-700">Válvula {index + 1}</span>
-          {!synced && retryRemainingMs > 0 && (
-            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full leading-none">
-              {cooldownSeconds}s
+  // ── Featured layout ──────────────────────────────────────────────────────────
+  if (featured) {
+    return (
+      <div className="vp-featured">
+        <div className="vp-accentbar" style={{ background: accent, boxShadow: `0 0 8px 1px ${accent}80` }} />
+        <div className="vp-gadgetwrap">
+          <Gadget metaphor="planta" open={watering} flow={effectiveFlowLpm} size={168} />
+        </div>
+        <div className="vp-info">
+          <div className="vp-titlerow">
+            <span className="vp-vname">Válvula {index + 1}</span>
+            <span className="vp-sectorpill">
+              <Leaf size={11} style={{ color: '#10b981' }} />
+              {sector.name} · {sector.crop}
             </span>
-          )}
-          {!synced && retryRemainingMs === 0 && (
-            <span className="text-[9px] text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full leading-none">↺</span>
-          )}
-        </div>
-        {desired && sessionSeconds != null ? (
-          <div className="flex items-center gap-2.5">
-            <span className="flex items-center gap-0.5 text-[10px] text-sky-600 font-medium tabular-nums">
-              <Clock size={9} className="shrink-0" />{fmtTime(sessionSeconds)}
+            <span className="vp-statepill" style={{ color: stateInfo.color, background: stateInfo.bg }}>
+              <span className="d" />{stateInfo.label}
             </span>
-            <span className="text-[10px] font-bold text-sky-700 tabular-nums">{sessionLiters} L</span>
-            {timerRemaining != null && timerPreset != null && (
-              <span className="flex items-center gap-0.5 text-[10px] text-amber-600 font-semibold tabular-nums">
-                <Timer size={9} className="shrink-0" />{fmtTime(timerRemaining)}
-              </span>
-            )}
           </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            <Timer size={8} className="text-navy-300 shrink-0" />
-            {TIMER_PRESETS.map(t => (
-              <button
-                key={t.label}
-                onClick={e => { e.stopPropagation(); setTimerPreset(prev => prev === t.seconds ? null : t.seconds) }}
-                className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-all border leading-none ${
-                  timerPreset === t.seconds
-                    ? 'bg-brand-500 text-white border-brand-500'
-                    : 'bg-white text-navy-400 border-navy-100 hover:border-brand-300 hover:text-brand-500'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {desired && timerPreset != null && timerRemaining != null && (
-          <div className="mt-1 h-0.5 bg-sky-100 rounded-full overflow-hidden w-20">
-            <div
-              className="h-full bg-amber-400 rounded-full transition-all duration-1000"
-              style={{ width: `${Math.round((timerRemaining / timerPreset) * 100)}%` }}
-            />
-          </div>
-        )}
-      </div>
 
-      {/* Flow rate (only when active, sm+) */}
-      {desired && (
-        <div className="shrink-0 text-right hidden sm:block">
-          <p className="text-[9px] font-extrabold uppercase tracking-[0.08em] text-navy-300 leading-none">Caudal</p>
-          <p className="text-[11px] font-bold text-sky-600 tabular-nums mt-0.5">
-            {effectiveFlowLpm}<span className="text-[9px] font-normal text-navy-300"> L/m</span>
-          </p>
-        </div>
-      )}
+          <div className="vp-readouts">
+            <div className="vp-ro">
+              <div className="vp-ro-lab">Tiempo</div>
+              <div className={`vp-ro-val ${watering ? 'live' : ''}`}>
+                {watering && sessionSeconds != null ? fmtTime(sessionSeconds) : '—'}
+              </div>
+            </div>
+            <div className="vp-ro">
+              <div className="vp-ro-lab">Litros</div>
+              <div className={`vp-ro-val ${watering ? 'live' : ''}`}>
+                {watering && sessionLiters != null ? sessionLiters : '—'}
+                <span className="u">L</span>
+              </div>
+            </div>
+            <div className="vp-ro">
+              <div className="vp-ro-lab">Caudal</div>
+              <div className={`vp-ro-val ${watering ? 'live' : ''}`}>
+                {watering ? Number(effectiveFlowLpm).toFixed(1) : '—'}
+                <span className="u">L/m</span>
+              </div>
+            </div>
+          </div>
 
-      {/* Pill toggle switch */}
-      <div className="shrink-0">
-        <button
-          onClick={toggle}
-          disabled={actionLocked}
-          title={
-            busy ? 'Enviando…'
-            : retryRemainingMs > 0 ? `Espera ${cooldownSeconds}s…`
-            : !synced ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
-            : desired ? 'Cerrar válvula' : 'Abrir válvula'
-          }
-          className="relative w-[52px] h-[28px] rounded-full transition-all duration-300 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{
-            background: desired
-              ? 'linear-gradient(135deg, #0369a1 0%, #38bdf8 100%)'
-              : '#e2e8f0',
-            boxShadow: desired
-              ? '0 0 0 3px rgba(14,165,233,0.15), 0 2px 6px rgba(14,165,233,0.25)'
-              : 'inset 0 1px 3px rgba(0,0,0,0.08)',
-          }}
-        >
-          <span
-            className="absolute top-[4px] w-5 h-5 bg-white rounded-full shadow flex items-center justify-center transition-all duration-300"
-            style={{ left: desired ? 'calc(100% - 24px)' : '4px' }}
-          >
-            {busy
-              ? <span className="w-2.5 h-2.5 rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" />
+          <div className="vp-moist">
+            <div className="vp-moist-top">
+              <span className="vp-moist-lab">Humedad · {sector.name}</span>
+              <span className="vp-moist-val">— %</span>
+            </div>
+            <div className="vp-moist-track">
+              <div className="vp-moist-fill" style={{ width: '0%', background: 'linear-gradient(90deg,#0c8ecc,#3fb6f0)' }} />
+            </div>
+          </div>
+
+          <button className={`vp-mainbtn ${desired ? 'open' : 'closed'}`} disabled={syncing} onClick={toggle}>
+            {syncing
+              ? <><span className="vp-spin" style={{ borderTopColor: desired ? '#fff' : undefined }} />Confirmando…</>
               : desired
-                ? <Unlock size={8} className="text-sky-500" />
-                : <Lock size={8} className="text-slate-400" />
+                ? <><Lock size={14} />Cerrar válvula</>
+                : <><Unlock size={14} />Abrir válvula</>
+            }
+          </button>
+
+          {!desired && !syncing && (
+            <div className="vp-presets">
+              <Timer size={13} style={{ color: 'var(--navy-300)' }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--navy-300)', textTransform: 'uppercase', letterSpacing: '.06em', marginRight: 2 }}>
+                Auto-cierre
+              </span>
+              {TIMER_PRESETS.map(t => (
+                <button
+                  key={t.label}
+                  className={`vp-preset ${timerPreset === t.seconds ? 'on' : ''}`}
+                  onClick={e => { e.stopPropagation(); setTimerPreset(prev => prev === t.seconds ? null : t.seconds) }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {desired && timerPreset != null && timerRemaining != null && (
+            <div className="vp-presets">
+              <Timer size={13} style={{ color: 'var(--warning-600)' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--warning-600)', fontVariantNumeric: 'tabular-nums' }}>
+                Cierre automático en {fmtTime(Math.max(0, timerRemaining))}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Row layout ───────────────────────────────────────────────────────────────
+  return (
+    <div className={`vp-row ${desired ? 'open' : ''}`} onClick={onSelect}>
+      <div className={`vp-badge ${desired ? 'on' : ''}`}>
+        {index + 1}
+        <span className={`led ${watering ? 'on' : ''}`} />
+      </div>
+      <div className="vp-rowmid">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="vp-rowname">Válvula {index + 1}</span>
+          {syncing && retryRemainingMs > 0 && (
+            <span className="vp-sync pending">{cooldownSeconds}s</span>
+          )}
+        </div>
+        {watering ? (
+          <>
+            <div className="vp-rowtele">
+              <span className="vp-tele time"><Clock size={11} />{fmtTime(sessionSeconds)}</span>
+              <span className="vp-tele lit">{sessionLiters} L</span>
+              <span className="vp-tele flow"><Droplets size={11} />{Number(effectiveFlowLpm).toFixed(1)} L/m</span>
+            </div>
+            <div className="vp-minibar" />
+          </>
+        ) : (
+          <span className="vp-rowmeta">{sector.name} · {sector.crop} · {stateInfo.label}</span>
+        )}
+      </div>
+      <div onClick={e => e.stopPropagation()}>
+        <button className={`vp-switch ${desired ? 'on' : ''}`} disabled={syncing} onClick={toggle}>
+          <span className="vp-knob">
+            {syncing
+              ? <span className="vp-spin" />
+              : desired
+                ? <Unlock size={9} style={{ color: 'var(--brand-500)' }} />
+                : <Lock size={9} style={{ color: 'var(--navy-300)' }} />
             }
           </span>
         </button>
@@ -671,82 +700,95 @@ function ValvePanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
     }
   }, [authFetch, selectedMac, relayCount])
 
-  return (
-    <div className="rounded-2xl border border-black/[.07] shadow-sm overflow-hidden">
-      {/* Dark header */}
-      <div
-        className="px-4 py-3.5 flex items-center gap-3"
-        style={{ background: 'linear-gradient(135deg, #050e1a 0%, #0c2040 100%)' }}
-      >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(12,142,204,0.18)', border: '1px solid rgba(12,142,204,0.25)' }}
-        >
-          <Power size={14} className="text-sky-400" />
+  const [featuredId, setFeaturedId] = useState(0)
+  const safeFeatureId = Math.min(featuredId, Math.max(0, relayCount - 1))
+  const restIndices = Array.from({ length: relayCount }, (_, i) => i).filter(i => i !== safeFeatureId)
+
+  // Empty state
+  if (relayCount === 0) {
+    return (
+      <div className="vp">
+        <div className="vp-head">
+          <div className="vp-head-icon"><Power size={14} style={{ color: 'var(--brand-300)' }} /></div>
+          <div style={{ flex: 1 }}>
+            <div className="vp-eyebrow">Electroválvulas</div>
+            <div className="vp-sub">0 configuradas · 0 activas</div>
+          </div>
+          <div className="vp-status"><span className="vp-dot" />Reposo</div>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-sky-400">Electroválvulas</p>
-          <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-            {relayCount} config. · {activeCount} activa{activeCount !== 1 ? 's' : ''}
-          </p>
+        <div className="vp-empty">
+          <div style={{ width: 56, height: 56, borderRadius: 16, margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--navy-50)' }}>
+            <Power size={24} style={{ color: 'var(--navy-200)' }} />
+          </div>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy-500)' }}>Sin electroválvulas en este dispositivo</p>
+          <p style={{ fontSize: 12, color: 'var(--navy-300)', marginTop: 4 }}>Se configuran automáticamente según el hardware vinculado.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="vp">
+      {/* Header */}
+      <div className="vp-head">
+        <div className="vp-head-icon"><Power size={14} style={{ color: 'var(--brand-300)' }} /></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="vp-eyebrow">Electroválvulas</div>
+          <div className="vp-sub">
+            {relayCount} configurada{relayCount !== 1 ? 's' : ''} · {activeCount} activa{activeCount !== 1 ? 's' : ''}
+          </div>
         </div>
         {anyActive && (
-          <button
-            onClick={closeAll}
-            disabled={closingAll}
-            className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50 shrink-0"
-            style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}
-          >
+          <button className="vp-closeall" onClick={closeAll} disabled={closingAll}>
             {closingAll ? '…' : 'Cerrar todo'}
           </button>
         )}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span
-            className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${anyActive ? 'bg-emerald-400' : 'bg-slate-600'}`}
-            style={anyActive ? { animation: 'pulse 2s ease-in-out infinite', boxShadow: '0 0 6px rgba(52,211,153,0.7)' } : {}}
-          />
-          <span className="text-[10px] font-semibold text-slate-400">
-            {anyActive ? 'Activo' : 'Reposo'}
-          </span>
+        <div className="vp-status">
+          <span className={`vp-dot ${anyActive ? 'on' : ''}`} />
+          {anyActive ? 'Activo' : 'Reposo'}
         </div>
       </div>
 
-      {/* Animated flow pipe strip — visible only when any valve is active */}
+      {/* Flow strip */}
       {anyActive && (
-        <div
-          className="px-4 py-2 flex items-center gap-2 border-b border-sky-100/60"
-          style={{ background: 'rgba(14,165,233,0.04)' }}
-        >
-          <style>{`@keyframes flowPipe{from{background-position:0 0}to{background-position:32px 0}}`}</style>
-          <Droplets size={10} className="text-sky-400 shrink-0" />
-          <div
-            className="flex-1 h-1.5 rounded-full"
-            style={{
-              background: 'repeating-linear-gradient(90deg,#38bdf8 0,#38bdf8 8px,rgba(56,189,248,0.12) 8px,rgba(56,189,248,0.12) 16px)',
-              backgroundSize: '32px 100%',
-              animation: 'flowPipe 0.7s linear infinite',
-            }}
-          />
-          <span className="text-[9px] font-bold text-sky-500 tabular-nums shrink-0">
+        <div className="vp-flowstrip">
+          <Droplets size={11} style={{ color: '#38bdf8', flexShrink: 0 }} />
+          <div className="vp-flowbar" />
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', fontVariantNumeric: 'tabular-nums' }}>
             {sensorFlowLpm > 0 ? `${Number(sensorFlowLpm).toFixed(1)} L/min` : `~${flowLpm} L/min`}
           </span>
         </div>
       )}
 
-      {/* Valve rows */}
-      <div style={{ background: 'rgba(248,250,252,0.7)' }}>
-        {Array.from({ length: relayCount }, (_, i) => (
-          <div key={`${selectedMac || 'default'}-${i}`} className={i < relayCount - 1 ? 'border-b border-black/[.04]' : ''}>
+      {/* Featured valve */}
+      <ValveCard
+        key={`${selectedMac || 'default'}-${safeFeatureId}`}
+        index={safeFeatureId}
+        mac={selectedMac}
+        flowLpm={flowLpm}
+        sensorFlowLpm={sensorFlowLpm}
+        initialState={states.find(s => s.index === safeFeatureId)}
+        featured={true}
+        onSelect={() => {}}
+      />
+
+      {/* Rest as compact rows */}
+      {restIndices.length > 0 && (
+        <div className="vp-list">
+          {restIndices.map(i => (
             <ValveCard
+              key={`${selectedMac || 'default'}-${i}`}
               index={i}
               mac={selectedMac}
               flowLpm={flowLpm}
               sensorFlowLpm={sensorFlowLpm}
               initialState={states.find(s => s.index === i)}
+              featured={false}
+              onSelect={() => setFeaturedId(i)}
             />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
