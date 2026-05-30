@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Droplets, AlertTriangle, Lock, Unlock, Leaf, Zap, FlaskConical, Power,
   CheckCircle, Clock, AlertCircle, CloudRain, ChevronDown, ChevronUp, RotateCcw,
-  BarChart2, Activity, Timer,
+  BarChart2, Activity, Timer, Gauge, BatteryMedium,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import * as echarts from 'echarts/core'
@@ -19,6 +19,120 @@ function hexAlpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`
 }
 const ha = hexAlpha
+
+// ── Animated Battery Widget (@lucide-animated/battery) ───────────────────────
+// Drop-in replacement for the shadcn registry component
+export function AnimatedBattery({ percentage = 0, size = 80, charging = false }) {
+  const fillRef  = useRef(null)
+  const glowRef  = useRef(null)
+  const boltRef  = useRef(null)
+  const rafId    = useRef(null)
+  const state    = useRef({ displayed: 0, target: 0, phase: 0 })
+
+  useEffect(() => { state.current.target = Math.max(0, Math.min(100, percentage)) }, [percentage])
+
+  useEffect(() => {
+    function tick(now) {
+      const s = state.current
+      s.displayed += (s.target - s.displayed) * 0.06
+      s.phase += 0.04
+
+      const pct   = s.displayed / 100
+      const color = pct >= 0.6 ? '#10b981' : pct >= 0.25 ? '#f59e0b' : '#ef4444'
+      const glow  = pct >= 0.6 ? 'rgba(16,185,129,0.35)' : pct >= 0.25 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)'
+
+      if (fillRef.current) {
+        const maxW = 34
+        fillRef.current.setAttribute('width', String(Math.max(0, maxW * pct).toFixed(2)))
+        fillRef.current.setAttribute('fill', color)
+      }
+      if (glowRef.current) {
+        glowRef.current.setAttribute('stop-color', glow)
+      }
+      if (boltRef.current) {
+        if (charging) {
+          const pulse = 0.5 + 0.5 * Math.abs(Math.sin(now / 600))
+          boltRef.current.setAttribute('opacity', String(pulse.toFixed(2)))
+          boltRef.current.style.display = 'block'
+        } else {
+          boltRef.current.style.display = 'none'
+        }
+      }
+      rafId.current = requestAnimationFrame(tick)
+    }
+    rafId.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId.current)
+  }, [charging])
+
+  const w = size, h = Math.round(size * 0.48)
+  const uid = useRef(`bat-${Math.random().toString(36).slice(2, 6)}`).current
+
+  return (
+    <svg width={w} height={h} viewBox="0 0 52 25" style={{ overflow: 'visible', display: 'block' }}>
+      <defs>
+        <radialGradient id={`bg-${uid}`} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.08)" />
+          <stop ref={glowRef} offset="100%" stopColor="rgba(16,185,129,0.35)" />
+        </radialGradient>
+        <filter id={`glow-${uid}`} x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur stdDeviation="1.8" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+      </defs>
+
+      {/* Glow halo */}
+      <rect x="1" y="1" width="44" height="23" rx="5" fill={`url(#bg-${uid})`} filter={`url(#glow-${uid})`} opacity="0.6" />
+
+      {/* Battery shell */}
+      <rect x="1" y="1" width="44" height="23" rx="4.5" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#1a3350' }} opacity="0.8" />
+
+      {/* Terminal nub */}
+      <rect x="46" y="9" width="5" height="7" rx="1.5" fill="#1a3350" opacity="0.7" />
+
+      {/* Fill bar */}
+      <rect ref={fillRef} x="4" y="4" width="0" height="17" rx="2.5" fill="#10b981" style={{ transition: 'none' }} />
+
+      {/* Percent text */}
+      <text x="22" y="15.5" textAnchor="middle" dominantBaseline="middle"
+        fontSize="7.5" fontWeight="700" fontFamily='"DM Sans",system-ui,sans-serif'
+        fill="#0f172a" opacity="0.75">
+        {Math.round(state.current.displayed)}%
+      </text>
+
+      {/* Charging bolt */}
+      <g ref={boltRef} style={{ display: 'none' }}>
+        <path d="M24 6 L20 13.5 L23.5 13.5 L22 19 L28 11.5 L24.5 11.5 Z"
+          fill="#f59e0b" opacity="0.9" />
+      </g>
+    </svg>
+  )
+}
+
+// ── Section header — identical to DeviceStatus ────────────────────────────────
+function SectionHeader({ icon: Icon, label, children }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon size={14} className="text-navy-300" />
+      <h2 className="text-xs font-bold uppercase tracking-[0.1em] text-navy-300">{label}</h2>
+      {children}
+    </div>
+  )
+}
+
+// ── Info chip — identical to DeviceStatus ─────────────────────────────────────
+function InfoChip({ icon: Icon, label, value, accent = '#1a3350', mono = false }) {
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-navy-100/70" style={{ background: ha(accent, 0.04) }}>
+      <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: ha(accent, 0.1) }}>
+        <Icon size={12} style={{ color: accent }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-navy-300 leading-none">{label}</p>
+        <p className={`text-[11px] font-semibold text-navy-800 leading-tight mt-0.5 truncate ${mono ? 'font-mono' : ''}`}>{value ?? '—'}</p>
+      </div>
+    </div>
+  )
+}
 
 // ── Modal de confirmación genérico ───────────────────────────────────────────
 function ConfirmModal({ message, onConfirm, onCancel }) {
@@ -47,7 +161,6 @@ function ConfirmModal({ message, onConfirm, onCancel }) {
 }
 
 // ── Penman-Monteith FAO-56 simplificado ──────────────────────────────────────
-// Ra fijado en ~10 MJ/m²/día (media anual Lanzarote ~29°N)
 export function calcET0(temp, humidity, windSpeed) {
   if (temp == null) return null
   const T   = temp
@@ -113,7 +226,7 @@ export function getAdvice(temp, humidity, wind, et0Num) {
   }
 }
 
-// ── Aquantia drop path — hw=54, viewBox 132×156 (spec parametric formula) ─────
+// ── Aquantia drop path ────────────────────────────────────────────────────────
 const _HW = 54, _CX = 66, _TOP = 6, _BOT = 148, _SIDEY = 96, _BCY = 124
 const _LX = _CX - _HW, _RX = _CX + _HW, _BCX = Math.round(_HW * 0.55)
 const AQUANTIA_DROP_PATH =
@@ -139,9 +252,6 @@ export function getWaterColors(pct) {
   return               { top: '#3fb6f0', deep: '#0b4f88', stroke: '#0b4f88', bg: '#eaf5ff' }
 }
 
-// ── SVG Water Droplet animado — estilo Aquantia ──────────────────────────────
-// consumptionPct 0-100+: % del límite mensual consumido (más = más lleno = peor)
-// mode: 'normal' | 'flowing-irrigation' | 'flowing-leak'
 function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
   const uid      = useRef(`wd${Math.random().toString(36).slice(2, 7)}`).current
   const svgRef   = useRef(null)
@@ -158,16 +268,11 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
   const modeRef  = useRef(mode)
 
   useEffect(() => { modeRef.current = mode }, [mode])
-
-  useEffect(() => {
-    anim.current.target = Math.max(0, consumptionPct)
-  }, [consumptionPct])
+  useEffect(() => { anim.current.target = Math.max(0, consumptionPct) }, [consumptionPct])
 
   useEffect(() => {
     const Y_TOP = 14, Y_BOTTOM = 150, INTRO_MS = 2500
-    // Always show at least 20% visual fill so animation is perceptible
     const Y_MIN = Y_BOTTOM - 0.20 * (Y_BOTTOM - Y_TOP)
-
     anim.current.introStart = performance.now()
     anim.current.displayedPct = 0
 
@@ -176,11 +281,9 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
       const currentMode = modeRef.current
       const isFlowing = currentMode !== 'normal'
       const isLeak    = currentMode === 'flowing-leak'
-
       const WAVE_AMP   = isFlowing ? 13 : 9
       const WAVE_SPEED = isFlowing ? 1.1 : 0.5
 
-      // In flow mode, animate fill level oscillating to convey active flow
       if (isFlowing) {
         const t = (now / 3200) % 1
         a.target = 32 + 38 * (0.5 + 0.5 * Math.sin(t * Math.PI * 2))
@@ -188,7 +291,6 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
 
       const introP = Math.min(1, (now - a.introStart) / INTRO_MS)
       const eased  = 1 - Math.pow(1 - introP, 3)
-
       a.displayedPct += ((isFlowing ? a.target : a.target * eased) - a.displayedPct) * (isFlowing ? 0.04 : 0.08)
       a.phase += 0.035 * WAVE_SPEED
 
@@ -202,24 +304,14 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
       let c
       if (isLeak) {
         const leakPulse = 0.65 + 0.35 * Math.abs(Math.sin(now / 800))
-        c = {
-          top: `rgba(255,100,80,${leakPulse})`,
-          deep: '#a31818',
-          stroke: '#b91c1c',
-          bg: '#fee2e2',
-        }
+        c = { top: `rgba(255,100,80,${leakPulse})`, deep: '#a31818', stroke: '#b91c1c', bg: '#fee2e2' }
         if (glowRef.current) {
           glowRef.current.setAttribute('stroke', `rgba(220,38,38,${leakPulse * 0.6})`)
           glowRef.current.setAttribute('stroke-width', `${6 + 4 * Math.abs(Math.sin(now / 600))}`)
         }
       } else if (isFlowing) {
         const flowPulse = 0.75 + 0.25 * Math.abs(Math.sin(now / 900))
-        c = {
-          top: `rgba(16,185,129,${flowPulse})`,
-          deep: '#065f46',
-          stroke: '#059669',
-          bg: '#d1fae5',
-        }
+        c = { top: `rgba(16,185,129,${flowPulse})`, deep: '#065f46', stroke: '#059669', bg: '#d1fae5' }
         if (glowRef.current) {
           glowRef.current.setAttribute('stroke', `rgba(16,185,129,${flowPulse * 0.5})`)
           glowRef.current.setAttribute('stroke-width', `${5 + 3 * Math.abs(Math.sin(now / 700))}`)
@@ -251,18 +343,8 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
   const h = Math.round(size * 156 / 132)
   return (
     <>
-      <style>{`
-        @keyframes shk-${uid} {
-          0%,92%,100%{transform:translateX(0)}
-          94%{transform:translateX(-2px)} 96%{transform:translateX(2px)} 98%{transform:translateX(-1px)}
-        }
-      `}</style>
-      <svg
-        ref={svgRef}
-        width={size} height={h}
-        viewBox="0 0 132 156"
-        style={{ overflow: 'visible', display: 'block', flexShrink: 0 }}
-      >
+      <style>{`@keyframes shk-${uid}{0%,92%,100%{transform:translateX(0)}94%{transform:translateX(-2px)}96%{transform:translateX(2px)}98%{transform:translateX(-1px)}}`}</style>
+      <svg ref={svgRef} width={size} height={h} viewBox="0 0 132 156" style={{ overflow: 'visible', display: 'block', flexShrink: 0 }}>
         <defs>
           <clipPath id={`cp-${uid}`}><path d={AQUANTIA_DROP_PATH} /></clipPath>
           <linearGradient id={`wg-${uid}`} x1="0" y1="0" x2="0" y2="1">
@@ -270,8 +352,7 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
             <stop ref={stop1} offset="100%" stopColor="#0b4f88" />
           </linearGradient>
           <pattern id={`ct-${uid}`} width="20" height="20" patternUnits="userSpaceOnUse">
-            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10"
-              fill="none" stroke="#7fd0ff" strokeWidth="0.5" opacity="0.55"/>
+            <path d="M0 5 H7 V0 M20 9 H13 V20 M5 20 V15 H15 V10" fill="none" stroke="#7fd0ff" strokeWidth="0.5" opacity="0.55"/>
             <circle cx="7" cy="5" r="0.9" fill="#9fdcff" opacity="0.7"/>
             <circle cx="13" cy="9" r="0.9" fill="#9fdcff" opacity="0.7"/>
           </pattern>
@@ -280,7 +361,6 @@ function WaterDroplet({ consumptionPct = 0, size = 120, mode = 'normal' }) {
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
-        {/* glow halo exterior */}
         <path ref={glowRef} d={AQUANTIA_DROP_PATH} fill="none" stroke="#3fb6f0" strokeWidth="6" opacity="0.25" filter={`url(#glow-${uid})`} />
         <path ref={bgRef} d={AQUANTIA_DROP_PATH} fill="#eaf5ff" stroke="none" />
         <g clipPath={`url(#cp-${uid})`}>
@@ -315,7 +395,6 @@ const SECTORS = [
   { id: 9, name: 'Sector E1', crop: 'Vid',       area: '0.8 ha', kc: 0.85 },
 ]
 
-// ── Temporizador de cierre automático ────────────────────────────────────────
 const TIMER_PRESETS = [
   { label: '5m',  seconds: 300  },
   { label: '10m', seconds: 600  },
@@ -323,40 +402,115 @@ const TIMER_PRESETS = [
   { label: '30m', seconds: 1800 },
 ]
 
+// ── Battery helpers ───────────────────────────────────────────────────────────
+const BAT_FULL_V  = 12.2
+const BAT_EMPTY_V = 10.5
+
+function batPct(v) {
+  if (v == null) return null
+  return Math.max(0, Math.min(100, ((v - BAT_EMPTY_V) / (BAT_FULL_V - BAT_EMPTY_V)) * 100))
+}
+
+// ── Battery Card — animated widget using AnimatedBattery ─────────────────────
+function BatteryCard({ latest }) {
+  const voltage = latest?.ina219_bus_voltage
+  const currentMa = latest?.ina219_current_ma
+  const powerMw = latest?.ina219_power_mw
+  const pct = batPct(voltage)
+
+  if (voltage == null && currentMa == null) return null
+
+  const batColor = pct == null ? '#94a3b8' : pct >= 60 ? '#10b981' : pct >= 25 ? '#f59e0b' : '#ef4444'
+  const batLabel = pct == null ? 'Sin datos' : pct >= 60 ? 'Carga buena' : pct >= 25 ? 'Carga baja' : 'Crítico'
+  const maColor  = currentMa > 1900 ? '#ef4444' : currentMa > 1300 ? '#f59e0b' : '#0c8ecc'
+  const isHigh   = currentMa != null && currentMa > 1300
+
+  return (
+    <div
+      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+      style={{ borderTop: `3px solid ${ha(batColor, 0.75)}` }}
+    >
+      {/* Header */}
+      <div
+        className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5"
+        style={{ background: ha(batColor, 0.05) }}
+      >
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha(batColor, 0.15) }}>
+          <BatteryMedium size={14} style={{ color: batColor }} />
+        </div>
+        <span className="text-sm font-semibold text-navy-900">Alimentación — INA219</span>
+        {isHigh && (
+          <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50">
+            <AlertTriangle size={11} className="text-amber-500" />
+            <span className="text-[10px] font-semibold text-amber-600">
+              {currentMa > 1900 ? 'Corriente crítica' : 'Corriente elevada'}
+            </span>
+          </div>
+        )}
+        {!isHigh && pct != null && (
+          <div
+            className="ml-auto px-2.5 py-0.5 rounded-full text-[10px] font-bold border leading-none"
+            style={{ background: ha(batColor, 0.1), color: batColor, borderColor: ha(batColor, 0.25) }}
+          >
+            {batLabel}
+          </div>
+        )}
+      </div>
+
+      <div className="p-5">
+        <div className="flex flex-col sm:flex-row items-center gap-5">
+          {/* Animated battery widget */}
+          <div className="flex flex-col items-center gap-2 shrink-0">
+            <AnimatedBattery percentage={pct ?? 0} size={96} charging={false} />
+            <p className="text-xs font-semibold tabular-nums" style={{ color: batColor }}>
+              {pct != null ? `${Math.round(pct)}%` : '—'} · {voltage != null ? `${Number(voltage).toFixed(2)} V` : '—'}
+            </p>
+          </div>
+
+          {/* Metric chips */}
+          <div className="flex-1 grid grid-cols-3 gap-2 w-full">
+            <InfoChip
+              icon={BatteryMedium}
+              label="Voltaje"
+              value={voltage != null ? `${Number(voltage).toFixed(2)} V` : null}
+              accent={batColor}
+              mono
+            />
+            <InfoChip
+              icon={Zap}
+              label="Corriente"
+              value={currentMa != null ? `${Number(currentMa).toFixed(0)} mA` : null}
+              accent={maColor}
+              mono
+            />
+            <InfoChip
+              icon={Activity}
+              label="Potencia"
+              value={powerMw != null ? `${Number(powerMw / 1000).toFixed(2)} W` : null}
+              accent="#BA7517"
+              mono
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── SectorCard ───────────────────────────────────────────────────────────────
 function SectorCard({ sector }) {
   return (
     <div
-      className="relative rounded-2xl overflow-hidden"
-      style={{
-        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-        border: `1px solid ${ha('#1a3350', 0.2)}`,
-        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#1a3350', 0.07)}`,
-      }}
+      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+      style={{ borderTop: `3px solid ${ha('#1a3350', 0.4)}` }}
     >
-      <div
-        className="h-[3px] bg-gradient-to-r from-[#001530] to-[#3d506a]"
-        style={{ boxShadow: `0 0 8px 2px ${ha('#1a3350', 0.5)}` }}
-      />
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: 0,
-          right: 0,
-          height: 52,
-          background: `linear-gradient(180deg, ${ha('#1a3350', 0.055)} 0%, transparent 100%)`,
-          pointerEvents: 'none',
-          zIndex: 0,
-        }}
-      />
-      <div className="relative p-4" style={{ zIndex: 1 }}>
+      <div className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div>
             <p className="text-sm font-semibold text-navy-900">{sector.name}</p>
             <p className="text-xs text-navy-300">{sector.crop} · {sector.area}</p>
           </div>
-          <span className="text-xs text-navy-300 bg-navy-50 px-2 py-0.5 rounded-full border border-navy-100">
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-navy-50 text-navy-300 border border-navy-100 leading-none">
             offline
           </span>
         </div>
@@ -365,7 +519,7 @@ function SectorCard({ sector }) {
             <div className="flex justify-between text-xs text-navy-300 mb-1">
               <span>Humedad suelo</span><span>— %</span>
             </div>
-            <div className="h-1.5 bg-navy-50 rounded-full">
+            <div className="h-1.5 bg-navy-50 rounded-full overflow-hidden">
               <div className="h-full bg-navy-100 rounded-full" style={{ width: '0%' }} />
             </div>
           </div>
@@ -399,7 +553,7 @@ function SectorCard({ sector }) {
   )
 }
 
-// ── ValveCard — control individual de una electroválvula ─────────────────────
+// ── ValveCard ─────────────────────────────────────────────────────────────────
 function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const { authFetch } = useAuth()
   const [desired, setDesired] = useState(initialState?.desired ?? false)
@@ -414,22 +568,15 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
   const [timerPreset, setTimerPreset] = useState(null)
   const [timerRemaining, setTimerRemaining] = useState(null)
 
-  // Sync state when parent passes new initialState
   useEffect(() => {
     if (initialState) {
       const nextDesired = Boolean(initialState.desired)
-      const nextActual = Boolean(initialState.actual)
+      const nextActual  = Boolean(initialState.actual)
       setDesired(nextDesired)
       setActual(nextActual)
       if (nextDesired === nextActual) {
-        if (pollRef.current) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
-        if (retryTimerRef.current) {
-          clearInterval(retryTimerRef.current)
-          retryTimerRef.current = null
-        }
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+        if (retryTimerRef.current) { clearInterval(retryTimerRef.current); retryTimerRef.current = null }
         setRetryRemainingMs(0)
       }
     }
@@ -447,7 +594,6 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
     return () => clearInterval(id)
   }, [sessionStart])
 
-  // Auto-close timer
   useEffect(() => {
     if (autoCloseRef.current) { clearInterval(autoCloseRef.current); autoCloseRef.current = null }
     if (!desired || timerPreset == null) { setTimerRemaining(null); return }
@@ -478,10 +624,7 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
     retryTimerRef.current = setInterval(() => {
       const remaining = Math.max(0, endsAt - Date.now())
       setRetryRemainingMs(remaining)
-      if (remaining <= 0) {
-        clearInterval(retryTimerRef.current)
-        retryTimerRef.current = null
-      }
+      if (remaining <= 0) { clearInterval(retryTimerRef.current); retryTimerRef.current = null }
     }, 250)
   }, [])
 
@@ -497,27 +640,20 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
         const row = Array.isArray(arr) ? arr.find(r => r.index === index) : null
         if (row) {
           const backendDesired = Boolean(row.desired)
-          const backendActual = Boolean(row.actual)
+          const backendActual  = Boolean(row.actual)
           setDesired(backendDesired)
           setActual(backendActual)
           if (backendActual === expected || backendDesired === backendActual || attempts >= 15) {
-            clearInterval(pollRef.current)
-            pollRef.current = null
+            clearInterval(pollRef.current); pollRef.current = null
           }
           if (backendDesired === backendActual && retryTimerRef.current) {
-            clearInterval(retryTimerRef.current)
-            retryTimerRef.current = null
-            setRetryRemainingMs(0)
+            clearInterval(retryTimerRef.current); retryTimerRef.current = null; setRetryRemainingMs(0)
           }
         } else if (attempts >= 15) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
+          clearInterval(pollRef.current); pollRef.current = null
         }
       } catch (_) {
-        if (attempts >= 15) {
-          clearInterval(pollRef.current)
-          pollRef.current = null
-        }
+        if (attempts >= 15) { clearInterval(pollRef.current); pollRef.current = null }
       }
     }, 2000)
   }, [authFetch, mac, index])
@@ -540,102 +676,68 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
       startRetryCooldown(8000)
       if (next) { setSessionStart(Date.now()); setSessionSeconds(0) }
       else {
-        setSessionStart(null)
-        setTimerPreset(null)
-        setTimerRemaining(null)
+        setSessionStart(null); setTimerPreset(null); setTimerRemaining(null)
         if (autoCloseRef.current) { clearInterval(autoCloseRef.current); autoCloseRef.current = null }
       }
       startSyncPolling(next)
-    } finally {
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
   }, [busy, retryRemainingMs, synced, desired, actual, authFetch, mac, index, startRetryCooldown, startSyncPolling])
+
   const fmtTime = s => s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
   const effectiveFlowLpm = (sensorFlowLpm > 0) ? sensorFlowLpm : flowLpm
   const sessionLiters = sessionSeconds != null ? (sessionSeconds / 60 * effectiveFlowLpm).toFixed(1) : null
-
   const valveHex = desired ? '#0c8ecc' : '#1a3350'
 
   return (
     <div
-      className="relative rounded-2xl overflow-hidden"
-      style={{
-        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-        border: `1px solid ${ha(valveHex, 0.2)}`,
-        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(valveHex, 0.07)}`,
-      }}
+      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+      style={{ borderTop: `3px solid ${ha(valveHex, desired ? 0.85 : 0.4)}` }}
     >
-      <div
-        className={`h-[3px] ${desired ? 'bg-gradient-to-r from-brand-500 to-brand-300' : 'bg-gradient-to-r from-[#1a3350] to-[#3d506a]'}`}
-        style={{ boxShadow: `0 0 8px 2px ${ha(valveHex, 0.5)}` }}
-      />
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: 0,
-          right: 0,
-          height: 52,
-          background: `linear-gradient(180deg, ${ha(valveHex, 0.055)} 0%, transparent 100%)`,
-          pointerEvents: 'none',
-          zIndex: 0,
-        }}
-      />
-      <div className="relative p-5" style={{ zIndex: 1 }}>
+      <div className="p-5">
+        {/* Title row */}
         <div className="flex items-center gap-2 mb-4">
-          <span
-            className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
-            style={{
-              background: `linear-gradient(135deg, ${ha(valveHex, 0.14)}, ${ha(valveHex, 0.06)})`,
-              border: `1px solid ${ha(valveHex, 0.22)}`,
-              boxShadow: `0 2px 8px ${ha(valveHex, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
-            }}
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: ha(valveHex, 0.12), border: `1px solid ${ha(valveHex, 0.22)}` }}
           >
             <Power size={15} style={{ color: valveHex }} />
-          </span>
-          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-            Válvula {index + 1}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 mb-4">
-          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-            actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'
-          }`} />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-navy-900">
-              {actual ? 'Abierta — Regando' : 'Cerrada'}
+          </div>
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-navy-300 leading-none">
+              Válvula {index + 1}
             </p>
-            <p className="text-xs text-navy-300">
-              {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `Confirmando… ${cooldownSeconds}s` : 'Listo para reintentar'}
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={`w-2 h-2 rounded-full ${actual ? 'bg-emerald-400 animate-pulse' : 'bg-navy-200'}`} />
+              <p className="text-[11px] font-semibold text-navy-700">
+                {actual ? 'Abierta — Regando' : 'Cerrada'}
+              </p>
+            </div>
+          </div>
+          <div className="ml-auto text-right">
+            <p className={`text-[10px] font-bold px-2 py-0.5 rounded-full border leading-none ${
+              synced ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'
+            }`}>
+              {synced ? 'Sincronizado' : retryRemainingMs > 0 ? `${cooldownSeconds}s` : 'Reintento'}
             </p>
           </div>
         </div>
 
+        {/* Session info */}
         {(desired || sessionSeconds > 0) && (
-          <div className={`rounded-xl p-3 mb-4 ${
-            desired ? 'bg-brand-50 border border-brand-100' : 'bg-navy-50'
-          }`}>
+          <div className={`rounded-xl p-3 mb-4 ${desired ? 'bg-sky-50 border border-sky-100' : 'bg-navy-50'}`}>
             <div className="flex justify-between text-xs">
-              <span className="flex items-center gap-1 text-navy-400">
-                <Clock size={11} /> Tiempo abierta
-              </span>
+              <span className="flex items-center gap-1 text-navy-400"><Clock size={11} /> Tiempo abierta</span>
               <span className="font-semibold text-navy-700">{fmtTime(sessionSeconds ?? 0)}</span>
             </div>
             <div className="flex justify-between text-xs mt-1.5">
-              <span className="flex items-center gap-1 text-navy-400">
-                <Droplets size={11} /> Esta sesión
-              </span>
+              <span className="flex items-center gap-1 text-navy-400"><Droplets size={11} /> Esta sesión</span>
               <span className="font-semibold text-brand-600">{sessionLiters} L</span>
             </div>
             <p className="text-xs text-navy-300 mt-1">Caudal: {effectiveFlowLpm} L/min</p>
             {desired && timerPreset != null && timerRemaining != null && (
               <>
                 <div className="flex justify-between text-xs mt-1.5">
-                  <span className="flex items-center gap-1 text-navy-400">
-                    <Timer size={11} /> Cierre automático
-                  </span>
+                  <span className="flex items-center gap-1 text-navy-400"><Timer size={11} /> Cierre auto</span>
                   <span className="font-semibold text-amber-600">{fmtTime(timerRemaining)}</span>
                 </div>
                 <div className="h-1 bg-navy-100 rounded-full overflow-hidden mt-1">
@@ -649,10 +751,11 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
           </div>
         )}
 
+        {/* Timer presets */}
         {!desired && (
-          <div className="mb-3">
-            <p className="text-xs font-medium text-navy-400 mb-2 flex items-center gap-1.5">
-              <Timer size={11} /> Temporizador de cierre
+          <div className="mb-4">
+            <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 mb-2 flex items-center gap-1.5">
+              <Timer size={10} /> Temporizador
             </p>
             <div className="flex gap-1.5 flex-wrap">
               {TIMER_PRESETS.map(t => (
@@ -669,11 +772,6 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
                 </button>
               ))}
             </div>
-            {timerPreset != null && (
-              <p className="text-xs text-navy-300 mt-1.5">
-                Válvula cerrará en {fmtTime(timerPreset)} al abrir
-              </p>
-            )}
           </div>
         )}
 
@@ -687,36 +785,29 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState }) {
           }`}
         >
           {desired ? <Lock size={14} /> : <Unlock size={14} />}
-          {busy
-            ? 'Enviando…'
-            : retryRemainingMs > 0
-              ? `Espera ${cooldownSeconds}s…`
-              : !synced
-                ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
-                : desired ? 'Cerrar válvula' : 'Abrir válvula'}
+          {busy ? 'Enviando…'
+            : retryRemainingMs > 0 ? `Espera ${cooldownSeconds}s…`
+            : !synced ? (actual ? 'Reintentar cierre' : 'Reintentar apertura')
+            : desired ? 'Cerrar válvula' : 'Abrir válvula'}
         </button>
       </div>
     </div>
   )
 }
 
-// ── RelayPanel — N válvulas según relay_count del dispositivo ─────────────────
+// ── RelayPanel ────────────────────────────────────────────────────────────────
 function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm }) {
   const { authFetch } = useAuth()
   const [states, setStates] = useState([])
 
   useEffect(() => {
     setStates([])
-    const url = selectedMac
-      ? `/api/relay?mac=${encodeURIComponent(selectedMac)}`
-      : '/api/relay'
-    authFetch(url)
-      .then(r => r.json())
-      .then(arr => {
-        const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
-        setStates(normalized)
-      })
-      .catch(() => {})
+    const url = selectedMac ? `/api/relay?mac=${encodeURIComponent(selectedMac)}` : '/api/relay'
+    authFetch(url).then(r => r.json()).then(arr => {
+      const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
+      setStates(normalized)
+    }).catch(() => {})
+
     const id = setInterval(() => {
       authFetch(url).then(r => r.json()).then(arr => {
         const normalized = Array.isArray(arr) ? arr : [{ index: 0, desired: arr.desired ?? false, actual: arr.actual ?? false }]
@@ -742,22 +833,19 @@ function RelayPanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
   )
 }
 
-// ── SavingsCard — droplet interactivo con ahorro mensual ─────────────────────
+// ── SavingsCard ───────────────────────────────────────────────────────────────
 function SavingsCard({ stats, latest }) {
   const [expanded, setExpanded] = useState(false)
 
-  // Detect active flow from live sensor data
   const liveFlow   = latest?.pipeline_flow ?? 0
   const relayOn    = latest?.relay_active > 0
   const hasFlow    = liveFlow > 0.1
-  const flowMode   = hasFlow
-    ? (relayOn ? 'flowing-irrigation' : 'flowing-leak')
-    : 'normal'
+  const flowMode   = hasFlow ? (relayOn ? 'flowing-irrigation' : 'flowing-leak') : 'normal'
   const isLeak     = hasFlow && !relayOn
   const isIrrigate = hasFlow && relayOn
 
   if (!stats) return (
-    <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex items-center justify-center min-h-[200px]">
+    <div className="bg-white rounded-2xl border border-black/[.07] shadow-sm p-5 flex items-center justify-center min-h-[200px]">
       <p className="text-xs text-navy-300">Calculando ahorro…</p>
     </div>
   )
@@ -766,203 +854,159 @@ function SavingsCard({ stats, latest }) {
     monthly_liters, baseline_liters, savings_liters, today_liters, daily, days_elapsed,
     used_liters = monthly_liters, leak_liters = 0, today_leak_liters = 0, total_liters = monthly_liters,
   } = stats
-  const savingsPct = baseline_liters > 0
-    ? Math.round((savings_liters / baseline_liters) * 100)
-    : 0
-  const consumptionPct = baseline_liters > 0
-    ? (total_liters / baseline_liters) * 100
-    : 0
+  const savingsPct = baseline_liters > 0 ? Math.round((savings_liters / baseline_liters) * 100) : 0
+  const consumptionPct = baseline_liters > 0 ? (total_liters / baseline_liters) * 100 : 0
   const hasLeak = leak_liters > 0.5
 
   const state = consumptionPct >= 100 ? 'danger' : consumptionPct >= 85 ? 'warn' : 'ok'
   const cc = {
-    ok:     { text: 'text-emerald-600', border: 'border-sky-100',   pillStyle: { background: '#d6f4e6', color: '#16a36e' } },
-    warn:   { text: 'text-amber-500',   border: 'border-amber-200', pillStyle: { background: '#fff3d6', color: '#b8861f' } },
-    danger: { text: 'text-red-500',     border: 'border-red-200',   pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
+    ok:     { text: 'text-emerald-600', borderColor: '#a7f3d0', pillStyle: { background: '#d6f4e6', color: '#16a36e' } },
+    warn:   { text: 'text-amber-500',   borderColor: '#fcd34d', pillStyle: { background: '#fff3d6', color: '#b8861f' } },
+    danger: { text: 'text-red-500',     borderColor: '#fca5a5', pillStyle: { background: '#ffe1e1', color: '#b91c1c' } },
   }[state]
 
-  const borderClass = isLeak
-    ? 'border-red-300'
-    : isIrrigate
-    ? 'border-emerald-300'
-    : cc.border
-
-  const pillText = consumptionPct >= 100
-    ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
-    : consumptionPct >= 85
-    ? `${savingsPct}% de ahorro · cerca del límite`
-    : `${savingsPct}% de ahorro`
-  const leadText = consumptionPct >= 100
-    ? 'has superado el riego manual diario'
-    : consumptionPct >= 85
-    ? 'queda poco margen este mes'
-    : 'ahorrados vs riego manual diario'
+  const borderColor = isLeak ? '#fca5a5' : isIrrigate ? '#6ee7b7' : cc.borderColor
+  const accentColor = isLeak ? '#ef4444' : isIrrigate ? '#10b981' : '#0c8ecc'
 
   return (
     <div
-      className={`bg-white rounded-2xl border ${borderClass} shadow-sm p-5 cursor-pointer select-none transition-shadow hover:shadow-md`}
+      className="bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer select-none transition-shadow hover:shadow-md"
+      style={{ border: `1px solid ${borderColor}`, borderTop: `3px solid ${accentColor}` }}
       onClick={() => setExpanded(e => !e)}
       role="button"
       aria-expanded={expanded}
     >
       <style>{`
-        @keyframes dot-pulse {
-          0%   { box-shadow: 0 0 0 0 currentColor; opacity: .8; }
-          80%  { box-shadow: 0 0 0 8px transparent; opacity: 0; }
-          100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
-        }
-        @keyframes flow-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%      { opacity: 0.7; transform: scale(1.04); }
-        }
+        @keyframes dot-pulse{0%{box-shadow:0 0 0 0 currentColor;opacity:.8}80%{box-shadow:0 0 0 8px transparent;opacity:0}100%{box-shadow:0 0 0 0 transparent;opacity:0}}
+        @keyframes flow-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(1.04)}}
       `}</style>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg ${isLeak ? 'bg-red-50' : isIrrigate ? 'bg-emerald-50' : 'bg-sky-50'}`}>
-            <Leaf size={15} className={isLeak ? 'text-red-500' : isIrrigate ? 'text-emerald-500' : 'text-sky-500'} />
-          </div>
-          <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-            Ahorro este mes
-          </p>
-        </div>
-        {expanded
-          ? <ChevronUp size={14} className="text-navy-300" />
-          : <ChevronDown size={14} className="text-navy-300" />
-        }
-      </div>
-
-      {/* Live flow banner */}
-      {isLeak && (
-        <div
-          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-300 rounded-lg px-3 py-1.5"
-          style={{ animation: 'flow-pulse 1.4s ease-in-out infinite' }}
-        >
-          <AlertTriangle size={13} className="shrink-0" />
-          ¡FUGA ACTIVA! · {liveFlow.toFixed(2)} L/min con válvula cerrada
-        </div>
-      )}
-      {isIrrigate && (
-        <div
-          className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg px-3 py-1.5"
-          style={{ animation: 'flow-pulse 1.8s ease-in-out infinite' }}
-        >
-          <Droplets size={13} className="shrink-0" />
-          Regando ahora · {liveFlow.toFixed(2)} L/min
-        </div>
-      )}
-
-      {hasLeak && !isLeak && (
-        <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-          <AlertTriangle size={13} className="shrink-0" />
-          Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
-        </div>
-      )}
-
-      <div className="flex items-center gap-4">
-        <WaterDroplet consumptionPct={consumptionPct} size={90} mode={flowMode} />
-        <div className="flex-1 min-w-0">
-          {hasFlow ? (
-            <>
-              <p className="text-3xl font-bold leading-none" style={{ color: isLeak ? '#b91c1c' : '#059669' }}>
-                {liveFlow.toFixed(2)}
-                <span className="text-base font-normal text-navy-300 ml-1">L/min</span>
-              </p>
-              <p className="text-xs text-navy-400 mt-1 leading-snug">
-                {isLeak ? 'caudal detectado · válvula cerrada' : 'caudal activo · válvula abierta'}
-              </p>
-              <p className="text-xs text-navy-300 mt-1">
-                Ahorro acumulado: <span className="font-medium text-navy-600">{savings_liters.toFixed(0)} L ({savingsPct}%)</span>
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-3xl font-bold text-navy-900 leading-none">
-                {savings_liters.toFixed(0)}
-                <span className="text-base font-normal text-navy-300 ml-1">L</span>
-              </p>
-              <p className="text-xs text-navy-400 mt-1 leading-snug">
-                {leadText}
-              </p>
-              <span
-                className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full"
-                style={cc.pillStyle}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-current shrink-0"
-                  style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }}
-                />
-                {pillText}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="mt-4 pt-4 border-t border-navy-50 space-y-2">
-          {[
-            ['Agua de riego este mes',                `${used_liters.toFixed(1)} L`],
-            ['Agua de riego hoy',                     `${today_liters.toFixed(1)} L`],
-          ].map(([label, val]) => (
-            <div key={label} className="flex justify-between text-xs">
-              <span className="text-navy-400">{label}</span>
-              <span className="font-medium text-navy-700">{val}</span>
+      <div className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLeak ? 'bg-red-50' : isIrrigate ? 'bg-emerald-50' : 'bg-sky-50'}`}>
+              <Leaf size={14} style={{ color: accentColor }} />
             </div>
-          ))}
-          <div className="flex justify-between text-xs">
-            <span className={`${hasLeak ? 'text-amber-600 font-semibold' : 'text-navy-400'}`}>
-              Pérdida por fugas{hasLeak ? ' ⚠' : ''}
-            </span>
-            <span className={`font-medium ${hasLeak ? 'text-amber-700' : 'text-navy-700'}`}>
-              {leak_liters.toFixed(1)} L {today_leak_liters > 0 ? `(hoy: ${today_leak_liters.toFixed(1)} L)` : ''}
-            </span>
+            <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-navy-300">Ahorro este mes</p>
           </div>
-          <div className="flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 text-navy-800">
-            <span>Total consumido</span>
-            <span>{total_liters.toFixed(1)} L</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-navy-400">{`Referencia (${days_elapsed}d × 15 L)`}</span>
-            <span className="font-medium text-navy-700">{baseline_liters.toFixed(0)} L</span>
-          </div>
-          <div className={`flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 ${cc.text}`}>
-            <span>Ahorro total</span>
-            <span>{savings_liters.toFixed(1)} L ({savingsPct}%)</span>
-          </div>
+          {expanded ? <ChevronUp size={14} className="text-navy-300" /> : <ChevronDown size={14} className="text-navy-300" />}
+        </div>
 
-          {daily.length > 0 && (
-            <div className="pt-2">
-              <p className="text-xs text-navy-300 mb-2">Últimos riegos del mes:</p>
-              <div className="space-y-1.5">
-                {daily.slice(-5).map(d => (
-                  <div key={d.date} className="flex justify-between text-xs">
-                    <span className="text-navy-400">
-                      {/* Manejo robusto de fechas: soporta ISO, yyyy-mm-dd, y fechas legacy */}
-                      {(() => {
-                        const ms = Date.parse(d.date) || Date.parse(d.date + 'T12:00:00');
-                        if (!ms || isNaN(ms)) return d.date;
-                        return new Date(ms).toLocaleDateString('es-ES', {
-                          weekday: 'short', day: 'numeric', month: 'short',
-                        });
-                      })()}
-                    </span>
-                    <span className="font-medium text-brand-600">
-                      {d.liters.toFixed(1)} L · {Math.floor(d.seconds / 60)}m {d.seconds % 60}s
-                    </span>
-                  </div>
-                ))}
+        {isLeak && (
+          <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-300 rounded-xl px-3 py-1.5" style={{ animation: 'flow-pulse 1.4s ease-in-out infinite' }}>
+            <AlertTriangle size={13} className="shrink-0" />
+            ¡FUGA ACTIVA! · {liveFlow.toFixed(2)} L/min con válvula cerrada
+          </div>
+        )}
+        {isIrrigate && (
+          <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-xl px-3 py-1.5" style={{ animation: 'flow-pulse 1.8s ease-in-out infinite' }}>
+            <Droplets size={13} className="shrink-0" />
+            Regando ahora · {liveFlow.toFixed(2)} L/min
+          </div>
+        )}
+        {hasLeak && !isLeak && (
+          <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+            <AlertTriangle size={13} className="shrink-0" />
+            Fuga detectada · {leak_liters.toFixed(1)} L perdidos este mes
+          </div>
+        )}
+
+        <div className="flex items-center gap-4">
+          <WaterDroplet consumptionPct={consumptionPct} size={90} mode={flowMode} />
+          <div className="flex-1 min-w-0">
+            {hasFlow ? (
+              <>
+                <p className="text-3xl font-extrabold leading-none" style={{ color: isLeak ? '#b91c1c' : '#059669' }}>
+                  {liveFlow.toFixed(2)}
+                  <span className="text-base font-normal text-navy-300 ml-1">L/min</span>
+                </p>
+                <p className="text-xs text-navy-400 mt-1 leading-snug">
+                  {isLeak ? 'caudal detectado · válvula cerrada' : 'caudal activo · válvula abierta'}
+                </p>
+                <p className="text-xs text-navy-300 mt-1">
+                  Ahorro acumulado: <span className="font-medium text-navy-600">{savings_liters.toFixed(0)} L ({savingsPct}%)</span>
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-3xl font-extrabold text-navy-900 leading-none">
+                  {savings_liters.toFixed(0)}
+                  <span className="text-base font-normal text-navy-300 ml-1">L</span>
+                </p>
+                <p className="text-xs text-navy-400 mt-1 leading-snug">
+                  {consumptionPct >= 100 ? 'has superado el riego manual diario'
+                    : consumptionPct >= 85 ? 'queda poco margen este mes'
+                    : 'ahorrados vs riego manual diario'}
+                </p>
+                <span className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold px-2.5 py-1 rounded-full" style={cc.pillStyle}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" style={{ animation: 'dot-pulse 1.6s ease-in-out infinite' }} />
+                  {consumptionPct >= 100
+                    ? `+${(monthly_liters - baseline_liters).toFixed(0)} L sobre el límite`
+                    : consumptionPct >= 85 ? `${savingsPct}% · cerca del límite`
+                    : `${savingsPct}% de ahorro`}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {expanded && (
+          <div className="mt-4 pt-4 border-t border-navy-50 space-y-2">
+            {[
+              ['Agua de riego este mes', `${used_liters.toFixed(1)} L`],
+              ['Agua de riego hoy',      `${today_liters.toFixed(1)} L`],
+            ].map(([label, val]) => (
+              <div key={label} className="flex justify-between text-xs">
+                <span className="text-navy-400">{label}</span>
+                <span className="font-medium text-navy-700">{val}</span>
               </div>
+            ))}
+            <div className="flex justify-between text-xs">
+              <span className={hasLeak ? 'text-amber-600 font-semibold' : 'text-navy-400'}>Pérdida por fugas{hasLeak ? ' ⚠' : ''}</span>
+              <span className={`font-medium ${hasLeak ? 'text-amber-700' : 'text-navy-700'}`}>
+                {leak_liters.toFixed(1)} L {today_leak_liters > 0 ? `(hoy: ${today_leak_liters.toFixed(1)} L)` : ''}
+              </span>
             </div>
-          )}
-        </div>
-      )}
-
-      <p className="text-xs text-navy-300 mt-3 text-center">Toca para ver detalles</p>
+            <div className="flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 text-navy-800">
+              <span>Total consumido</span><span>{total_liters.toFixed(1)} L</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-navy-400">{`Referencia (${days_elapsed}d × 15 L)`}</span>
+              <span className="font-medium text-navy-700">{baseline_liters.toFixed(0)} L</span>
+            </div>
+            <div className={`flex justify-between text-xs font-semibold pt-2 border-t border-navy-50 ${cc.text}`}>
+              <span>Ahorro total</span>
+              <span>{savings_liters.toFixed(1)} L ({savingsPct}%)</span>
+            </div>
+            {daily.length > 0 && (
+              <div className="pt-2">
+                <p className="text-xs text-navy-300 mb-2">Últimos riegos del mes:</p>
+                <div className="space-y-1.5">
+                  {daily.slice(-5).map(d => (
+                    <div key={d.date} className="flex justify-between text-xs">
+                      <span className="text-navy-400">
+                        {(() => {
+                          const ms = Date.parse(d.date) || Date.parse(d.date + 'T12:00:00')
+                          if (!ms || isNaN(ms)) return d.date
+                          return new Date(ms).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+                        })()}
+                      </span>
+                      <span className="font-medium text-brand-600">
+                        {d.liters.toFixed(1)} L · {Math.floor(d.seconds / 60)}m {d.seconds % 60}s
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-navy-300 mt-3 text-center">Toca para ver detalles</p>
+      </div>
     </div>
   )
 }
 
-// ── useEChart hook ────────────────────────────────────────────────────────────
+// ── Chart helpers ─────────────────────────────────────────────────────────────
 function useEChart(containerRef, option) {
   const chartRef = useRef(null)
   useEffect(() => {
@@ -976,12 +1020,9 @@ function useEChart(containerRef, option) {
     return () => { ro.disconnect(); chart.dispose(); chartRef.current = null }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true })
-  }, [option])
+  useEffect(() => { chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true }) }, [option])
 }
 
-// ── Gráfico de consumo con selector de período ────────────────────────────────
 const PERIODS = [
   { id: 'day',     label: 'Días',     hint: 'últimos 30 días' },
   { id: 'week',    label: 'Semanas',  hint: 'últimas 16 semanas' },
@@ -1007,27 +1048,20 @@ export function toChartNum(value) {
 
 export function fmtPeriodLabel(key, periodId) {
   if (!key) return '—'
-
   if (periodId === 'day') {
     const ms = toChartMs(`${key}T12:00:00`)
     if (ms == null) return String(key)
     return new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
   }
-
   if (periodId === 'week') {
     const [, w] = String(key).split('-W')
     return w ? `Sem ${parseInt(w, 10)}` : String(key)
   }
-
   if (periodId === 'session') {
     const ms = toChartMs(key)
     if (ms == null) return 'Sesión'
-    return new Date(ms)
-      .toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-      .replace(',', '')
+    return new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).replace(',', '')
   }
-
-  // month: "2025-03"
   const [y, m] = String(key).split('-')
   if (!y || !m) return String(key)
   return new Date(+y, +m - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
@@ -1054,65 +1088,42 @@ export function getChartMinWidth(count, periodId = 'default') {
   return Math.max(base, count * perItem)
 }
 
+// ── ConsumptionChart ──────────────────────────────────────────────────────────
 function ConsumptionChart({ selectedMac }) {
   const { authFetch } = useAuth()
   const [period, setPeriod] = useState('day')
   const [history, setHistory] = useState([])
   const [sessions, setSessions] = useState([])
-
   const macParam = selectedMac ? `&mac=${encodeURIComponent(selectedMac)}` : ''
 
   useEffect(() => {
     if (period === 'session') {
       authFetch(`/api/irrigation/sessions${selectedMac ? `?mac=${encodeURIComponent(selectedMac)}` : ''}`)
-        .then(r => r.json())
-        .then(setSessions)
-        .catch(() => {})
+        .then(r => r.json()).then(setSessions).catch(() => {})
     } else {
       authFetch(`/api/irrigation/history?period=${period}${macParam}`)
-        .then(r => r.json())
-        .then(setHistory)
-        .catch(() => {})
+        .then(r => r.json()).then(setHistory).catch(() => {})
     }
   }, [period, selectedMac])
 
   const hint = PERIODS.find(p => p.id === period)?.hint ?? ''
 
-  // ── Normalize data ──
   const normalizedSessions = useMemo(() => sessions
-    .map(s => ({
-      ...s,
-      startMs: toChartMs(s.start),
-      liters: toChartNum(s.liters),
-      duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))),
-    }))
-    .filter(s => s.startMs != null),
-  [sessions])
+    .map(s => ({ ...s, startMs: toChartMs(s.start), liters: toChartNum(s.liters), duration_s: Math.max(0, Math.round(toChartNum(s.duration_s))) }))
+    .filter(s => s.startMs != null), [sessions])
 
   const normalizedHistory = useMemo(() => history
-    .map(d => ({
-      ...d,
-      period: String(d.period ?? ''),
-      liters: toChartNum(d.liters),
-      seconds: Math.max(0, Math.round(toChartNum(d.seconds))),
-    }))
-    .filter(d => d.period),
-  [history])
+    .map(d => ({ ...d, period: String(d.period ?? ''), liters: toChartNum(d.liters), seconds: Math.max(0, Math.round(toChartNum(d.seconds))) }))
+    .filter(d => d.period), [history])
 
   const accentColor = period === 'session' ? '#10b981' : '#0c8ecc'
-
-  const hasData = period === 'session'
-    ? normalizedSessions.length > 0
-    : normalizedHistory.length > 0
+  const hasData = period === 'session' ? normalizedSessions.length > 0 : normalizedHistory.length > 0
 
   const option = useMemo(() => {
     const seriesData = period === 'session'
       ? normalizedSessions.map(s => [s.startMs, s.liters])
       : normalizedHistory.map(d => ({ value: d.liters, name: d.period }))
-
-    const xAxisCategories = period !== 'session'
-      ? normalizedHistory.map(d => d.period)
-      : undefined
+    const xAxisCategories = period !== 'session' ? normalizedHistory.map(d => d.period) : undefined
 
     return {
       animation: false,
@@ -1121,48 +1132,23 @@ function ConsumptionChart({ selectedMac }) {
       xAxis: {
         type: period === 'session' ? 'time' : 'category',
         ...(xAxisCategories ? { data: xAxisCategories } : {}),
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        axisLabel: {
-          color: '#94a3b8',
-          fontSize: 10.5,
-          fontFamily: '"DM Sans", system-ui, sans-serif',
-          formatter: v => fmtPeriodLabel(v, period),
-          rotate: -30,
-          hideOverlap: true,
-          interval: 'auto',
-        },
+        axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
+        axisLabel: { color: '#94a3b8', fontSize: 10.5, fontFamily: '"DM Sans", system-ui, sans-serif', formatter: v => fmtPeriodLabel(v, period), rotate: -30, hideOverlap: true, interval: 'auto' },
       },
       yAxis: {
         type: 'value',
-        splitLine: {
-          lineStyle: { color: hexAlpha(accentColor, 0.07), type: [4, 6] },
-        },
-        axisLabel: {
-          color: '#94a3b8',
-          fontSize: 10.5,
-          fontFamily: '"DM Sans", system-ui, sans-serif',
-          formatter: v => `${Math.round(v)} L`,
-        },
+        splitLine: { lineStyle: { color: hexAlpha(accentColor, 0.07), type: [4, 6] } },
+        axisLabel: { color: '#94a3b8', fontSize: 10.5, fontFamily: '"DM Sans", system-ui, sans-serif', formatter: v => `${Math.round(v)} L` },
       },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'transparent',
-        borderWidth: 0,
-        padding: 0,
-        extraCssText: 'box-shadow:none;',
-        axisPointer: {
-          type: 'shadow',
-          shadowStyle: { color: hexAlpha(accentColor, 0.06) },
-        },
+        backgroundColor: 'transparent', borderWidth: 0, padding: 0, extraCssText: 'box-shadow:none;',
+        axisPointer: { type: 'shadow', shadowStyle: { color: hexAlpha(accentColor, 0.06) } },
         formatter: (params) => {
           if (!params?.length) return ''
           const p = params[0]
           const val = Number(Array.isArray(p.value) ? p.value[1] : p.value)
-          const label = period === 'session'
-            ? fmtPeriodLabel(p.value?.[0] ?? p.axisValue, 'session')
-            : fmtPeriodLabel(p.axisValue ?? p.name, period)
+          const label = period === 'session' ? fmtPeriodLabel(p.value?.[0] ?? p.axisValue, 'session') : fmtPeriodLabel(p.axisValue ?? p.name, period)
           return `<div style="font-family:'DM Sans',sans-serif;background:${hexAlpha(accentColor, 0.22)};backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:0;overflow:hidden;min-width:140px;">
             <div style="padding:5px 12px 4px;border-bottom:1px solid rgba(255,255,255,0.08);background:${hexAlpha(accentColor, 0.18)};color:rgba(148,163,184,0.9);font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">${label}</div>
             <div style="padding:6px 12px 8px;display:flex;align-items:center;gap:8px;">
@@ -1172,76 +1158,27 @@ function ConsumptionChart({ selectedMac }) {
           </div>`
         },
       },
-      series: [{
-        type: 'bar',
-        data: seriesData,
-        itemStyle: {
-          color: accentColor,
-          borderRadius: [6, 6, 0, 0],
-        },
-        barMaxWidth: 40,
-        emphasis: { disabled: true },
-      }],
+      series: [{ type: 'bar', data: seriesData, itemStyle: { color: accentColor, borderRadius: [6, 6, 0, 0] }, barMaxWidth: 40, emphasis: { disabled: true } }],
     }
   }, [period, normalizedSessions, normalizedHistory, accentColor])
 
   const containerRef = useRef(null)
   useEChart(containerRef, option)
 
-  const totalL = period === 'session'
-    ? normalizedSessions.reduce((a, s) => a + s.liters, 0)
-    : 0
+  const totalL = period === 'session' ? normalizedSessions.reduce((a, s) => a + s.liters, 0) : 0
 
   return (
     <div
-      className="relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-px"
-      style={{
-        background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-        border: `1px solid ${ha(accentColor, 0.2)}`,
-        boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha(accentColor, 0.07)}`,
-      }}
+      className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+      style={{ borderTop: `3px solid ${ha(accentColor, 0.75)}` }}
     >
-      {/* Top accent bar with glow */}
-      <div
-        style={{
-          height: 3,
-          background: accentColor,
-          boxShadow: `0 0 8px 2px ${ha(accentColor, 0.5)}`,
-        }}
-      />
-
-      {/* Header wash overlay */}
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: 0,
-          right: 0,
-          height: 52,
-          background: `linear-gradient(180deg, ${ha(accentColor, 0.055)} 0%, transparent 100%)`,
-          pointerEvents: 'none',
-          zIndex: 0,
-        }}
-      />
-
-      {/* Header */}
-      <div className="relative flex items-center gap-3 px-5 pt-3.5 pb-2 flex-wrap" style={{ zIndex: 1 }}>
-        <span
-          className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
-          style={{
-            background: `linear-gradient(135deg, ${ha(accentColor, 0.14)}, ${ha(accentColor, 0.06)})`,
-            border: `1px solid ${ha(accentColor, 0.22)}`,
-            boxShadow: `0 2px 8px ${ha(accentColor, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
-          }}
-        >
-          <BarChart2 size={15} style={{ color: accentColor }} />
-        </span>
+      <div className="flex items-center gap-3 px-5 pt-3.5 pb-2 flex-wrap">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: ha(accentColor, 0.12) }}>
+          <BarChart2 size={14} style={{ color: accentColor }} />
+        </div>
         <h3 className="font-semibold text-slate-700 text-sm tracking-tight">Historial de consumo</h3>
         {period === 'session' && normalizedSessions.length > 0 && (
-          <span className="text-xs text-navy-300">
-            {normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total
-          </span>
+          <span className="text-xs text-navy-300">{normalizedSessions.length} sesiones · {totalL.toFixed(1)} L total</span>
         )}
         {period !== 'session' && hint && (
           <span className="text-xs text-navy-200 hidden sm:block">{hint}</span>
@@ -1252,9 +1189,7 @@ function ConsumptionChart({ selectedMac }) {
               key={p.id}
               onClick={() => setPeriod(p.id)}
               className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                period === p.id
-                  ? 'bg-brand-500 text-white'
-                  : 'text-navy-400 hover:bg-navy-50'
+                period === p.id ? 'bg-brand-500 text-white' : 'text-navy-400 hover:bg-navy-50'
               }`}
             >
               {p.label}
@@ -1262,8 +1197,6 @@ function ConsumptionChart({ selectedMac }) {
           ))}
         </div>
       </div>
-
-      {/* Chart container — always rendered so ECharts can measure */}
       <div style={{ position: 'relative', height: 250 }}>
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
         {!hasData && (
@@ -1276,56 +1209,45 @@ function ConsumptionChart({ selectedMac }) {
   )
 }
 
-// ── Asesor de riego (banner inteligente) ─────────────────────────────────────
+// ── IrrigationAdvisor ─────────────────────────────────────────────────────────
 function IrrigationAdvisor({ latest, onIrrigate }) {
-  const et0 = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
+  const et0    = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
   const et0Num = et0 ? parseFloat(et0) : null
   const advice = getAdvice(latest.temperature, latest.humidity, latest.windSpeed, et0Num)
-  const hour = new Date().getHours()
+  const hour   = new Date().getHours()
   const optimalHour = (hour >= 6 && hour <= 10) || (hour >= 18 && hour <= 22)
 
   const palette = {
-    green:  { wrap: 'bg-emerald-50 border-emerald-200', title: 'text-emerald-800', sub: 'text-emerald-600' },
-    teal:   { wrap: 'bg-brand-50 border-brand-100',     title: 'text-brand-800',   sub: 'text-brand-600' },
-    amber:  { wrap: 'bg-amber-50 border-amber-200',     title: 'text-amber-800',   sub: 'text-amber-600' },
-    orange: { wrap: 'bg-orange-50 border-orange-200',   title: 'text-orange-800',  sub: 'text-orange-600' },
-    red:    { wrap: 'bg-red-50 border-red-200',         title: 'text-red-800',     sub: 'text-red-600' },
-    blue:   { wrap: 'bg-blue-50 border-blue-200',       title: 'text-blue-800',    sub: 'text-blue-600' },
+    green:  { hex: '#10b981', wrapBg: 'rgba(16,185,129,0.05)', border: 'rgba(16,185,129,0.25)' },
+    teal:   { hex: '#0c8ecc', wrapBg: 'rgba(12,142,204,0.05)', border: 'rgba(12,142,204,0.2)'  },
+    amber:  { hex: '#f59e0b', wrapBg: 'rgba(245,158,11,0.05)', border: 'rgba(245,158,11,0.25)' },
+    orange: { hex: '#f97316', wrapBg: 'rgba(249,115,22,0.05)', border: 'rgba(249,115,22,0.2)'  },
+    red:    { hex: '#ef4444', wrapBg: 'rgba(239,68,68,0.05)',  border: 'rgba(239,68,68,0.2)'   },
+    blue:   { hex: '#3b82f6', wrapBg: 'rgba(59,130,246,0.05)', border: 'rgba(59,130,246,0.2)'  },
   }
   const c = palette[advice.color] ?? palette.amber
 
   const conditions = [
-    {
-      label: 'Temperatura',
-      val: latest.temperature != null ? `${latest.temperature.toFixed(1)}°C` : '—',
-      ok: latest.temperature != null && latest.temperature < 32,
-    },
-    {
-      label: 'Humedad',
-      val: latest.humidity != null ? `${latest.humidity.toFixed(0)}%` : '—',
-      ok: latest.humidity != null && latest.humidity < 75,
-    },
-    {
-      label: 'Viento',
-      val: latest.windSpeed != null ? `${latest.windSpeed.toFixed(1)} m/s` : '—',
-      ok: latest.windSpeed != null && latest.windSpeed < 4,
-    },
-    { label: 'Horario', val: `${hour}:00h`, ok: optimalHour },
+    { label: 'Temperatura', val: latest.temperature != null ? `${latest.temperature.toFixed(1)}°C` : '—', ok: latest.temperature != null && latest.temperature < 32 },
+    { label: 'Humedad',     val: latest.humidity    != null ? `${latest.humidity.toFixed(0)}%`     : '—', ok: latest.humidity    != null && latest.humidity    < 75 },
+    { label: 'Viento',      val: latest.windSpeed   != null ? `${latest.windSpeed.toFixed(1)} m/s` : '—', ok: latest.windSpeed   != null && latest.windSpeed   < 4  },
+    { label: 'Horario',     val: `${hour}:00h`,                                                           ok: optimalHour },
   ]
 
-  const Icon = {
-    go: CheckCircle, wait: Clock, skip: CloudRain,
-    ok: Leaf, bad: AlertCircle, optional: Zap, nodata: AlertTriangle,
-  }[advice.level] ?? AlertTriangle
+  const Icon = { go: CheckCircle, wait: Clock, skip: CloudRain, ok: Leaf, bad: AlertCircle, optional: Zap, nodata: AlertTriangle }[advice.level] ?? AlertTriangle
 
   return (
-    <div className={`rounded-2xl border p-4 ${c.wrap}`}>
-      {/* Fila título + botón */}
-      <div className="flex items-start gap-3 mb-3">
-        <Icon size={18} className={`${c.title} shrink-0 mt-0.5`} />
+    <div
+      className="bg-white border rounded-2xl shadow-sm overflow-hidden"
+      style={{ borderColor: c.border, borderTop: `3px solid ${c.hex}` }}
+    >
+      <div className="px-5 py-3 border-b flex items-center gap-2.5" style={{ background: c.wrapBg, borderColor: c.border }}>
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha(c.hex.replace('#','') && c.hex, 0.15) }}>
+          <Icon size={14} style={{ color: c.hex }} />
+        </div>
         <div className="flex-1 min-w-0">
-          <p className={`font-bold text-sm ${c.title}`}>{advice.title}</p>
-          <p className={`text-xs mt-0.5 leading-relaxed ${c.sub}`}>{advice.reason}</p>
+          <p className="text-sm font-bold text-navy-900 leading-tight">{advice.title}</p>
+          <p className="text-xs mt-0.5 leading-relaxed text-navy-400">{advice.reason}</p>
         </div>
         {advice.level === 'go' && (
           <button
@@ -1336,22 +1258,17 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
           </button>
         )}
       </div>
-
-      {/* Grid de chips — 2 col en móvil/estrecho, 4 col en ancho */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+      <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
         {conditions.map(cond => (
           <div
             key={cond.label}
-            className="flex items-center gap-1.5 bg-white/60 rounded-lg px-2 py-1.5 border border-white/80"
+            className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-navy-100/70"
+            style={{ background: ha(cond.ok ? '#10b981' : '#ef4444', 0.04) }}
           >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              cond.ok ? 'bg-emerald-400' : 'bg-red-400'
-            }`} />
+            <span className={`w-2 h-2 rounded-full shrink-0 ${cond.ok ? 'bg-emerald-400' : 'bg-red-400'}`} />
             <div className="min-w-0">
-              <p className="text-xs text-navy-400 leading-none truncate">{cond.label}</p>
-              <p className={`text-xs font-semibold leading-none mt-0.5 ${
-                cond.ok ? 'text-navy-700' : 'text-red-600'
-              }`}>{cond.val}</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-navy-300 leading-none truncate">{cond.label}</p>
+              <p className={`text-[11px] font-semibold leading-none mt-0.5 ${cond.ok ? 'text-navy-700' : 'text-red-600'}`}>{cond.val}</p>
             </div>
           </div>
         ))}
@@ -1360,7 +1277,7 @@ function IrrigationAdvisor({ latest, onIrrigate }) {
   )
 }
 
-// ── Cabecera de p\u00e1gina ─────────────────────────────────────────────────────────
+// ── Page header ───────────────────────────────────────────────────────────────
 function IrrigationPageHeader({ latest }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -1388,12 +1305,14 @@ function IrrigationPageHeader({ latest }) {
       <div className="relative px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
-            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(63,182,240,0.2)' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm" style={{ background: 'rgba(63,182,240,0.2)' }}>
               <Droplets size={18} className="text-brand-300" />
             </div>
-            <h1 className="text-lg font-bold text-white tracking-tight">Control de Riego</h1>
+            <div>
+              <h1 className="text-lg font-bold text-white tracking-tight leading-tight">Control de Riego</h1>
+              <p className="text-xs text-slate-400 leading-none mt-0.5">Sistema Aquantia · Motor ET₀ Penman-Monteith</p>
+            </div>
           </div>
-          <p className="text-xs text-slate-400">Sistema Aquantia · Motor ET\u2080 Penman-Monteith</p>
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
           {isLeak && (
@@ -1427,40 +1346,40 @@ function IrrigationPageHeader({ latest }) {
   )
 }
 
-// ── KPI strip \u2014 4 m\u00e9tricas clave en tiempo real ──────────────────────────────
+// ── LiveKPIStrip ──────────────────────────────────────────────────────────────
 function LiveKPIStrip({ latest, stats, et0 }) {
-  const hasFlow = (latest?.pipeline_flow ?? 0) > 0.1
-  const relayOn = (latest?.relay_active ?? 0) > 0
-  const isLeak  = hasFlow && !relayOn
+  const hasFlow  = (latest?.pipeline_flow ?? 0) > 0.1
+  const relayOn  = (latest?.relay_active ?? 0) > 0
+  const isLeak   = hasFlow && !relayOn
   const flowColor = isLeak ? '#ef4444' : hasFlow ? '#10b981' : '#0c8ecc'
 
   const kpis = [
     {
-      icon: <Activity size={14} />,
+      icon: Gauge,
       label: 'Caudal',
-      value: latest?.pipeline_flow != null ? latest.pipeline_flow.toFixed(2) : '\u2014',
+      value: latest?.pipeline_flow != null ? latest.pipeline_flow.toFixed(2) : '—',
       unit: 'L/min',
       color: flowColor,
       pulse: hasFlow,
     },
     {
-      icon: <Activity size={14} />,
-      label: 'Presi\u00f3n',
-      value: latest?.pipeline_pressure != null ? latest.pipeline_pressure.toFixed(1) : '\u2014',
+      icon: Activity,
+      label: 'Presión',
+      value: latest?.pipeline_pressure != null ? latest.pipeline_pressure.toFixed(1) : '—',
       unit: 'bar',
       color: '#0c8ecc',
     },
     {
-      icon: <Zap size={14} />,
-      label: 'ET\u2080 hoy',
-      value: et0 ?? '\u2014',
+      icon: Zap,
+      label: 'ET₀ hoy',
+      value: et0 ?? '—',
       unit: 'mm/d',
       color: '#f59e0b',
     },
     {
-      icon: <Leaf size={14} />,
+      icon: Leaf,
       label: 'Ahorro mes',
-      value: stats ? stats.savings_liters.toFixed(0) : '\u2014',
+      value: stats ? stats.savings_liters.toFixed(0) : '—',
       unit: 'L',
       color: '#8b5cf6',
     },
@@ -1471,37 +1390,25 @@ function LiveKPIStrip({ latest, stats, et0 }) {
       {kpis.map(kpi => (
         <div
           key={kpi.label}
-          className="relative rounded-2xl overflow-hidden"
-          style={{
-            background: 'linear-gradient(135deg, #f8fafc, #fff)',
-            border: `1px solid ${ha(kpi.color, 0.2)}`,
-            boxShadow: `0 1px 3px rgba(0,0,0,0.04), 0 2px 10px ${ha(kpi.color, 0.09)}`,
-          }}
+          className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+          style={{ borderTop: `3px solid ${ha(kpi.color, 0.7)}` }}
         >
-          <div style={{ height: 2, background: kpi.color, boxShadow: `0 0 6px 1px ${ha(kpi.color, 0.4)}` }} />
           <div className="p-3.5 flex items-center gap-3">
-            <span
-              className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
-              style={{
-                background: `linear-gradient(135deg, ${ha(kpi.color, 0.15)}, ${ha(kpi.color, 0.06)})`,
-                border: `1px solid ${ha(kpi.color, 0.22)}`,
-                color: kpi.color,
-              }}
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: ha(kpi.color, 0.12), border: `1px solid ${ha(kpi.color, 0.2)}` }}
             >
-              {kpi.icon}
-            </span>
+              <kpi.icon size={15} style={{ color: kpi.color }} />
+            </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs text-navy-300 leading-none truncate">{kpi.label}</p>
-              <p className="mt-0.5 font-bold text-navy-900 leading-none tabular-nums">
+              <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300 leading-none">{kpi.label}</p>
+              <p className="mt-0.5 text-xl font-extrabold text-navy-900 leading-none tabular-nums tracking-tight">
                 {kpi.value}
-                <span className="text-xs font-normal text-navy-300 ml-1">{kpi.unit}</span>
+                <span className="text-xs font-semibold text-navy-300 ml-1">{kpi.unit}</span>
               </p>
             </div>
             {kpi.pulse && (
-              <span
-                className="w-2 h-2 rounded-full shrink-0 animate-pulse"
-                style={{ background: kpi.color }}
-              />
+              <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ background: kpi.color }} />
             )}
           </div>
         </div>
@@ -1510,7 +1417,7 @@ function LiveKPIStrip({ latest, stats, et0 }) {
   )
 }
 
-// ── Vista principal ──────────────────────────────────────────────────────────
+// ── Vista principal ───────────────────────────────────────────────────────────
 export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   const { authFetch } = useAuth()
   const [stats, setStats] = useState(null)
@@ -1527,10 +1434,7 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
   }, [selectedMac])
 
   useEffect(() => {
-    authFetch('/api/settings')
-      .then(r => r.json())
-      .then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0')))
-      .catch(() => {})
+    authFetch('/api/settings').then(r => r.json()).then(s => setFlowLpm(parseFloat(s.flow_lpm ?? '5.0'))).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -1553,8 +1457,9 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
     loadStats()
   }, [loadStats])
 
-  const et0 = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
+  const et0    = calcET0(latest.temperature, latest.humidity, latest.windSpeed)
   const et0Num = et0 != null ? parseFloat(et0) : null
+  const hasIna = latest?.ina219_bus_voltage != null || latest?.ina219_current_ma != null
 
   return (
     <main className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -1567,147 +1472,87 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
         />
       )}
 
-      {/* ── Cabecera de página ── */}
+      {/* ── Cabecera ── */}
       <IrrigationPageHeader latest={latest} />
 
       {/* ── KPI strip ── */}
       <LiveKPIStrip latest={latest} stats={stats} et0={et0} />
 
-      {/* ── Banner desarrollo ── */}
-      <div className="bg-[#FAEEDA] border border-[#FAC775] rounded-2xl p-4 flex items-start gap-3">
-        <AlertTriangle size={18} className="text-[#BA7517] shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-semibold text-[#BA7517]">
-            Módulo de Riego — Hardware en desarrollo
-          </p>
-          <p className="text-xs text-[#BA7517]/80 mt-0.5 leading-relaxed">
-            Los 9 nodos de campo y las electroválvulas están en fabricación.
-            Los datos de suelo se activarán al instalar los sensores.
-            El motor ET₀ ya funciona con los datos meteorológicos actuales de la estación.
-          </p>
+      {/* ── Battery widget — visible solo si hay datos INA219 ── */}
+      {hasIna && <BatteryCard latest={latest} />}
+
+      {/* ── Banner hardware en desarrollo ── */}
+      <div className="bg-white border border-[#FAC775] rounded-2xl shadow-sm overflow-hidden" style={{ borderTop: '3px solid #BA7517' }}>
+        <div className="px-5 py-3 flex items-start gap-3" style={{ background: 'rgba(186,117,23,0.05)' }}>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'rgba(186,117,23,0.12)' }}>
+            <AlertTriangle size={14} style={{ color: '#BA7517' }} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: '#BA7517' }}>Módulo de Riego — Hardware en desarrollo</p>
+            <p className="text-xs mt-0.5 leading-relaxed" style={{ color: 'rgba(186,117,23,0.75)' }}>
+              Los 9 nodos de campo y las electroválvulas están en fabricación.
+              Los datos de suelo se activarán al instalar los sensores.
+              El motor ET₀ ya funciona con los datos meteorológicos actuales.
+            </p>
+          </div>
         </div>
       </div>
 
       {/* ── Asesor de riego ── */}
       <IrrigationAdvisor latest={latest} onIrrigate={handleIrrigate} />
 
-      {/* ── Grid de control: 1 col → 2 col → 4 col ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* ── Electroválvulas + ET₀ + Consumo + Ahorro ── */}
+      <div className="space-y-3">
+        <SectionHeader icon={Power} label="Electroválvulas y telemetría" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-        {/* Electroválvulas — una card por relay */}
-        <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
+          {/* Válvulas */}
+          <RelayPanel selectedMac={selectedMac} relayCount={relayCount} flowLpm={flowLpm} sensorFlowLpm={latest?.pipeline_flow} />
 
-        {/* ET₀ estimado */}
-        <div
-          className="relative rounded-2xl overflow-hidden"
-          style={{
-            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-            border: `1px solid ${ha('#0c8ecc', 0.2)}`,
-            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#0c8ecc', 0.07)}`,
-          }}
-        >
+          {/* ET₀ card */}
           <div
-            className="h-[3px] bg-gradient-to-r from-brand-500 to-brand-300"
-            style={{ boxShadow: `0 0 8px 2px ${ha('#0c8ecc', 0.5)}` }}
-          />
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              top: 3,
-              left: 0,
-              right: 0,
-              height: 52,
-              background: `linear-gradient(180deg, ${ha('#0c8ecc', 0.055)} 0%, transparent 100%)`,
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          />
-          <div className="relative p-5" style={{ zIndex: 1 }}>
-            <div className="flex items-center gap-2 mb-4">
-              <span
-                className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
-                style={{
-                  background: `linear-gradient(135deg, ${ha('#0c8ecc', 0.14)}, ${ha('#0c8ecc', 0.06)})`,
-                  border: `1px solid ${ha('#0c8ecc', 0.22)}`,
-                  boxShadow: `0 2px 8px ${ha('#0c8ecc', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
-                }}
-              >
-                <Zap size={15} style={{ color: '#0c8ecc' }} />
-              </span>
-              <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-                ET₀ estimado hoy
-              </p>
-            </div>
-            <p className="text-3xl font-bold text-navy-900 leading-none">
-              {et0 ?? '—'}
-              <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
-            </p>
-            {et0Num != null && (
-              <div className="mt-3 pt-3 border-t border-navy-50">
-                <div className="h-1.5 bg-brand-50 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-brand-500 rounded-full"
-                    style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-navy-300 mt-1.5">
-                  {et0Num < 3
-                    ? 'Baja evapotranspiración'
-                    : et0Num < 5
-                    ? 'Evapotranspiración media'
-                    : 'Alta evapotranspiración'}
-                </p>
+            className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+            style={{ borderTop: `3px solid ${ha('#0c8ecc', 0.75)}` }}
+          >
+            <div className="px-5 py-3 border-b border-black/[.06] flex items-center gap-2.5" style={{ background: ha('#0c8ecc', 0.04) }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha('#0c8ecc', 0.12) }}>
+                <Zap size={14} style={{ color: '#0c8ecc' }} />
               </div>
-            )}
-            <p className="text-xs text-navy-300 mt-2">
-              Penman-Monteith FAO-56 · datos en tiempo real
-            </p>
+              <span className="text-sm font-semibold text-navy-900">ET₀ estimado hoy</span>
+            </div>
+            <div className="p-5">
+              <p className="text-3xl font-extrabold text-navy-900 leading-none tabular-nums">
+                {et0 ?? '—'}
+                <span className="text-base font-normal text-navy-300 ml-1">mm/día</span>
+              </p>
+              {et0Num != null && (
+                <div className="mt-3 pt-3 border-t border-navy-50">
+                  <div className="h-2 bg-navy-50 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (et0Num / 8) * 100)}%`, background: '#0c8ecc' }}
+                    />
+                  </div>
+                  <p className="text-xs text-navy-300 mt-1.5">
+                    {et0Num < 3 ? 'Baja evapotranspiración' : et0Num < 5 ? 'Evapotranspiración media' : 'Alta evapotranspiración'}
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-navy-300 mt-3">Penman-Monteith FAO-56 · datos en tiempo real</p>
+            </div>
           </div>
-        </div>
 
-        {/* Consumo de agua hoy / mes */}
-        <div
-          className="relative rounded-2xl overflow-hidden"
-          style={{
-            background: 'linear-gradient(150deg, #f8fafc, #fff 58%, #f0f4ff)',
-            border: `1px solid ${ha('#534AB7', 0.2)}`,
-            boxShadow: `0 1px 3px rgba(0,0,0,0.05), 0 4px 14px ${ha('#534AB7', 0.07)}`,
-          }}
-        >
+          {/* Consumo card */}
           <div
-            className="h-[3px] bg-gradient-to-r from-[#534AB7] to-[#7b73d4]"
-            style={{ boxShadow: `0 0 8px 2px ${ha('#534AB7', 0.5)}` }}
-          />
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              top: 3,
-              left: 0,
-              right: 0,
-              height: 52,
-              background: `linear-gradient(180deg, ${ha('#534AB7', 0.055)} 0%, transparent 100%)`,
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          />
-          <div className="relative p-5" style={{ zIndex: 1 }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <span
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
-                  style={{
-                    background: `linear-gradient(135deg, ${ha('#534AB7', 0.14)}, ${ha('#534AB7', 0.06)})`,
-                    border: `1px solid ${ha('#534AB7', 0.22)}`,
-                    boxShadow: `0 2px 8px ${ha('#534AB7', 0.15)}, inset 0 1px 0 rgba(255,255,255,0.7)`,
-                  }}
-                >
-                  <Droplets size={15} style={{ color: '#534AB7' }} />
-                </span>
-                <p className="text-xs font-semibold text-navy-300 uppercase tracking-widest">
-                  Consumo de agua
-                </p>
+            className="bg-white border border-black/[.07] rounded-2xl shadow-sm overflow-hidden"
+            style={{ borderTop: `3px solid ${ha('#534AB7', 0.75)}` }}
+          >
+            <div className="px-5 py-3 border-b border-black/[.06] flex items-center justify-between" style={{ background: ha('#534AB7', 0.04) }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: ha('#534AB7', 0.12) }}>
+                  <Droplets size={14} style={{ color: '#534AB7' }} />
+                </div>
+                <span className="text-sm font-semibold text-navy-900">Consumo de agua</span>
               </div>
               <button
                 onClick={() => setShowResetConfirm(true)}
@@ -1717,117 +1562,86 @@ export default function IrrigationView({ latest, selectedMac, deviceInfo }) {
                 Resetear
               </button>
             </div>
-            <p className="text-3xl font-bold text-navy-900 leading-none">
-              {stats ? stats.today_liters.toFixed(1) : '—'}
-              <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
-            </p>
-            {stats ? (
-              <>
-                <p className="text-sm text-navy-500 mt-2 font-medium">
-                  {stats.monthly_liters.toFixed(1)}{' '}
-                  <span className="text-navy-300 font-normal text-xs">L este mes</span>
-                </p>
-                <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
-                  <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
-                  {stats.monthly_seconds > 0 && (
-                    <p className="text-xs text-navy-300">
-                      {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s
-                      {' '}activa este mes
-                    </p>
-                  )}
-                </div>
-                {stats.last_session && (
-                  <div className="mt-3 pt-3 border-t border-navy-50 space-y-1.5">
-                    <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider">Último ciclo</p>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-navy-300">Inicio</span>
-                      <span className="font-medium text-navy-600">
-                        {(() => {
-                          const ms = Date.parse(stats.last_session.start)
-                          if (!ms || isNaN(ms)) return '—'
-                          return new Date(ms).toLocaleString('es-ES', {
-                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                          })
-                        })()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-navy-300">Fin</span>
-                      <span className="font-medium text-navy-600">
-                        {(() => {
-                          const ms = Date.parse(stats.last_session.end)
-                          if (!ms || isNaN(ms)) return '—'
-                          return new Date(ms).toLocaleString('es-ES', {
-                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                          })
-                        })()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-navy-300">Duración</span>
-                      <span className="font-medium text-navy-600">
-                        {fmtDuration(stats.last_session.duration_s)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-navy-300">Consumo</span>
-                      <span className="font-semibold text-[#534AB7]">
-                        {stats.last_session.liters.toFixed(1)} L
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">
-                Calculando…
+            <div className="p-5">
+              <p className="text-3xl font-extrabold text-navy-900 leading-none tabular-nums">
+                {stats ? stats.today_liters.toFixed(1) : '—'}
+                <span className="text-base font-normal text-navy-300 ml-1">L hoy</span>
               </p>
-            )}
+              {stats ? (
+                <>
+                  <p className="text-sm text-navy-500 mt-2 font-medium">
+                    {stats.monthly_liters.toFixed(1)}{' '}
+                    <span className="text-navy-300 font-normal text-xs">L este mes</span>
+                  </p>
+                  <div className="mt-3 pt-3 border-t border-navy-50 space-y-1">
+                    <p className="text-xs text-navy-300">Caudal: {flowLpm} L/min</p>
+                    {stats.monthly_seconds > 0 && (
+                      <p className="text-xs text-navy-300">
+                        {Math.floor(stats.monthly_seconds / 60)}m {stats.monthly_seconds % 60}s activa este mes
+                      </p>
+                    )}
+                  </div>
+                  {stats.last_session && (
+                    <div className="mt-3 pt-3 border-t border-navy-50 space-y-1.5">
+                      <p className="text-[9.5px] font-extrabold uppercase tracking-[0.1em] text-navy-300">Último ciclo</p>
+                      {[
+                        ['Inicio', (() => { const ms = Date.parse(stats.last_session.start); return ms && !isNaN(ms) ? new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—' })()],
+                        ['Fin',    (() => { const ms = Date.parse(stats.last_session.end);   return ms && !isNaN(ms) ? new Date(ms).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—' })()],
+                        ['Duración', fmtDuration(stats.last_session.duration_s)],
+                      ].map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-xs">
+                          <span className="text-navy-300">{k}</span>
+                          <span className="font-medium text-navy-600">{v}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between text-xs">
+                        <span className="text-navy-300">Consumo</span>
+                        <span className="font-semibold" style={{ color: '#534AB7' }}>{stats.last_session.liters.toFixed(1)} L</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-navy-300 mt-3 pt-3 border-t border-navy-50">Calculando…</p>
+              )}
+            </div>
           </div>
+
+          {/* Ahorro mensual — droplet */}
+          <SavingsCard stats={stats} latest={latest} />
+
         </div>
-
-        {/* Ahorro mensual — droplet interactivo */}
-        <SavingsCard stats={stats} latest={latest} />
-
       </div>
 
-      {/* ── Gráfico de consumo diario ── */}
+      {/* ── Gráfico de consumo ── */}
       <ConsumptionChart selectedMac={selectedMac} />
 
       {/* ── Sectores de riego ── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-navy-900 flex items-center gap-2">
-            <span
-              className="inline-flex items-center justify-center w-5 h-5 rounded-md"
-              style={{ background: ha('#1a3350', 0.08), border: `1px solid ${ha('#1a3350', 0.15)}` }}
-            >
-              <Leaf size={11} className="text-navy-400" />
-            </span>
-            Sectores de riego
-            <span className="text-navy-300 font-normal">(9 nodos LoRa)</span>
-          </h2>
-          <span className="flex items-center gap-1.5 text-xs text-navy-300 bg-navy-50 px-2.5 py-1 rounded-full border border-navy-100">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <SectionHeader icon={Leaf} label="Sectores de riego">
+            <span className="text-navy-300 text-xs font-normal">(9 nodos LoRa)</span>
+          </SectionHeader>
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-navy-300 bg-navy-50 px-2.5 py-1 rounded-full border border-navy-100">
             <span className="w-1.5 h-1.5 bg-navy-200 rounded-full" />
             Sin nodos conectados
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {SECTORS.map(sector => (
-            <SectorCard key={sector.id} sector={sector} />
-          ))}
+          {SECTORS.map(sector => <SectorCard key={sector.id} sector={sector} />)}
         </div>
       </div>
 
       {/* ── Banner automatización ── */}
-      <div className="bg-navy-900 rounded-2xl p-5 flex items-start gap-4">
-        <div className="bg-brand-500/20 p-2 rounded-xl shrink-0">
+      <div
+        className="rounded-2xl p-5 flex items-start gap-4"
+        style={{ background: 'linear-gradient(135deg, #0a1628 0%, #0d2040 55%, #0f2d5a 100%)' }}
+      >
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(12,142,204,0.2)' }}>
           <FlaskConical size={18} className="text-brand-300" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-white mb-1">
-            Control automático por sectores — Próximamente
-          </p>
+          <p className="text-sm font-semibold text-white mb-1">Control automático por sectores — Próximamente</p>
           <p className="text-xs text-navy-300 leading-relaxed">
             Cuando los nodos de campo estén instalados, el sistema calculará automáticamente
             el déficit hídrico por sector usando ET₀ real y humedad de suelo, abrirá las
