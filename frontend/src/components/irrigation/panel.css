@@ -55,17 +55,13 @@
 
 /* ── featured valve ────────────────────────────────────────────────────────── */
 .vp-featured {
-  position: relative; padding: var(--space-5);
+  position: relative; padding: var(--space-4);
   background: var(--bg-card-tinted);
   border-bottom: 1px solid var(--border-soft);
-  display: flex; gap: var(--space-5); align-items: stretch;
+  display: flex; flex-direction: column; gap: var(--space-3);
 }
 .vp-accentbar { position: absolute; top: 0; left: 0; right: 0; height: 3px; transition: background var(--duration-slow); }
-.vp-gadgetwrap {
-  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-lg); position: relative;
-}
-.vp-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vp-info { width: 100%; display: flex; flex-direction: column; }
 .vp-titlerow { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .vp-vname { font-size: 18px; font-weight: 700; color: var(--navy-900); letter-spacing: -.01em; }
 .vp-sectorpill {
@@ -193,8 +189,43 @@
   background: rgba(248,250,252,.6);
 }
 
-/* responsive: stack featured gadget above info on narrow */
-@media (max-width: 560px) {
-  .vp-featured { flex-direction: column; align-items: center; }
-  .vp-readouts { grid-template-columns: repeat(3, 1fr); }
+/* ── two-column split layout ─────────────────────────────────────────────────── */
+.vp-cols {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr);
+}
+.vp-col-left {
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border-soft);
+  min-width: 0;
+}
+.vp-col-left .vp-list { flex: 1; }
+.vp-col-right {
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.vp-col-right .vp-featured {
+  flex: 1;
+  border-bottom: none;
+}
+
+/* selected row highlight in two-column list */
+.vp-row.sel {
+  background: rgba(14,165,233,.06);
+  border-left: 2.5px solid var(--brand-400);
+  padding-left: calc(var(--space-4) - 2.5px);
+}
+
+/* responsive: stack to single column on narrow screens */
+@media (max-width: 620px) {
+  .vp-cols {
+    grid-template-columns: 1fr;
+  }
+  .vp-col-left {
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .vp-col-right .vp-featured {
+    border-bottom: none;
+  }
 }

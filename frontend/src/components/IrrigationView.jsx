@@ -5,7 +5,7 @@ import {
   BarChart2, Activity, Timer, Gauge,
 } from 'lucide-react'
 import { useAuth } from '../AuthContext'
-import Gadget from './irrigation/Gadget'
+import FaucetStage from './irrigation/FaucetStage'
 import './irrigation/panel.css'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
@@ -375,7 +375,7 @@ function SectorCard({ sector }) {
 }
 
 // ── ValveCard ─────────────────────────────────────────────────────────────────
-function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState, featured = false, onSelect }) {
+function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState, featured = false, selected = false, onSelect }) {
   const { authFetch } = useAuth()
   const [desired, setDesired] = useState(initialState?.desired ?? false)
   const [actual,  setActual]  = useState(initialState?.actual  ?? false)
@@ -528,9 +528,7 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState, featu
     return (
       <div className="vp-featured">
         <div className="vp-accentbar" style={{ background: accent, boxShadow: `0 0 8px 1px ${accent}80` }} />
-        <div className="vp-gadgetwrap">
-          <Gadget metaphor="planta" open={watering} flow={effectiveFlowLpm} size={168} />
-        </div>
+        <FaucetStage open={watering} height={200} />
         <div className="vp-info">
           <div className="vp-titlerow">
             <span className="vp-vname">Válvula {index + 1}</span>
@@ -617,7 +615,7 @@ function ValveCard({ index, mac, flowLpm = 5, sensorFlowLpm, initialState, featu
 
   // ── Row layout ───────────────────────────────────────────────────────────────
   return (
-    <div className={`vp-row ${desired ? 'open' : ''}`} onClick={onSelect}>
+    <div className={`vp-row ${desired ? 'open' : ''} ${selected ? 'sel' : ''}`} onClick={onSelect}>
       <div className={`vp-badge ${desired ? 'on' : ''}`}>
         {index + 1}
         <span className={`led ${watering ? 'on' : ''}`} />
@@ -727,68 +725,96 @@ function ValvePanel({ selectedMac, relayCount = 1, flowLpm = 5, sensorFlowLpm })
     )
   }
 
-  return (
-    <div className="vp">
-      {/* Header */}
-      <div className="vp-head">
-        <div className="vp-head-icon"><Power size={14} style={{ color: 'var(--brand-300)' }} /></div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="vp-eyebrow">Electroválvulas</div>
-          <div className="vp-sub">
-            {relayCount} configurada{relayCount !== 1 ? 's' : ''} · {activeCount} activa{activeCount !== 1 ? 's' : ''}
-          </div>
-        </div>
-        {anyActive && (
-          <button className="vp-closeall" onClick={closeAll} disabled={closingAll}>
-            {closingAll ? '…' : 'Cerrar todo'}
-          </button>
-        )}
-        <div className="vp-status">
-          <span className={`vp-dot ${anyActive ? 'on' : ''}`} />
-          {anyActive ? 'Activo' : 'Reposo'}
+  const header = (
+    <div className="vp-head">
+      <div className="vp-head-icon"><Power size={14} style={{ color: 'var(--brand-300)' }} /></div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="vp-eyebrow">Electroválvulas</div>
+        <div className="vp-sub">
+          {relayCount} configurada{relayCount !== 1 ? 's' : ''} · {activeCount} activa{activeCount !== 1 ? 's' : ''}
         </div>
       </div>
-
-      {/* Flow strip */}
       {anyActive && (
-        <div className="vp-flowstrip">
-          <Droplets size={11} style={{ color: '#38bdf8', flexShrink: 0 }} />
-          <div className="vp-flowbar" />
-          <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', fontVariantNumeric: 'tabular-nums' }}>
-            {sensorFlowLpm > 0 ? `${Number(sensorFlowLpm).toFixed(1)} L/min` : `~${flowLpm} L/min`}
-          </span>
-        </div>
+        <button className="vp-closeall" onClick={closeAll} disabled={closingAll}>
+          {closingAll ? '…' : 'Cerrar todo'}
+        </button>
       )}
+      <div className="vp-status">
+        <span className={`vp-dot ${anyActive ? 'on' : ''}`} />
+        {anyActive ? 'Activo' : 'Reposo'}
+      </div>
+    </div>
+  )
 
-      {/* Featured valve */}
-      <ValveCard
-        key={`${selectedMac || 'default'}-${safeFeatureId}`}
-        index={safeFeatureId}
-        mac={selectedMac}
-        flowLpm={flowLpm}
-        sensorFlowLpm={sensorFlowLpm}
-        initialState={states.find(s => s.index === safeFeatureId)}
-        featured={true}
-        onSelect={() => {}}
-      />
+  const flowStrip = anyActive && (
+    <div className="vp-flowstrip">
+      <Droplets size={11} style={{ color: '#38bdf8', flexShrink: 0 }} />
+      <div className="vp-flowbar" />
+      <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', fontVariantNumeric: 'tabular-nums' }}>
+        {sensorFlowLpm > 0 ? `${Number(sensorFlowLpm).toFixed(1)} L/min` : `~${flowLpm} L/min`}
+      </span>
+    </div>
+  )
 
-      {/* Rest as compact rows */}
-      {restIndices.length > 0 && (
-        <div className="vp-list">
-          {restIndices.map(i => (
-            <ValveCard
-              key={`${selectedMac || 'default'}-${i}`}
-              index={i}
-              mac={selectedMac}
-              flowLpm={flowLpm}
-              sensorFlowLpm={sensorFlowLpm}
-              initialState={states.find(s => s.index === i)}
-              featured={false}
-              onSelect={() => setFeaturedId(i)}
-            />
-          ))}
+  /* Single valve: full-width featured, no list column needed */
+  if (relayCount === 1) {
+    return (
+      <div className="vp">
+        {header}
+        {flowStrip}
+        <ValveCard
+          key={`${selectedMac || 'default'}-0`}
+          index={0}
+          mac={selectedMac}
+          flowLpm={flowLpm}
+          sensorFlowLpm={sensorFlowLpm}
+          initialState={states.find(s => s.index === 0)}
+          featured={true}
+          onSelect={() => {}}
+        />
+      </div>
+    )
+  }
+
+  /* Multiple valves: two-column layout */
+  return (
+    <div className="vp">
+      <div className="vp-cols">
+        {/* Left: header + flow strip + all valves as rows */}
+        <div className="vp-col-left">
+          {header}
+          {flowStrip}
+          <div className="vp-list">
+            {Array.from({ length: relayCount }, (_, i) => (
+              <ValveCard
+                key={`${selectedMac || 'default'}-${i}`}
+                index={i}
+                mac={selectedMac}
+                flowLpm={flowLpm}
+                sensorFlowLpm={sensorFlowLpm}
+                initialState={states.find(s => s.index === i)}
+                featured={false}
+                selected={i === safeFeatureId}
+                onSelect={() => setFeaturedId(i)}
+              />
+            ))}
+          </div>
         </div>
-      )}
+
+        {/* Right: animation + featured valve data */}
+        <div className="vp-col-right">
+          <ValveCard
+            key={`${selectedMac || 'default'}-${safeFeatureId}-featured`}
+            index={safeFeatureId}
+            mac={selectedMac}
+            flowLpm={flowLpm}
+            sensorFlowLpm={sensorFlowLpm}
+            initialState={states.find(s => s.index === safeFeatureId)}
+            featured={true}
+            onSelect={() => {}}
+          />
+        </div>
+      </div>
     </div>
   )
 }
